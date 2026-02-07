@@ -32,7 +32,6 @@ jobs:
         run: |
           gcloud run deploy artisan-pro-backend \
             --source ./apps/backend \
-            --source-staging-dir gs://artisan-pro-prod-cloud-run-source \
             --region europe-west1 \
             --platform managed \
             --allow-unauthenticated
