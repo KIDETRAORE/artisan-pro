@@ -24,12 +24,12 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy artisan-pro-backend \
-            --source ./apps/backend \
-            --region europe-west1 \
-            --platform managed \
-            --allow-unauthenticated
---source .
---gcs-source-staging-dir gs://artisan-pro-prod-cloud-run-source
+     - name: Deploy to Cloud Run
+       run: |
+         gcloud run deploy artisan-pro-backend \
+               --source ./apps/backend \
+               --gcs-source-staging-dir gs://artisan-pro-prod-cloud-run-source \
+               --region europe-west1 \
+               --platform managed \
+               --allow-unauthenticated
+
