@@ -31,9 +31,9 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy artisan-pro-backend \
-            --source ./apps/backend \
+            --source=./apps/backend \
             --region europe-west1 \
             --platform managed \
             --allow-unauthenticated
-
+            --build-service-account=1065072984498@cloudbuild.gserviceaccount.com
 
