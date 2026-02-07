@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  deploy:
+  deploy-backend:
     runs-on: ubuntu-latest
 
     permissions:
@@ -14,16 +14,16 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud (WIF)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/1065072984498/locations/global/workloadIdentityPools/github-pool/providers/github-actions-prod
           service_account: cloud-run-deployer@artisan-pro-prod.iam.gserviceaccount.com
 
-      - name: Setup gcloud
+      - name: Setup gcloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           version: '>= 468.0.0'
@@ -32,8 +32,9 @@ jobs:
         run: |
           gcloud run deploy artisan-pro-backend \
             --source ./apps/backend \
-            --gcs-source-staging-dir gs://artisan-pro-prod-cloud-run-source \
+            --source-staging-dir gs://artisan-pro-prod-cloud-run-source \
             --region europe-west1 \
             --platform managed \
             --allow-unauthenticated
+
 
