@@ -31,3 +31,5 @@ jobs:
             --region europe-west1 \
             --platform managed \
             --allow-unauthenticated
+--source .
+--gcs-source-staging-dir gs://artisan-pro-prod-cloud-run-source
