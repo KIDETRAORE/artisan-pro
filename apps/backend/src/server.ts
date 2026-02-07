@@ -1,0 +1,1 @@
+console.log("🚀 Cloud Run deployment test");
