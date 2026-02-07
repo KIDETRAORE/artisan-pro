@@ -2,34 +2,36 @@ name: Deploy Backend to Cloud Run
 
 on:
   push:
-    branches: [ "main" ]
-
-permissions:
-  contents: read
-  id-token: write
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/1065072984498/locations/global/workloadIdentityPools/github-pool/providers/github-actions-prod
+          workload_identity_provider: projects/1065072984498/locations/global/workloadIdentityPools/github-pool/providers/github-actions
           service_account: cloud-run-deployer@artisan-pro-prod.iam.gserviceaccount.com
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-     - name: Deploy to Cloud Run
-       run: |
-         gcloud run deploy artisan-pro-backend \
-               --source ./apps/backend \
-               --gcs-source-staging-dir gs://artisan-pro-prod-cloud-run-source \
-               --region europe-west1 \
-               --platform managed \
-               --allow-unauthenticated
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy artisan-pro-backend \
+            --source ./apps/backend \
+            --gcs-source-staging-dir gs://artisan-pro-prod-cloud-run-source \
+            --region europe-west1 \
+            --platform managed \
+            --allow-unauthenticated
 
