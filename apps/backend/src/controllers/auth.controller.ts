@@ -1,33 +1,35 @@
 import { Request, Response } from "express";
+import { AuthService } from "../services/auth.service";
 
 export class AuthController {
-  static register(req: Request, res: Response) {
-    res.status(201).json({
-      message: "Register OK (placeholder)",
-    });
+  static async register(req: Request, res: Response) {
+    const user = await AuthService.register(req.body);
+    return res.status(201).json({ user });
   }
 
-  static login(req: Request, res: Response) {
-    res.status(200).json({
-      message: "Login OK (placeholder)",
-    });
+  static async login(req: Request, res: Response) {
+    const result = await AuthService.login(
+      req.body.email,
+      req.body.password
+    );
+    return res.status(200).json(result);
   }
 
-  static refreshToken(req: Request, res: Response) {
-    res.status(200).json({
-      message: "Refresh token OK (placeholder)",
-    });
+  static async refreshToken(req: Request, res: Response) {
+    const tokens = await AuthService.refresh(req.body.refreshToken);
+    return res.status(200).json(tokens);
   }
 
-  static logout(req: Request, res: Response) {
-    res.status(200).json({
-      message: "Logout OK (placeholder)",
-    });
+  static async logout(_req: Request, res: Response) {
+    return res.status(204).send();
   }
 
-  static me(req: Request, res: Response) {
-    res.status(200).json({
-      user: (req as any).user ?? null,
+  static async me(req: Request, res: Response) {
+    return res.status(200).json({
+      user: (req as any).user,
     });
   }
 }
+
+
+

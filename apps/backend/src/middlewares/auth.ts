@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../lib/jwt";
-import { authMiddleware } from '../middlewares/auth';
 
 export function authMiddleware(
   req: Request,
@@ -9,8 +8,10 @@ export function authMiddleware(
 ) {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Non autorisé" });
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({
+      message: "Non autorisé",
+    });
   }
 
   const token = authHeader.split(" ")[1];
@@ -20,7 +21,10 @@ export function authMiddleware(
     (req as any).user = payload;
     next();
   } catch {
-    return res.status(401).json({ message: "Token invalide" });
+    return res.status(401).json({
+      message: "Token invalide ou expiré",
+    });
   }
 }
+
 
