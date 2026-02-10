@@ -1,27 +1,51 @@
-# 1. Image de base (Node 20)
+########################################
+# 1. Image de base
+########################################
 FROM node:20-slim
 
-# 2. Installation des dépendances système pour Sharp (nécessaire sur Debian slim)
+########################################
+# 2. Dépendances système (Sharp)
+########################################
 RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
+    libvips-dev \
     && rm -rf /var/lib/apt/lists/*
 
+########################################
 # 3. Répertoire de travail
+########################################
 WORKDIR /app
 
-# 4. Copie des fichiers de dépendances
-COPY package*.json ./
+########################################
+# 4. Dépendances Node
+########################################
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# 5. Installation des dépendances (y compris tsx pour le runtime)
-RUN npm install
-
-# 6. Copie du reste du code source
+########################################
+# 5. Code source
+########################################
 COPY . .
 
-# 7. Exposition du port défini dans votre env.ts
-EXPOSE 3001
+########################################
+# 6. Build TypeScript (si présent)
+########################################
+# ⚠️ à garder uniquement si tu compiles (tsc)
+# RUN npm run build
 
-# 8. Commande de démarrage (utilise le script "start" de votre package.json)
+########################################
+# 7. Variables d'environnement
+########################################
+ENV NODE_ENV=production
+
+########################################
+# 8. Exposition du port API
+########################################
+EXPOSE 8080
+
+########################################
+# 9. Démarrage
+########################################
 CMD ["npm", "start"]

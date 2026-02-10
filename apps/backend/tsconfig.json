@@ -1,11 +1,64 @@
 {
-  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    /* ===============================
+     * Cœur TypeScript / Node
+     * =============================== */
+    "target": "ES2021",
     "module": "CommonJS",
-    "outDir": "dist",
+    "moduleResolution": "node",
+    "lib": ["ES2021"],
+
+    /* ===============================
+     * Entrées / sorties
+     * =============================== */
     "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true,
+
+    /* ===============================
+     * Interop & qualité
+     * =============================== */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* ===============================
+     * Typage strict
+     * =============================== */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "useUnknownInCatchVariables": true,
+
+    /* ===============================
+     * Node / Express
+     * =============================== */
     "types": ["node"],
-    "sourceMap": true
+    "resolveJsonModule": true,
+
+    /* ===============================
+     * Performance & sécurité
+     * =============================== */
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+
+    /* ===============================
+     * Imports absolus (alias)
+     * =============================== */
+    "baseUrl": "src",
+    "paths": {
+      "@config/*": ["config/*"],
+      "@routes/*": ["routes/*"],
+      "@controllers/*": ["controllers/*"],
+      "@services/*": ["services/*"],
+      "@middlewares/*": ["middlewares/*"],
+      "@utils/*": ["utils/*"],
+      "@validators/*": ["validators/*"],
+      "@types/*": ["types/*"]
+    }
   },
-  "include": ["src"]
+
+  "include": ["src/**/*.ts"],
+
+  "exclude": ["node_modules", "dist"]
 }

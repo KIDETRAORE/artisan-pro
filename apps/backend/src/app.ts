@@ -1,27 +1,91 @@
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
-import { errorHandler } from "./middlewares/error";
+import cookieParser from "cookie-parser";
+import helmet from "helmet";
+
+import { errorHandler } from "./middlewares/error.middleware";
 import authRoutes from "./routes/auth.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
+import { env } from "./config/env";
 
 const app = express();
 
-// Middlewares globaux
-app.use(cors());
-app.use(express.json());
-app.use(morgan("dev"));
+/**
+ * ======================
+ * Trust proxy (important si derrière Nginx / Vercel / Railway)
+ * ======================
+ */
+app.set("trust proxy", 1);
 
-// Health check
-app.get("/health", (_, res) => {
-  res.status(200).json({ status: "ok" });
+/**
+ * ======================
+ * Global middlewares
+ * ======================
+ */
+
+// Sécurité HTTP headers
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false, // nécessaire pour images / uploads
+  })
+);
+
+// CORS (cookies + auth)
+app.use(
+  cors({
+    origin: env.FRONTEND_URL, // ex: http://localhost:3000
+    credentials: true,
+  })
+);
+
+// Parsing JSON (limite anti-abus)
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: false }));
+
+// Cookies (JWT refresh httpOnly)
+app.use(cookieParser());
+
+// Logs HTTP
+if (env.NODE_ENV !== "test") {
+  app.use(morgan("dev"));
+}
+
+/**
+ * ======================
+ * Health check
+ * ======================
+ */
+app.get("/health", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    service: "ArtisanPro API",
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// Routes
+/**
+ * ======================
+ * API Routes
+ * ======================
+ */
 app.use("/auth", authRoutes);
 app.use("/dashboard", dashboardRoutes);
 
-// Middleware global d'erreurs (TOUJOURS en dernier)
+/**
+ * ======================
+ * 404 fallback
+ * ======================
+ */
+app.use((_req, res) => {
+  res.status(404).json({ error: "Route introuvable" });
+});
+
+/**
+ * ======================
+ * Error handler (TOUJOURS EN DERNIER)
+ * ======================
+ */
 app.use(errorHandler);
 
 export default app;

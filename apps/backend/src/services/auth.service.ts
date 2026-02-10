@@ -5,35 +5,73 @@ import {
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
-} from "../lib/jwt";
+} from "../utils/jwt";
 
+/**
+ * ======================
+ * Types
+ * ======================
+ */
 interface RegisterInput {
   email: string;
   password: string;
   name?: string;
 }
 
-// FAKE DB (temporaire)
-const users = new Map<string, any>();
+interface User {
+  id: string;
+  email: string;
+  passwordHash: string;
+  tokenVersion: number;
+  createdAt: Date;
+}
 
+/**
+ * ======================
+ * Fake DB (temporaire)
+ * ⚠️ À remplacer par Prisma / Sequelize
+ * ======================
+ */
+const users = new Map<string, User>();
+
+/**
+ * ======================
+ * Auth Service
+ * ======================
+ */
 export class AuthService {
-  // REGISTER
+  /**
+   * ======================
+   * REGISTER
+   * ======================
+   */
   static async register(data: RegisterInput) {
+    const email = data.email.toLowerCase().trim();
+
+    if (!email || !data.password) {
+      throw new HttpError(400, "Email et mot de passe requis");
+    }
+
+    if (data.password.length < 8) {
+      throw new HttpError(400, "Mot de passe trop court (min 8 caractères)");
+    }
+
     const existingUser = [...users.values()].find(
-      (u) => u.email === data.email
+      (u) => u.email === email
     );
 
     if (existingUser) {
       throw new HttpError(409, "Utilisateur déjà existant");
     }
 
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+    const passwordHash = await bcrypt.hash(data.password, 10);
 
-    const user = {
+    const user: User = {
       id: uuid(),
-      email: data.email,
-      passwordHash: hashedPassword,
-      tokenVersion: 0, // 🔐 important
+      email,
+      passwordHash,
+      tokenVersion: 0,
+      createdAt: new Date(),
     };
 
     users.set(user.id, user);
@@ -44,10 +82,19 @@ export class AuthService {
     };
   }
 
-  // LOGIN
+  /**
+   * ======================
+   * LOGIN
+   * ======================
+   */
   static async login(email: string, password: string) {
-    const user = [...users.values()].find((u) => u.email === email);
+    const normalizedEmail = email.toLowerCase().trim();
 
+    const user = [...users.values()].find(
+      (u) => u.email === normalizedEmail
+    );
+
+    // Message volontairement générique (anti-enum)
     if (!user) {
       throw new HttpError(401, "Identifiants invalides");
     }
@@ -74,20 +121,27 @@ export class AuthService {
     };
   }
 
-  // 🔁 REFRESH TOKEN (avec tokenVersion)
+  /**
+   * ======================
+   * REFRESH TOKEN
+   * ======================
+   */
   static async refresh(refreshToken: string) {
+    if (!refreshToken) {
+      throw new HttpError(401, "Refresh token manquant");
+    }
+
     try {
-      // 1️⃣ Vérification cryptographique
+      // Vérification cryptographique
       const payload = verifyRefreshToken(refreshToken);
 
-      // 2️⃣ Récupération user depuis "DB"
       const user = users.get(payload.id);
 
       if (!user) {
         throw new HttpError(401, "Utilisateur introuvable");
       }
 
-      // 3️⃣ Vérification tokenVersion
+      // Vérification révocation globale
       if (user.tokenVersion !== payload.tokenVersion) {
         throw new HttpError(401, "Refresh token révoqué");
       }
@@ -102,18 +156,25 @@ export class AuthService {
         accessToken: signAccessToken(newPayload),
         refreshToken: signRefreshToken(newPayload),
       };
-    } catch {
+    } catch (error) {
       throw new HttpError(401, "Refresh token invalide");
     }
   }
 
-  // LOGOUT (révocation globale)
+  /**
+   * ======================
+   * LOGOUT (révocation globale)
+   * ======================
+   */
   static async logout(userId: string) {
     const user = users.get(userId);
-    if (user) {
-      user.tokenVersion += 1; // 🔥 invalide tous les refresh tokens
-      users.set(userId, user);
+
+    if (!user) {
+      // Pas d'erreur pour éviter les leaks
+      return;
     }
+
+    user.tokenVersion += 1;
+    users.set(userId, user);
   }
 }
-

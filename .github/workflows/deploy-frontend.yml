@@ -1,33 +1,38 @@
-name: Deploy Frontend (Cloudflare Pages)
+name: Deploy Frontend to Cloud Run
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "apps/frontend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
-  deploy:
+  deploy-frontend:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        working-directory: apps/frontend
-        run: npm ci
-
-      - name: Build
-        working-directory: apps/frontend
-        run: npm run build
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: artisan-pro
-          directory: apps/frontend/dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          workload_identity_provider: projects/1065072984498/locations/global/workloadIdentityPools/github-pool/providers/github-actions-prod
+          service_account: cloud-run-deployer@artisan-pro-prod.iam.gserviceaccount.com
+
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & push frontend image
+        run: |
+          gcloud builds submit ./apps/frontend \
+            --tag europe-west1-docker.pkg.dev/artisan-pro-prod/cloud-run/artisan-pro-frontend
+
+      - name: Deploy frontend to Cloud Run
+        run: |
+          gcloud run deploy artisan-pro-frontend \
+            --image europe-west1-docker.pkg.dev/artisan-pro-prod/cloud-run/artisan-pro-frontend \
+            --region europe-west1 \
+            --platform managed \
+            --allow-unauthenticated

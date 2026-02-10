@@ -1,42 +1,60 @@
 import { Router } from "express";
 import { AuthController } from "../controllers/auth.controller";
-import { authMiddleware } from "../middlewares/auth";
-import { validate } from "../middlewares/validate";
+import { authMiddleware } from "../middlewares/auth.middleware";
+import { validate } from "../middlewares/validate.middleware";
 import {
   loginSchema,
   registerSchema,
-  refreshSchema,
 } from "../validators/auth.schema";
 
 const router = Router();
 
-// REGISTER
+/**
+ * REGISTER
+ */
 router.post(
   "/register",
   validate(registerSchema),
   AuthController.register
 );
 
-// LOGIN
+/**
+ * LOGIN
+ */
 router.post(
   "/login",
   validate(loginSchema),
   AuthController.login
 );
 
-// REFRESH
+/**
+ * REFRESH TOKEN
+ * ➜ pas de validation Zod sur les cookies
+ * ➜ le refreshToken vient UNIQUEMENT du cookie httpOnly
+ */
 router.post(
   "/refresh",
-  validate(refreshSchema),
   AuthController.refreshToken
 );
 
-// LOGOUT
-router.post("/logout", AuthController.logout);
+/**
+ * LOGOUT
+ * ➜ protégé (accessToken requis)
+ */
+router.post(
+  "/logout",
+  authMiddleware,
+  AuthController.logout
+);
 
-// ME (protégé)
-router.get("/me", authMiddleware, AuthController.me);
-
+/**
+ * ME
+ * ➜ retourne l'utilisateur courant
+ */
+router.get(
+  "/me",
+  authMiddleware,
+  AuthController.me
+);
 
 export default router;
-
