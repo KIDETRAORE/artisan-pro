@@ -9,7 +9,7 @@ import {
 
 /**
  * ======================
- * Types
+ * TYPES
  * ======================
  */
 interface RegisterInput {
@@ -28,15 +28,15 @@ interface User {
 
 /**
  * ======================
- * Fake DB (temporaire)
- * ⚠️ À remplacer par Prisma / Sequelize
+ * FAKE DB (temporaire)
+ * ➜ À remplacer par Prisma / Supabase
  * ======================
  */
 const users = new Map<string, User>();
 
 /**
  * ======================
- * Auth Service
+ * AUTH SERVICE (BACKEND)
  * ======================
  */
 export class AuthService {
@@ -53,7 +53,10 @@ export class AuthService {
     }
 
     if (data.password.length < 8) {
-      throw new HttpError(400, "Mot de passe trop court (min 8 caractères)");
+      throw new HttpError(
+        400,
+        "Mot de passe trop court (minimum 8 caractères)"
+      );
     }
 
     const existingUser = [...users.values()].find(
@@ -94,7 +97,7 @@ export class AuthService {
       (u) => u.email === normalizedEmail
     );
 
-    // Message volontairement générique (anti-enum)
+    // Message volontairement générique (anti user-enum)
     if (!user) {
       throw new HttpError(401, "Identifiants invalides");
     }
@@ -132,7 +135,6 @@ export class AuthService {
     }
 
     try {
-      // Vérification cryptographique
       const payload = verifyRefreshToken(refreshToken);
 
       const user = users.get(payload.id);
@@ -141,7 +143,7 @@ export class AuthService {
         throw new HttpError(401, "Utilisateur introuvable");
       }
 
-      // Vérification révocation globale
+      // Révocation globale
       if (user.tokenVersion !== payload.tokenVersion) {
         throw new HttpError(401, "Refresh token révoqué");
       }
@@ -156,7 +158,7 @@ export class AuthService {
         accessToken: signAccessToken(newPayload),
         refreshToken: signRefreshToken(newPayload),
       };
-    } catch (error) {
+    } catch {
       throw new HttpError(401, "Refresh token invalide");
     }
   }
@@ -170,7 +172,6 @@ export class AuthService {
     const user = users.get(userId);
 
     if (!user) {
-      // Pas d'erreur pour éviter les leaks
       return;
     }
 

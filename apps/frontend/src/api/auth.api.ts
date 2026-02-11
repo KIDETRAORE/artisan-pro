@@ -1,10 +1,33 @@
 import { API_URL } from "../config/api";
 
-export async function login(email: string, password: string) {
+/**
+ * ======================
+ * TYPES
+ * ======================
+ */
+export interface AuthUser {
+  id: string;
+  email: string;
+}
+
+export interface AuthResponse {
+  user: AuthUser;
+  accessToken: string;
+}
+
+/**
+ * ======================
+ * LOGIN
+ * ======================
+ */
+export async function login(
+  email: string,
+  password: string
+): Promise<AuthResponse> {
   const res = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
+    credentials: "include", // cookies httpOnly (refresh token)
     body: JSON.stringify({ email, password }),
   });
 
@@ -12,13 +35,15 @@ export async function login(email: string, password: string) {
     throw new Error("Login failed");
   }
 
-  return res.json() as Promise<{
-    user: { id: string; email: string };
-    accessToken: string;
-  }>;
+  return res.json();
 }
 
-export async function refresh() {
+/**
+ * ======================
+ * REFRESH TOKEN
+ * ======================
+ */
+export async function refresh(): Promise<{ accessToken: string } | null> {
   const res = await fetch(`${API_URL}/auth/refresh`, {
     method: "POST",
     credentials: "include",
@@ -26,16 +51,42 @@ export async function refresh() {
 
   if (!res.ok) return null;
 
-  return res.json() as Promise<{ accessToken: string }>;
+  return res.json();
 }
 
-export async function logout() {
+/**
+ * ======================
+ * LOGOUT
+ * ======================
+ */
+export async function logout(): Promise<void> {
   await fetch(`${API_URL}/auth/logout`, {
     method: "POST",
     credentials: "include",
   });
 }
 
+/**
+ * ======================
+ * GET CURRENT USER
+ * ✅ AJOUTÉ POUR FIXER TON ERREUR
+ * ======================
+ */
+export async function me(
+  accessToken: string
+): Promise<AuthUser> {
+  const res = await fetch(`${API_URL}/auth/me`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: "include",
+  });
 
+  if (!res.ok) {
+    throw new Error("Unauthorized");
+  }
 
+  return res.json();
+}
 

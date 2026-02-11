@@ -4,16 +4,18 @@ import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 
+import { ENV } from "./config/env";
 import { errorHandler } from "./middlewares/error.middleware";
+
 import authRoutes from "./routes/auth.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
-import { env } from "./config/env";
 
 const app = express();
 
 /**
  * ======================
- * Trust proxy (important si derrière Nginx / Vercel / Railway)
+ * Trust proxy
+ * (important si derrière Nginx / Railway / Vercel)
  * ======================
  */
 app.set("trust proxy", 1);
@@ -34,7 +36,7 @@ app.use(
 // CORS (cookies + auth)
 app.use(
   cors({
-    origin: env.FRONTEND_URL, // ex: http://localhost:3000
+    origin: ENV.CORS_ORIGIN, // ✅ correction ici
     credentials: true,
   })
 );
@@ -47,7 +49,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
 // Logs HTTP
-if (env.NODE_ENV !== "test") {
+if (ENV.NODE_ENV !== "test") {
   app.use(morgan("dev"));
 }
 
@@ -83,7 +85,8 @@ app.use((_req, res) => {
 
 /**
  * ======================
- * Error handler (TOUJOURS EN DERNIER)
+ * Error handler
+ * (TOUJOURS EN DERNIER)
  * ======================
  */
 app.use(errorHandler);

@@ -29,8 +29,6 @@ router.post(
 
 /**
  * REFRESH TOKEN
- * ➜ pas de validation Zod sur les cookies
- * ➜ le refreshToken vient UNIQUEMENT du cookie httpOnly
  */
 router.post(
   "/refresh",
@@ -39,7 +37,6 @@ router.post(
 
 /**
  * LOGOUT
- * ➜ protégé (accessToken requis)
  */
 router.post(
   "/logout",
@@ -49,7 +46,6 @@ router.post(
 
 /**
  * ME
- * ➜ retourne l'utilisateur courant
  */
 router.get(
   "/me",

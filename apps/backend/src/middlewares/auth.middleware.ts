@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
-import { verifyAccessToken } from "../lib/jwt";
+import { verifyAccessToken } from "../utils/jwt";
 
 /**
  * Middleware d'authentification JWT
- * ➜ Vérifie l'accessToken
+ * ➜ Vérifie l'accessToken (header OU cookie)
  * ➜ Injecte req.user
  */
 export function authMiddleware(
@@ -11,25 +11,59 @@ export function authMiddleware(
   res: Response,
   next: NextFunction
 ) {
+  let token: string | undefined;
+
+  /**
+   * ======================
+   * DEBUG AUTH
+   * ======================
+   */
+  console.log("AUTH DEBUG", {
+    cookies: req.cookies,
+    authHeader: req.headers.authorization,
+  });
+
+  /**
+   * ======================
+   * 1️⃣ Authorization header
+   * ======================
+   */
   const authHeader = req.headers.authorization;
-
-  if (!authHeader) {
-    return res.status(401).json({ message: "Authorization header manquant" });
+  if (authHeader) {
+    const [type, value] = authHeader.split(" ");
+    if (type === "Bearer" && value) {
+      token = value;
+    }
   }
 
-  const [type, token] = authHeader.split(" ");
-
-  if (type !== "Bearer" || !token) {
-    return res.status(401).json({ message: "Authorization header invalide" });
+  /**
+   * ======================
+   * 2️⃣ Cookie fallback (web)
+   * ======================
+   */
+  if (!token) {
+    token = req.cookies?.accessToken;
   }
 
+  /**
+   * ======================
+   * Token manquant
+   * ======================
+   */
+  if (!token) {
+    return res.status(401).json({
+      message: "Non authentifié (token manquant)",
+    });
+  }
+
+  /**
+   * ======================
+   * Vérification JWT
+   * ======================
+   */
   try {
     const payload = verifyAccessToken(token);
 
-    /**
-     * Injection user dans la requête
-     * ➜ utilisé par /auth/me, /dashboard, etc.
-     */
     (req as any).user = {
       id: payload.id,
       email: payload.email,
@@ -43,5 +77,3 @@ export function authMiddleware(
     });
   }
 }
-
-

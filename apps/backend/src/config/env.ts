@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 
 /**
  * Chargement des variables d'environnement
- * ⚠️ Doit être importé TOUT EN HAUT de app.ts / server.ts
+ * ⚠️ Doit être importé TOUT EN HAUT du projet
  */
 dotenv.config();
 
@@ -17,8 +17,19 @@ function required(name: string): string {
   return value;
 }
 
-function optional(name: string, defaultValue?: string): string | undefined {
-  return process.env[name] ?? defaultValue;
+function optional(name: string, defaultValue?: string): string {
+  return process.env[name] ?? defaultValue ?? "";
+}
+
+function optionalNumber(name: string, defaultValue: number): number {
+  const value = process.env[name];
+  const parsed = value ? Number(value) : defaultValue;
+
+  if (Number.isNaN(parsed)) {
+    throw new Error(`❌ Environment variable ${name} must be a number`);
+  }
+
+  return parsed;
 }
 
 /**
@@ -28,7 +39,14 @@ function optional(name: string, defaultValue?: string): string | undefined {
  */
 export const ENV = {
   NODE_ENV: optional("NODE_ENV", "development"),
-  PORT: Number(optional("PORT", "8080")),
+  PORT: optionalNumber("PORT", 8080),
+
+  /**
+   * =========================
+   * SERVER
+   * =========================
+   */
+  SHUTDOWN_TIMEOUT: optionalNumber("SHUTDOWN_TIMEOUT", 10_000),
 
   /**
    * =========================
@@ -58,7 +76,7 @@ export const ENV = {
 
   /**
    * =========================
-   * IA / GEMINI (si utilisé)
+   * IA / GEMINI
    * =========================
    */
   GEMINI_API_KEY: optional("GEMINI_API_KEY"),
@@ -68,8 +86,8 @@ export const ENV = {
    * RATE LIMIT / QUOTA
    * =========================
    */
-  RATE_LIMIT_WINDOW_MS: Number(optional("RATE_LIMIT_WINDOW_MS", "60000")),
-  RATE_LIMIT_MAX: Number(optional("RATE_LIMIT_MAX", "100")),
+  RATE_LIMIT_WINDOW_MS: optionalNumber("RATE_LIMIT_WINDOW_MS", 60_000),
+  RATE_LIMIT_MAX: optionalNumber("RATE_LIMIT_MAX", 100),
 };
 
 /**
@@ -78,5 +96,9 @@ export const ENV = {
  * =========================
  */
 if (ENV.NODE_ENV === "development") {
-  console.log("✅ Environment loaded");
+  console.log("✅ Environment loaded", {
+    PORT: ENV.PORT,
+    CORS_ORIGIN: ENV.CORS_ORIGIN,
+    SHUTDOWN_TIMEOUT: ENV.SHUTDOWN_TIMEOUT,
+  });
 }

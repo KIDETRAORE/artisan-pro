@@ -21,53 +21,35 @@ const passwordSchema = z
  * REGISTER
  * =========================
  */
-export const registerSchema = z.object({
-  body: z
-    .object({
-      email: emailSchema,
-      password: passwordSchema,
-      name: z
-        .string()
-        .trim()
-        .min(2, "Nom trop court")
-        .max(100, "Nom trop long")
-        .optional(),
-    })
-    .strict(),
-});
+export const registerSchema = z
+  .object({
+    email: emailSchema,
+    password: passwordSchema,
+    name: z
+      .string()
+      .trim()
+      .min(2, "Nom trop court")
+      .max(100, "Nom trop long")
+      .optional(),
+  })
+  .strict();
 
 /**
  * =========================
  * LOGIN
  * =========================
  */
-export const loginSchema = z.object({
-  body: z
-    .object({
-      email: emailSchema,
-      password: z.string().min(1, "Mot de passe requis"),
-    })
-    .strict(),
-});
+export const loginSchema = z
+  .object({
+    email: emailSchema,
+    password: z.string().min(1, "Mot de passe requis"),
+  })
+  .strict();
 
 /**
  * =========================
- * REFRESH TOKEN
+ * TYPES INFÉRÉS
  * =========================
  */
-export const refreshSchema = z.object({
-  body: z
-    .object({
-      refreshToken: z.string().min(1, "Refresh token manquant"),
-    })
-    .strict(),
-});
-
-/**
- * =========================
- * TYPES INFÉRÉS (OPTIONNEL MAIS RECOMMANDÉ)
- * =========================
- */
-export type RegisterBody = z.infer<typeof registerSchema>["body"];
-export type LoginBody = z.infer<typeof loginSchema>["body"];
-export type RefreshBody = z.infer<typeof refreshSchema>["body"];
+export type RegisterBody = z.infer<typeof registerSchema>;
+export type LoginBody = z.infer<typeof loginSchema>;

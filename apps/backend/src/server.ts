@@ -1,12 +1,26 @@
 import app from "./app";
-import { env } from "./config/env";
+import { ENV } from "./config/env";
+import { logger } from "./utils/logger";
 
 /**
  * ======================
  * Server bootstrap
  * ======================
  */
-const PORT = env.PORT;
+const PORT = ENV.PORT;
+
+// Fallback sécurisé si non défini dans ENV
+const SHUTDOWN_TIMEOUT = (ENV as any).SHUTDOWN_TIMEOUT ?? 10_000;
+
+/**
+ * ======================
+ * DEBUG — Vérification du port réel
+ * ======================
+ */
+logger.info("PORT CHECK", {
+  ENV_PORT: ENV.PORT,
+  PROCESS_PORT: process.env.PORT,
+});
 
 /**
  * ======================
@@ -14,7 +28,7 @@ const PORT = env.PORT;
  * ======================
  */
 const server = app.listen(PORT, () => {
-  console.log(`🚀 ArtisanPro API running on port ${PORT}`);
+  logger.info(`🚀 ArtisanPro API running on port ${PORT}`);
 });
 
 /**
@@ -23,18 +37,18 @@ const server = app.listen(PORT, () => {
  * ======================
  */
 const shutdown = (signal: string) => {
-  console.log(`⚠️ Received ${signal}. Shutting down gracefully...`);
+  logger.info(`⚠️ Received ${signal}. Shutting down gracefully...`);
 
   server.close(() => {
-    console.log("✅ HTTP server closed");
+    logger.info("✅ HTTP server closed");
     process.exit(0);
   });
 
-  // Force exit after 10s
+  // Force exit after timeout
   setTimeout(() => {
-    console.error("❌ Forced shutdown");
+    logger.error("❌ Forced shutdown after timeout");
     process.exit(1);
-  }, 10000);
+  }, SHUTDOWN_TIMEOUT);
 };
 
 // OS signals
@@ -46,12 +60,12 @@ process.on("SIGINT", shutdown);
  * Fatal errors
  * ======================
  */
-process.on("uncaughtException", (err) => {
-  console.error("❌ Uncaught Exception:", err);
+process.on("uncaughtException", (err: Error) => {
+  logger.error("❌ Uncaught Exception", err);
   process.exit(1);
 });
 
-process.on("unhandledRejection", (reason) => {
-  console.error("❌ Unhandled Rejection:", reason);
+process.on("unhandledRejection", (reason: unknown) => {
+  logger.error("❌ Unhandled Rejection", reason);
   process.exit(1);
 });

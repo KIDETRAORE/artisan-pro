@@ -1,12 +1,46 @@
 {
   "extends": "../../tsconfig.base.json",
+
   "compilerOptions": {
+    /* ===============================
+     * Environnement navigateur / React
+     * =============================== */
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "jsx": "react-jsx",
+
+    /* ===============================
+     * Module & bundler (Vite)
+     * =============================== */
     "module": "ESNext",
+    "moduleResolution": "Bundler",
+
+    /* ===============================
+     * Sécurité & qualité
+     * =============================== */
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["vite/client"]
+
+    /* ===============================
+     * Typages spécifiques frontend
+     * =============================== */
+    "types": ["vite/client"],
+
+    /* ===============================
+     * Confort imports (optionnel mais recommandé)
+     * =============================== */
+    "baseUrl": "src",
+    "paths": {
+      "@components/*": ["components/*"],
+      "@pages/*": ["pages/*"],
+      "@services/*": ["services/*"],
+      "@store/*": ["store/*"],
+      "@auth/*": ["auth/*"],
+      "@config/*": ["config/*"],
+      "@utils/*": ["utils/*"],
+      "@types/*": ["types/*"]
+    }
   },
-  "include": ["src"]
+
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
 }
