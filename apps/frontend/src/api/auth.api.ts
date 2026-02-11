@@ -1,4 +1,23 @@
+// src/api/auth.api.ts
 import { API_URL } from "../config/api";
+
+/**
+ * ======================
+ * ROLES
+ * ======================
+ */
+export type UserRole = "user" | "admin";
+
+/**
+ * ======================
+ * PERMISSIONS
+ * ======================
+ */
+export type Permission =
+  | "manage_users"
+  | "delete_user"
+  | "edit_user"
+  | "view_admin_dashboard";
 
 /**
  * ======================
@@ -8,6 +27,8 @@ import { API_URL } from "../config/api";
 export interface AuthUser {
   id: string;
   email: string;
+  role: UserRole;
+  permissions: Permission[]; // ✅ AJOUT CRITIQUE
 }
 
 export interface AuthResponse {
@@ -27,7 +48,7 @@ export async function login(
   const res = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include", // cookies httpOnly (refresh token)
+    credentials: "include", // refresh token en cookie httpOnly
     body: JSON.stringify({ email, password }),
   });
 
@@ -35,6 +56,13 @@ export async function login(
     throw new Error("Login failed");
   }
 
+  /**
+   * Backend doit renvoyer :
+   * {
+   *   user: { id, email, role, permissions },
+   *   accessToken
+   * }
+   */
   return res.json();
 }
 
@@ -69,7 +97,6 @@ export async function logout(): Promise<void> {
 /**
  * ======================
  * GET CURRENT USER
- * ✅ AJOUTÉ POUR FIXER TON ERREUR
  * ======================
  */
 export async function me(
@@ -87,6 +114,9 @@ export async function me(
     throw new Error("Unauthorized");
   }
 
+  /**
+   * Doit renvoyer :
+   * { id, email, role, permissions }
+   */
   return res.json();
 }
-

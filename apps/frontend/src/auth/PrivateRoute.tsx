@@ -1,5 +1,4 @@
 import { Navigate } from "react-router-dom";
-import { useEffect } from "react";
 import { useAuth } from "../store/auth.store";
 
 export default function PrivateRoute({
@@ -7,20 +6,10 @@ export default function PrivateRoute({
 }: {
   children: JSX.Element;
 }) {
-  const { user, accessToken, isLoading, restoreSession } = useAuth();
+  const { user, accessToken, isLoading } = useAuth();
 
   /**
-   * 🔁 Tentative de restauration de session
-   * (refresh token via cookie)
-   */
-  useEffect(() => {
-    if (!user && !accessToken) {
-      restoreSession();
-    }
-  }, [user, accessToken, restoreSession]);
-
-  /**
-   * ⏳ En attente de la réponse backend
+   * ⏳ Attente de la restauration globale (App.tsx)
    */
   if (isLoading) {
     return <p>Chargement...</p>;

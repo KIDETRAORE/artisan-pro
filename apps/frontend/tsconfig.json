@@ -41,6 +41,6 @@
     }
   },
 
-  "include": ["src"],
+  "include": ["src", "../backend/src/auth/permissions.ts"],
   "exclude": ["node_modules", "dist"]
 }

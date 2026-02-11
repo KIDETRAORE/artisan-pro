@@ -1,10 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../utils/jwt";
+import { ROLE_PERMISSIONS } from "../auth/permissions";
 
 /**
  * Middleware d'authentification JWT
- * ➜ Vérifie l'accessToken (header OU cookie)
- * ➜ Injecte req.user
+ * ➜ Vérifie l'accessToken (header ou cookie)
+ * ➜ Injecte req.user (id, email, role, permissions)
  */
 export function authMiddleware(
   req: Request,
@@ -12,16 +13,6 @@ export function authMiddleware(
   next: NextFunction
 ) {
   let token: string | undefined;
-
-  /**
-   * ======================
-   * DEBUG AUTH
-   * ======================
-   */
-  console.log("AUTH DEBUG", {
-    cookies: req.cookies,
-    authHeader: req.headers.authorization,
-  });
 
   /**
    * ======================
@@ -38,7 +29,7 @@ export function authMiddleware(
 
   /**
    * ======================
-   * 2️⃣ Cookie fallback (web)
+   * 2️⃣ Cookie fallback
    * ======================
    */
   if (!token) {
@@ -64,10 +55,12 @@ export function authMiddleware(
   try {
     const payload = verifyAccessToken(token);
 
-    (req as any).user = {
+    req.user = {
       id: payload.id,
       email: payload.email,
+      role: payload.role,
       tokenVersion: payload.tokenVersion,
+      permissions: ROLE_PERMISSIONS[payload.role],
     };
 
     return next();

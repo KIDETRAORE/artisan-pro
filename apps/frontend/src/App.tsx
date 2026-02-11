@@ -1,36 +1,50 @@
 import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
+
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import PrivateRoute from "./auth/PrivateRoute";
+
 import { useAuth } from "./store/auth.store";
 
 export default function App() {
-  const { user, isLoading, restoreSession } = useAuth();
+  const { restoreSession, isLoading } = useAuth();
 
-  // 🔄 Restore session on app start
+  /**
+   * 🔁 Restaurer la session au démarrage
+   * ➜ utilise le refreshToken (cookie httpOnly)
+   */
   useEffect(() => {
     restoreSession();
   }, [restoreSession]);
 
-  // ⏳ Loading state (important)
+  /**
+   * ⏳ Loader global
+   */
   if (isLoading) {
-    return <div className="p-4">Chargement...</div>;
+    return <p>Chargement...</p>;
   }
 
   return (
     <Routes>
-      <Route
-        path="/login"
-        element={user ? <Navigate to="/dashboard" /> : <Login />}
-      />
+      {/* Redirection racine */}
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
+      {/* Public */}
+      <Route path="/login" element={<Login />} />
+
+      {/* Privé */}
       <Route
         path="/dashboard"
-        element={user ? <Dashboard /> : <Navigate to="/login" />}
+        element={
+          <PrivateRoute>
+            <Dashboard />
+          </PrivateRoute>
+        }
       />
 
-      {/* fallback */}
-      <Route path="*" element={<Navigate to="/login" />} />
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

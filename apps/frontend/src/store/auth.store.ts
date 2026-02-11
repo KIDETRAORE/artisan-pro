@@ -1,3 +1,5 @@
+// src/store/auth.store.ts
+
 import { create } from "zustand";
 import * as authApi from "../api/auth.api";
 import type { AuthUser } from "../api/auth.api";
@@ -28,17 +30,22 @@ export const useAuth = create<AuthState>((set) => ({
   isLoading: true,
 
   /**
+   * ======================
    * LOGIN
+   * ======================
    */
   login: async (email, password) => {
     set({ isLoading: true });
 
     try {
+      /**
+       * login renvoie déjà :
+       * { user: { id, email, role, permissions }, accessToken }
+       */
       const res = await authApi.login(email, password);
-      const user = await authApi.me(res.accessToken);
 
       set({
-        user,
+        user: res.user,
         accessToken: res.accessToken,
         isLoading: false,
       });
@@ -53,21 +60,23 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   /**
+   * ======================
    * RESTORE SESSION
-   * ➜ appelé au démarrage de l'app
+   * ======================
+   * ➜ utilisé au refresh ou au reload
    */
   restoreSession: async () => {
     set({ isLoading: true });
 
     try {
       const res = await authApi.refresh();
-      if (!res?.accessToken) throw new Error();
+      if (!res?.accessToken) throw new Error("No access token");
 
       const user = await authApi.me(res.accessToken);
 
       set({
+        user, // { id, email, role, permissions }
         accessToken: res.accessToken,
-        user,
         isLoading: false,
       });
     } catch {
@@ -80,10 +89,13 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   /**
+   * ======================
    * LOGOUT
+   * ======================
    */
   logout: async () => {
     await authApi.logout();
+
     set({
       user: null,
       accessToken: null,

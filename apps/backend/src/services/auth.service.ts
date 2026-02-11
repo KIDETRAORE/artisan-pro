@@ -5,6 +5,7 @@ import {
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
+  type Permission,
 } from "../utils/jwt";
 
 /**
@@ -18,27 +19,40 @@ interface RegisterInput {
   name?: string;
 }
 
+export type UserRole = "user" | "admin";
+
 interface User {
   id: string;
   email: string;
   passwordHash: string;
+  role: UserRole;
   tokenVersion: number;
   createdAt: Date;
 }
 
 /**
  * ======================
- * FAKE DB (temporaire)
- * ➜ À remplacer par Prisma / Supabase
+ * ROLE → PERMISSIONS
+ * (SOURCE DE VÉRITÉ)
+ * ======================
+ */
+const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+  user: [],
+  admin: [
+    "view_admin",
+    "manage_users",
+    "edit_user",
+    "delete_user",
+  ],
+};
+
+/**
+ * ======================
+ * FAKE DB
  * ======================
  */
 const users = new Map<string, User>();
 
-/**
- * ======================
- * AUTH SERVICE (BACKEND)
- * ======================
- */
 export class AuthService {
   /**
    * ======================
@@ -53,10 +67,7 @@ export class AuthService {
     }
 
     if (data.password.length < 8) {
-      throw new HttpError(
-        400,
-        "Mot de passe trop court (minimum 8 caractères)"
-      );
+      throw new HttpError(400, "Mot de passe trop court");
     }
 
     const existingUser = [...users.values()].find(
@@ -69,10 +80,14 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(data.password, 10);
 
+    const isFirstUser = users.size === 0;
+    const role: UserRole = isFirstUser ? "admin" : "user";
+
     const user: User = {
       id: uuid(),
       email,
       passwordHash,
+      role,
       tokenVersion: 0,
       createdAt: new Date(),
     };
@@ -82,6 +97,8 @@ export class AuthService {
     return {
       id: user.id,
       email: user.email,
+      role: user.role,
+      permissions: ROLE_PERMISSIONS[user.role],
     };
   }
 
@@ -97,20 +114,26 @@ export class AuthService {
       (u) => u.email === normalizedEmail
     );
 
-    // Message volontairement générique (anti user-enum)
     if (!user) {
       throw new HttpError(401, "Identifiants invalides");
     }
 
-    const isValid = await bcrypt.compare(password, user.passwordHash);
+    const isValid = await bcrypt.compare(
+      password,
+      user.passwordHash
+    );
 
     if (!isValid) {
       throw new HttpError(401, "Identifiants invalides");
     }
 
+    const permissions = ROLE_PERMISSIONS[user.role];
+
     const payload = {
       id: user.id,
       email: user.email,
+      role: user.role,
+      permissions,
       tokenVersion: user.tokenVersion,
     };
 
@@ -118,6 +141,8 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
+        role: user.role,
+        permissions,
       },
       accessToken: signAccessToken(payload),
       refreshToken: signRefreshToken(payload),
@@ -134,46 +159,37 @@ export class AuthService {
       throw new HttpError(401, "Refresh token manquant");
     }
 
-    try {
-      const payload = verifyRefreshToken(refreshToken);
+    const payload = verifyRefreshToken(refreshToken);
+    const user = users.get(payload.id);
 
-      const user = users.get(payload.id);
-
-      if (!user) {
-        throw new HttpError(401, "Utilisateur introuvable");
-      }
-
-      // Révocation globale
-      if (user.tokenVersion !== payload.tokenVersion) {
-        throw new HttpError(401, "Refresh token révoqué");
-      }
-
-      const newPayload = {
-        id: user.id,
-        email: user.email,
-        tokenVersion: user.tokenVersion,
-      };
-
-      return {
-        accessToken: signAccessToken(newPayload),
-        refreshToken: signRefreshToken(newPayload),
-      };
-    } catch {
+    if (!user || user.tokenVersion !== payload.tokenVersion) {
       throw new HttpError(401, "Refresh token invalide");
     }
+
+    const permissions = ROLE_PERMISSIONS[user.role];
+
+    const newPayload = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      permissions,
+      tokenVersion: user.tokenVersion,
+    };
+
+    return {
+      accessToken: signAccessToken(newPayload),
+      refreshToken: signRefreshToken(newPayload),
+    };
   }
 
   /**
    * ======================
-   * LOGOUT (révocation globale)
+   * LOGOUT
    * ======================
    */
   static async logout(userId: string) {
     const user = users.get(userId);
-
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
     user.tokenVersion += 1;
     users.set(userId, user);

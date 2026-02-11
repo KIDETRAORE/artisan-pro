@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 import { useAuth } from "../store/auth.store";
-import { API_URL } from "../config/api";
 import { useNavigate } from "react-router-dom";
 
 type DashboardResponse = {
@@ -18,7 +17,7 @@ type DashboardResponse = {
 };
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const navigate = useNavigate();
 
   const [data, setData] = useState<DashboardResponse | null>(null);
@@ -26,11 +25,10 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchWithAuth(`${API_URL}/dashboard`)
+    fetchWithAuth("/dashboard")
       .then(async (res) => {
         if (res.status === 401) {
-          // Token invalide / expiré → logout + redirect
-          logout();
+          await logout();
           navigate("/login");
           return;
         }
@@ -84,4 +82,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
