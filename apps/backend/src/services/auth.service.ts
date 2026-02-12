@@ -5,8 +5,12 @@ import {
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
-  type Permission,
 } from "../utils/jwt";
+import {
+  ROLE_PERMISSIONS,
+  type Permission,
+  type UserRole,
+} from "../auth/permissions";
 
 /**
  * ======================
@@ -19,8 +23,6 @@ interface RegisterInput {
   name?: string;
 }
 
-export type UserRole = "user" | "admin";
-
 interface User {
   id: string;
   email: string;
@@ -29,22 +31,6 @@ interface User {
   tokenVersion: number;
   createdAt: Date;
 }
-
-/**
- * ======================
- * ROLE → PERMISSIONS
- * (SOURCE DE VÉRITÉ)
- * ======================
- */
-const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
-  user: [],
-  admin: [
-    "view_admin",
-    "manage_users",
-    "edit_user",
-    "delete_user",
-  ],
-};
 
 /**
  * ======================
@@ -94,11 +80,13 @@ export class AuthService {
 
     users.set(user.id, user);
 
+    const permissions = ROLE_PERMISSIONS[user.role];
+
     return {
       id: user.id,
       email: user.email,
       role: user.role,
-      permissions: ROLE_PERMISSIONS[user.role],
+      permissions,
     };
   }
 

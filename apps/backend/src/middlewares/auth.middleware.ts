@@ -1,11 +1,10 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../utils/jwt";
-import { ROLE_PERMISSIONS } from "../auth/permissions";
 
 /**
  * Middleware d'authentification JWT
- * ➜ Vérifie l'accessToken (header ou cookie)
- * ➜ Injecte req.user (id, email, role, permissions)
+ * ➜ Vérifie l’accessToken
+ * ➜ Injecte req.user (données IMMUTABLES issues du JWT)
  */
 export function authMiddleware(
   req: Request,
@@ -60,13 +59,14 @@ export function authMiddleware(
       email: payload.email,
       role: payload.role,
       tokenVersion: payload.tokenVersion,
-      permissions: ROLE_PERMISSIONS[payload.role],
+      permissions: payload.permissions, // ✅ readonly → readonly
     };
 
     return next();
-  } catch (err) {
+  } catch {
     return res.status(401).json({
       message: "Access token invalide ou expiré",
     });
   }
 }
+

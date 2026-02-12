@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import { UserRole } from "../services/auth.service";
+import { UserRole } from "../auth/permissions";
 
 /**
- * Middleware de permission par rôle
+ * Middleware de contrôle des rôles
  */
 export function requireRole(role: UserRole) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -14,7 +14,7 @@ export function requireRole(role: UserRole) {
 
     if (req.user.role !== role) {
       return res.status(403).json({
-        message: "Accès refusé",
+        message: "Accès interdit (droits insuffisants)",
       });
     }
 

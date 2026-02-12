@@ -1,16 +1,16 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { env } from "../config/env";
+import { ENV } from "../config/env";
 
 /**
  * ======================
  * VALIDATION ENV
  * ======================
  */
-if (!env.SUPABASE_URL) {
+if (!ENV.SUPABASE_URL) {
   throw new Error("❌ SUPABASE_URL manquant dans les variables d'environnement");
 }
 
-if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+if (!ENV.SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error(
     "❌ SUPABASE_SERVICE_ROLE_KEY manquant (clé ADMIN requise côté backend)"
   );
@@ -28,8 +28,8 @@ if (!env.SUPABASE_SERVICE_ROLE_KEY) {
  * - opérations RPC
  */
 export const supabaseAdmin: SupabaseClient = createClient(
-  env.SUPABASE_URL,
-  env.SUPABASE_SERVICE_ROLE_KEY,
+  ENV.SUPABASE_URL,
+  ENV.SUPABASE_SERVICE_ROLE_KEY,
   {
     auth: {
       autoRefreshToken: false,
@@ -49,6 +49,6 @@ export const supabaseAdmin: SupabaseClient = createClient(
  * LOG INIT (DEV)
  * ======================
  */
-if (env.NODE_ENV !== "production") {
+if (ENV.NODE_ENV !== "production") {
   console.log("🟢 Supabase Admin client initialisé");
 }

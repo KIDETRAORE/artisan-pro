@@ -67,7 +67,6 @@ export class AuthController {
     const refreshToken = req.cookies?.refreshToken;
 
     if (refreshToken) {
-      await AuthService.invalidateRefreshToken(refreshToken).catch(() => null);
     }
 
     res.clearCookie("refreshToken", {

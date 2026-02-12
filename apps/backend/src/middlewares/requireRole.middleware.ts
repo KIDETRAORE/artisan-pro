@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { UserRole } from "../services/auth.service";
+import type { UserRole } from "../auth/permissions";
 
 /**
  * Middleware de contrôle des rôles

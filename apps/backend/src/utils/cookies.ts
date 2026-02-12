@@ -1,4 +1,4 @@
-import { env } from "./env";
+import { ENV } from "../config/env";
 
 /**
  * ================================
@@ -14,10 +14,10 @@ export const REFRESH_TOKEN_COOKIE_NAME = "refreshToken";
  * Options par défaut pour le cookie refresh token
  */
 export const refreshTokenCookieOptions = {
-  httpOnly: true,           // 🔐 inaccessible au JS
-  secure: env.NODE_ENV === "production", // HTTPS uniquement en prod
-  sameSite: "lax" as const, // nécessaire pour le refresh cross-origin léger
-  path: "/",                // ⚠️ TRÈS IMPORTANT (login / refresh / logout)
+  httpOnly: true,                        // 🔐 inaccessible au JS
+  secure: ENV.NODE_ENV === "production", // HTTPS uniquement en prod
+  sameSite: "lax" as const,              // refresh cross-origin léger
+  path: "/",                             // ⚠️ TRÈS IMPORTANT
 };
 
 /**

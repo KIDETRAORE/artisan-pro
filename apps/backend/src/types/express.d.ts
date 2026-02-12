@@ -18,7 +18,7 @@ declare global {
         id: string;
         email: string;
         role: "user" | "admin";
-        permissions: Permission[];
+        permissions: readonly Permission[];
         tokenVersion: number;
       };
     }
