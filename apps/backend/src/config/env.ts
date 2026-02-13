@@ -7,7 +7,9 @@ import dotenv from "dotenv";
 dotenv.config();
 
 /**
+ * =========================
  * Helpers
+ * =========================
  */
 function required(name: string): string {
   const value = process.env[name];
@@ -32,6 +34,12 @@ function optionalNumber(name: string, defaultValue: number): number {
   return parsed;
 }
 
+function optionalBoolean(name: string, defaultValue: boolean): boolean {
+  const value = process.env[name];
+  if (value === undefined) return defaultValue;
+  return value === "true";
+}
+
 /**
  * =========================
  * CONFIGURATION GLOBALE
@@ -41,64 +49,37 @@ export const ENV = {
   NODE_ENV: optional("NODE_ENV", "development"),
   PORT: optionalNumber("PORT", 8080),
 
-  /**
-   * =========================
-   * SERVER
-   * =========================
-   */
   SHUTDOWN_TIMEOUT: optionalNumber("SHUTDOWN_TIMEOUT", 10_000),
 
-  /**
-   * =========================
-   * AUTH / JWT
-   * =========================
-   */
   JWT_ACCESS_SECRET: required("JWT_ACCESS_SECRET"),
   JWT_REFRESH_SECRET: required("JWT_REFRESH_SECRET"),
 
   ACCESS_TOKEN_EXPIRES_IN: optional("ACCESS_TOKEN_EXPIRES_IN", "15m"),
   REFRESH_TOKEN_EXPIRES_IN: optional("REFRESH_TOKEN_EXPIRES_IN", "7d"),
 
-  /**
-   * =========================
-   * CORS
-   * =========================
-   */
   CORS_ORIGIN: optional("CORS_ORIGIN", "http://localhost:5173"),
 
-  /**
-   * =========================
-   * SUPABASE
-   * =========================
-   */
   SUPABASE_URL: required("SUPABASE_URL"),
   SUPABASE_SERVICE_ROLE_KEY: required("SUPABASE_SERVICE_ROLE_KEY"),
 
   /**
-   * =========================
    * IA / GEMINI
-   * =========================
+   * ⚠️ optionnel volontairement (Option A)
    */
   GEMINI_API_KEY: optional("GEMINI_API_KEY"),
 
-  /**
-   * =========================
-   * RATE LIMIT / QUOTA
-   * =========================
-   */
   RATE_LIMIT_WINDOW_MS: optionalNumber("RATE_LIMIT_WINDOW_MS", 60_000),
   RATE_LIMIT_MAX: optionalNumber("RATE_LIMIT_MAX", 100),
+
+  // 🔓 OPTION A
+  QUOTA_ENABLED: optionalBoolean("QUOTA_ENABLED", false),
 };
 
-/**
- * =========================
- * LOG DE CONTRÔLE (DEV)
- * =========================
- */
 if (ENV.NODE_ENV === "development") {
   console.log("✅ Environment loaded", {
     PORT: ENV.PORT,
     CORS_ORIGIN: ENV.CORS_ORIGIN,
     SHUTDOWN_TIMEOUT: ENV.SHUTDOWN_TIMEOUT,
+    QUOTA_ENABLED: ENV.QUOTA_ENABLED,
   });
 }

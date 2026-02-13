@@ -1,34 +1,17 @@
 import { Request, Response, NextFunction } from "express";
-import { quotaService } from "../services/quota.service";
-import { HttpError } from "../utils/httpError";
+import { ENV } from "../config/env";
 
-/**
- * Middleware quota par fonctionnalité
- */
-export function quotaMiddleware(feature: string) {
-  return async (req: Request, _res: Response, next: NextFunction) => {
-    try {
-      const user = req.user;
+export function quotaMiddleware(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+) {
+  // 🔓 QUOTA DÉSACTIVÉ (OPTION A)
+  if (!ENV.QUOTA_ENABLED) {
+    return next();
+  }
 
-      if (!user) {
-        throw new HttpError(401, "Utilisateur non authentifié");
-      }
-
-      const result = await quotaService.checkAndLockQuota(
-        user.id,
-        feature
-      );
-
-      if (!result.allowed) {
-        throw new HttpError(
-          429,
-          result.reason ?? "Quota dépassé"
-        );
-      }
-
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
+  // 🔒 FUTURE LOGIQUE (PHASE 2)
+  // ⚠️ volontairement vide pour l’instant
+  return next();
 }

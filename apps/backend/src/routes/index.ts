@@ -1,4 +1,5 @@
 import { Router } from "express";
+import visionRoutes from "./vision.routes";
 
 // Auth & Core
 import authRoutes from "./auth.routes";
@@ -21,5 +22,6 @@ router.use("/dashboard", dashboardRoutes);
 router.use("/assistant", assistantRoutes);
 router.use("/compta", comptaRoutes);
 router.use("/devis", devisRouter);
+router.use("/vision", visionRoutes);
 
 export default router;

@@ -9,13 +9,19 @@ import { errorHandler } from "./middlewares/error.middleware";
 
 import authRoutes from "./routes/auth.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
+import visionRoutes from "./routes/vision.routes";
 
 const app = express();
+
+app.use((req, _res, next) => {
+  console.log("➡️ INCOMING", req.method, req.url, req.headers["content-type"]);
+  next();
+});
+
 
 /**
  * ======================
  * Trust proxy
- * (important si derrière Nginx / Railway / Vercel)
  * ======================
  */
 app.set("trust proxy", 1);
@@ -29,23 +35,23 @@ app.set("trust proxy", 1);
 // Sécurité HTTP headers
 app.use(
   helmet({
-    crossOriginResourcePolicy: false, // nécessaire pour images / uploads
+    crossOriginResourcePolicy: false, // requis pour images / uploads
   })
 );
 
-// CORS (cookies + auth)
+// CORS
 app.use(
   cors({
-    origin: ENV.CORS_ORIGIN, // ✅ correction ici
+    origin: ENV.CORS_ORIGIN,
     credentials: true,
   })
 );
 
-// Parsing JSON (limite anti-abus)
-app.use(express.json({ limit: "1mb" }));
+// ⚠️ IMPORTANT : taille augmentée pour base64 image
+app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false }));
 
-// Cookies (JWT refresh httpOnly)
+// Cookies (refresh token)
 app.use(cookieParser());
 
 // Logs HTTP
@@ -73,6 +79,7 @@ app.get("/health", (_req, res) => {
  */
 app.use("/auth", authRoutes);
 app.use("/dashboard", dashboardRoutes);
+app.use("/vision", visionRoutes); // ✅ ROUTE VISION OK
 
 /**
  * ======================
@@ -85,8 +92,7 @@ app.use((_req, res) => {
 
 /**
  * ======================
- * Error handler
- * (TOUJOURS EN DERNIER)
+ * Error handler (TOUJOURS EN DERNIER)
  * ======================
  */
 app.use(errorHandler);
