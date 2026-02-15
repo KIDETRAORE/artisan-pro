@@ -1,72 +1,61 @@
 import { Request, Response, NextFunction } from "express";
-import { verifyAccessToken } from "../utils/jwt";
+import { createClient } from "@supabase/supabase-js";
+import { ENV } from "../config/env";
 
 /**
- * Middleware d'authentification JWT
- * ➜ Vérifie l’accessToken
- * ➜ Injecte req.user (données IMMUTABLES issues du JWT)
+ * Client Supabase backend
+ * Utilise la SERVICE ROLE KEY (sécurisé côté serveur uniquement)
  */
-export function authMiddleware(
+const supabase = createClient(
+  ENV.SUPABASE_URL,
+  ENV.SUPABASE_SERVICE_ROLE_KEY
+);
+
+export async function authMiddleware(
   req: Request,
   res: Response,
   next: NextFunction
 ) {
-  let token: string | undefined;
-
-  /**
-   * ======================
-   * 1️⃣ Authorization header
-   * ======================
-   */
-  const authHeader = req.headers.authorization;
-  if (authHeader) {
-    const [type, value] = authHeader.split(" ");
-    if (type === "Bearer" && value) {
-      token = value;
-    }
-  }
-
-  /**
-   * ======================
-   * 2️⃣ Cookie fallback
-   * ======================
-   */
-  if (!token) {
-    token = req.cookies?.accessToken;
-  }
-
-  /**
-   * ======================
-   * Token manquant
-   * ======================
-   */
-  if (!token) {
-    return res.status(401).json({
-      message: "Non authentifié (token manquant)",
-    });
-  }
-
-  /**
-   * ======================
-   * Vérification JWT
-   * ======================
-   */
   try {
-    const payload = verifyAccessToken(token);
+    const authHeader = req.headers.authorization;
 
-    req.user = {
-      id: payload.id,
-      email: payload.email,
-      role: payload.role,
-      tokenVersion: payload.tokenVersion,
-      permissions: payload.permissions, // ✅ readonly → readonly
-    };
+    // ======================
+    // Vérification header
+    // ======================
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        message: "Non authentifié (token manquant)",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    // ======================
+    // Vérification JWT Supabase
+    // ======================
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if (error || !data?.user) {
+      return res.status(401).json({
+        message: "Token invalide ou expiré",
+      });
+    }
+
+    // ======================
+    // Injection user sécurisé
+    // ======================
+    (req as any).user = Object.freeze({
+      id: data.user.id,
+      email: data.user.email,
+      role: data.user.role ?? "authenticated",
+    });
 
     return next();
-  } catch {
+
+  } catch (error) {
+    console.error("Auth Middleware Error:", error);
     return res.status(401).json({
-      message: "Access token invalide ou expiré",
+      message: "Authentication failed",
     });
   }
 }
-

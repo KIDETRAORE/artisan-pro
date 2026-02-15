@@ -7,7 +7,6 @@ import helmet from "helmet";
 import { ENV } from "./config/env";
 import { errorHandler } from "./middlewares/error.middleware";
 
-import authRoutes from "./routes/auth.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
 import visionRoutes from "./routes/vision.routes";
 
@@ -77,7 +76,6 @@ app.get("/health", (_req, res) => {
  * API Routes
  * ======================
  */
-app.use("/auth", authRoutes);
 app.use("/dashboard", dashboardRoutes);
 app.use("/vision", visionRoutes); // ✅ ROUTE VISION OK
 

@@ -3,7 +3,11 @@ import { z } from "zod";
 
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { validate } from "../middlewares/validate.middleware";
-import { analyzeVisionController } from "../controllers/vision.controller";
+import {
+  analyzeVisionController,
+  getVisionHistoryController,
+  getVisionByIdController,
+} from "../controllers/vision.controller";
 
 const router = Router();
 
@@ -18,7 +22,7 @@ const visionSchema = z.object({
 
 /**
  * ==============================
- * POST /api/vision/analyze
+ * POST /vision/analyze
  * ==============================
  */
 router.post(
@@ -26,6 +30,28 @@ router.post(
   authMiddleware,
   validate(visionSchema),
   analyzeVisionController
+);
+
+/**
+ * ==============================
+ * GET /vision/history
+ * ==============================
+ */
+router.get(
+  "/history",
+  authMiddleware,
+  getVisionHistoryController
+);
+
+/**
+ * ==============================
+ * GET /vision/:id
+ * ==============================
+ */
+router.get(
+  "/:id",
+  authMiddleware,
+  getVisionByIdController
 );
 
 export default router;

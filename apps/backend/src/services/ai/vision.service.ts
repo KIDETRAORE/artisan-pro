@@ -51,6 +51,14 @@ Règles STRICTES :
  * SERVICE PRINCIPAL
  * ==============================
  */
+function extractBase64(data: string): string {
+  const matches = data.match(/^data:(.+);base64,(.+)$/);
+  if (!matches) {
+    throw new Error("Invalid base64 image format");
+  }
+  return matches[2];
+}
+
 export async function analyzeImageWithVision(
   imageBuffer: Buffer
 ): Promise<VisionAnalysis> {
