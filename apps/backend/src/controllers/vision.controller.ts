@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { Buffer } from "node:buffer";
 import { PROMPTS } from "../services/ai/prompts";
 import { sanitizeImage } from "../services/ai/imageSanitizer";
@@ -7,6 +7,8 @@ import { quotaService } from "../services/quota.service";
 import { extractJSON, validateAnalysis } from "../utils/aiParser";
 import { createVisionAnalysis } from "../services/ai/visionAnalysis.service";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
+import { SubscriptionService } from "../services/subscription.service";
+import { requireUser } from "../utils/requireUser";
 
 /**
  * =====================================
@@ -19,7 +21,6 @@ function base64ImageToBuffer(dataUri: string): Buffer {
     throw new Error("INVALID_IMAGE_INPUT");
   }
 
-  // Format attendu : data:image/jpeg;base64,XXXXX
   const match = dataUri.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
 
   if (!match || !match[1]) {
@@ -36,12 +37,15 @@ function base64ImageToBuffer(dataUri: string): Buffer {
  */
 export async function analyzeVisionController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) {
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+    const user = requireUser(req);
+    const userId = user.id;
+
+    // 🔒 Sécurité SaaS (FREE limit)
+    await SubscriptionService.checkAccess(userId);
 
     const rawBase64 = req.body.image as string;
 
@@ -53,20 +57,18 @@ export async function analyzeVisionController(
 
     try {
       buffer = base64ImageToBuffer(rawBase64);
-    } catch (err) {
+    } catch {
       return res.status(400).json({ message: "Base64 invalide" });
     }
 
     const sanitizedBuffer = await sanitizeImage(buffer);
 
-    const prompt = PROMPTS.vision;
-
     const aiText = await runAI("vision", {
-      prompt,
+      prompt: PROMPTS.vision,
       image: sanitizedBuffer,
     });
 
-    let analysis;
+    let analysis: any;
 
     try {
       const jsonString = extractJSON(aiText);
@@ -81,25 +83,28 @@ export async function analyzeVisionController(
       return res.status(400).json({ message: "AI_SCHEMA_INVALID" });
     }
 
-    // 🔹 Sauvegarde Supabase
+    // 🔹 Sauvegarde en base
     const savedAnalysis = await createVisionAnalysis({
-      userId: req.user.id,
+      userId,
       analysis,
       confidence: analysis.confidence,
       originalSize: buffer.length,
       sanitizedSize: sanitizedBuffer.length,
     });
 
-    // 🔹 Quota (non bloquant)
+    // 🔹 Incrémentation usage (après succès uniquement)
+    await SubscriptionService.incrementUsage(userId);
+
+    // 🔹 Quota legacy (non bloquant)
     try {
       await quotaService.recordUsage(
-        req.user.id,
+        userId,
         "vision",
         "image-analysis",
         JSON.stringify(analysis)
       );
     } catch (err) {
-      console.warn("Quota non enregistré", err);
+      console.warn("Quota non enregistré:", err);
     }
 
     return res.status(200).json({
@@ -112,10 +117,14 @@ export async function analyzeVisionController(
 
   } catch (error: any) {
     console.error("VISION ERROR:", error);
-    return res.status(502).json({
-      message: "AI analysis failed",
-      error: error.message,
-    });
+
+    if (error.status) {
+      return res.status(error.status).json({
+        message: error.message,
+      });
+    }
+
+    return next(error);
   }
 }
 
@@ -126,25 +135,24 @@ export async function analyzeVisionController(
  */
 export async function getVisionHistoryController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) {
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+    const user = requireUser(req);
 
     const { data, error } = await supabaseAdmin
       .from("vision_analyses")
       .select("id, confidence, created_at")
-      .eq("user_id", req.user.id)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
 
-    return res.json(data);
+    return res.status(200).json(data);
 
-  } catch (error: any) {
-    return res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error);
   }
 }
 
@@ -155,29 +163,29 @@ export async function getVisionHistoryController(
  */
 export async function getVisionByIdController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) {
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
+    const user = requireUser(req);
     const { id } = req.params;
 
     const { data, error } = await supabaseAdmin
       .from("vision_analyses")
       .select("*")
       .eq("id", id)
-      .eq("user_id", req.user.id)
+      .eq("user_id", user.id)
       .single();
 
     if (error || !data) {
-      return res.status(404).json({ message: "Analyse non trouvée" });
+      return res.status(404).json({
+        message: "Analyse non trouvée",
+      });
     }
 
-    return res.json(data);
+    return res.status(200).json(data);
 
-  } catch (error: any) {
-    return res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error);
   }
 }

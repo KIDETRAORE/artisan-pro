@@ -1,9 +1,23 @@
 import { ENV } from "../../config/env";
 
+/**
+ * ============================
+ * TYPES
+ * ============================
+ */
+
+export type AIType = "vision" | "compta";
+
 interface VisionAIParams {
   prompt: string;
   image: Buffer;
 }
+
+interface ComptaAIParams {
+  prompt: string;
+}
+
+type AIPayload = VisionAIParams | ComptaAIParams;
 
 interface GeminiResponse {
   candidates?: Array<{
@@ -15,9 +29,15 @@ interface GeminiResponse {
   }>;
 }
 
+/**
+ * ============================
+ * RUN AI
+ * ============================
+ */
+
 export async function runAI(
-  type: "vision",
-  payload: VisionAIParams
+  type: AIType,
+  payload: AIPayload
 ): Promise<string> {
 
   console.log("🚀 runAI START");
@@ -27,34 +47,60 @@ export async function runAI(
     throw new Error("GEMINI_API_KEY missing");
   }
 
-  if (type !== "vision") {
-    throw new Error(`Unsupported AI type: ${type}`);
-  }
-
-  // ✅ BON modèle
   const model = "gemini-2.5-flash";
-
-  // ✅ BON endpoint (v1beta)
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-  const base64 = payload.image.toString("base64");
+  let body: any;
 
-  const body = {
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { text: payload.prompt },
-          {
-            inlineData: {
-              mimeType: "image/jpeg",
-              data: base64,
+  /**
+   * ============================
+   * VISION MODE
+   * ============================
+   */
+  if (type === "vision") {
+    const visionPayload = payload as VisionAIParams;
+
+    const base64 = visionPayload.image.toString("base64");
+
+    body = {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: visionPayload.prompt },
+            {
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: base64,
+              },
             },
-          },
-        ],
-      },
-    ],
-  };
+          ],
+        },
+      ],
+    };
+  }
+
+  /**
+   * ============================
+   * COMPTA MODE
+   * ============================
+   */
+  else if (type === "compta") {
+    const comptaPayload = payload as ComptaAIParams;
+
+    body = {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: comptaPayload.prompt }],
+        },
+      ],
+    };
+  }
+
+  else {
+    throw new Error(`Unsupported AI type: ${type}`);
+  }
 
   console.log("🌍 Calling Gemini API...");
 

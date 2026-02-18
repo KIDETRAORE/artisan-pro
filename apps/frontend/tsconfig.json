@@ -26,7 +26,7 @@
     "types": ["vite/client"],
 
     /* ===============================
-     * Confort imports (optionnel mais recommandé)
+     * Confort imports
      * =============================== */
     "baseUrl": "src",
     "paths": {
@@ -37,10 +37,11 @@
       "@auth/*": ["auth/*"],
       "@config/*": ["config/*"],
       "@utils/*": ["utils/*"],
-      "@types/*": ["types/*"]
+      "@types/*": ["types/*"],
+      "@lib/*": ["lib/*"]
     }
   },
 
-  "include": ["src", "../backend/src/auth/permissions.ts"],
+  "include": ["src"],
   "exclude": ["node_modules", "dist"]
 }

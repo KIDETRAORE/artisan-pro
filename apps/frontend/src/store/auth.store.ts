@@ -1,15 +1,14 @@
 // src/store/auth.store.ts
 
 import { create } from "zustand";
-import * as authApi from "../api/auth.api";
-import type { AuthUser } from "../api/auth.api";
+import { supabase } from "../lib/supabase";
 
-/**
- * ======================
- * TYPES
- * ======================
- */
-export interface AuthState {
+export interface AuthUser {
+  id: string;
+  email: string;
+}
+
+interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
   isLoading: boolean;
@@ -19,73 +18,73 @@ export interface AuthState {
   logout: () => Promise<void>;
 }
 
-/**
- * ======================
- * AUTH STORE
- * ======================
- */
 export const useAuth = create<AuthState>((set) => ({
   user: null,
   accessToken: null,
-  isLoading: true,
+  isLoading: false,
 
   /**
    * ======================
    * LOGIN
    * ======================
    */
-  login: async (email, password) => {
+  login: async (email: string, password: string) => {
     set({ isLoading: true });
 
-    try {
-      /**
-       * login renvoie déjà :
-       * { user: { id, email, role, permissions }, accessToken }
-       */
-      const res = await authApi.login(email, password);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-      set({
-        user: res.user,
-        accessToken: res.accessToken,
-        isLoading: false,
-      });
-    } catch (err) {
-      set({
-        user: null,
-        accessToken: null,
-        isLoading: false,
-      });
-      throw err;
+    if (error) {
+      set({ isLoading: false });
+      throw error;
     }
+
+    if (!data.session || !data.user) {
+      set({ isLoading: false });
+      throw new Error("Authentication failed");
+    }
+
+    set({
+      user: {
+        id: data.user.id,
+        email: data.user.email ?? "",
+      },
+      accessToken: data.session.access_token,
+      isLoading: false,
+    });
   },
 
   /**
    * ======================
    * RESTORE SESSION
    * ======================
-   * ➜ utilisé au refresh ou au reload
    */
   restoreSession: async () => {
     set({ isLoading: true });
 
-    try {
-      const res = await authApi.refresh();
-      if (!res?.accessToken) throw new Error("No access token");
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-      const user = await authApi.me(res.accessToken);
-
-      set({
-        user, // { id, email, role, permissions }
-        accessToken: res.accessToken,
-        isLoading: false,
-      });
-    } catch {
+    if (!session) {
       set({
         user: null,
         accessToken: null,
         isLoading: false,
       });
+      return;
     }
+
+    set({
+      user: {
+        id: session.user.id,
+        email: session.user.email ?? "",
+      },
+      accessToken: session.access_token,
+      isLoading: false,
+    });
   },
 
   /**
@@ -94,7 +93,7 @@ export const useAuth = create<AuthState>((set) => ({
    * ======================
    */
   logout: async () => {
-    await authApi.logout();
+    await supabase.auth.signOut();
 
     set({
       user: null,
@@ -103,3 +102,26 @@ export const useAuth = create<AuthState>((set) => ({
     });
   },
 }));
+
+/**
+ * ======================
+ * 🔥 Synchronisation automatique Supabase
+ * ======================
+ */
+supabase.auth.onAuthStateChange((_event, session) => {
+  if (!session) {
+    useAuth.setState({
+      user: null,
+      accessToken: null,
+    });
+    return;
+  }
+
+  useAuth.setState({
+    user: {
+      id: session.user.id,
+      email: session.user.email ?? "",
+    },
+    accessToken: session.access_token,
+  });
+});

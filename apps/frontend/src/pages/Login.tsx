@@ -7,7 +7,7 @@ export default function Login() {
 
   const handleLogin = async () => {
     try {
-      await login("new@test.com", "password123");
+      await login("test@test.dev", "password123");
       navigate("/dashboard");
     } catch {
       alert("Erreur de connexion");

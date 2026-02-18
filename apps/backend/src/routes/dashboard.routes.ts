@@ -1,20 +1,16 @@
 import { Router } from "express";
-import { authMiddleware } from "../middlewares/auth.middleware";
 import { DashboardController } from "../controllers/dashboard.controller";
+import { verifySupabaseToken } from "../middlewares/verifySupabaseToken";
 
 const router = Router();
 
 /**
- * =========================
- * DASHBOARD
- * =========================
  * GET /dashboard
- * ➜ route protégée
- * ➜ retourne les infos du dashboard utilisateur
+ * Route protégée
  */
 router.get(
   "/",
-  authMiddleware,
+  verifySupabaseToken,
   DashboardController.getDashboard
 );
 

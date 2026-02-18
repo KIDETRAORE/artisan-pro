@@ -41,19 +41,32 @@ export async function authMiddleware(
       });
     }
 
+    const supabaseUser = data.user;
+
+    // ======================
+    // Mapping rôle sécurisé
+    // ======================
+    // Supabase retourne généralement "authenticated"
+    // On mappe vers ton type interne strict
+    const role: "user" | "admin" =
+      supabaseUser.role === "admin" ? "admin" : "user";
+
     // ======================
     // Injection user sécurisé
     // ======================
-    (req as any).user = Object.freeze({
-      id: data.user.id,
-      email: data.user.email,
-      role: data.user.role ?? "authenticated",
+    req.user = Object.freeze({
+      id: supabaseUser.id,
+      email: supabaseUser.email ?? "",
+      role,
+      permissions: [], // à enrichir plus tard si besoin
+      tokenVersion: 1,  // prêt pour future invalidation token
     });
 
     return next();
 
   } catch (error) {
     console.error("Auth Middleware Error:", error);
+
     return res.status(401).json({
       message: "Authentication failed",
     });

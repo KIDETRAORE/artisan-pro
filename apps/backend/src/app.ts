@@ -9,36 +9,39 @@ import { errorHandler } from "./middlewares/error.middleware";
 
 import dashboardRoutes from "./routes/dashboard.routes";
 import visionRoutes from "./routes/vision.routes";
+import stripeRoutes from "./routes/stripe.routes";
+import stripeWebhookRoutes from "./routes/stripe.webhook";
 
 const app = express();
 
-app.use((req, _res, next) => {
-  console.log("➡️ INCOMING", req.method, req.url, req.headers["content-type"]);
-  next();
-});
-
-
-/**
- * ======================
- * Trust proxy
- * ======================
- */
 app.set("trust proxy", 1);
 
 /**
- * ======================
- * Global middlewares
- * ======================
+ * =========================================
+ * 🔥 STRIPE WEBHOOK (DOIT ÊTRE EN PREMIER)
+ * =========================================
+ * ⚠️ IMPORTANT :
+ * - DOIT être AVANT express.json()
+ * - DOIT utiliser express.raw()
+ */
+app.use(
+  "/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  stripeWebhookRoutes
+);
+
+/**
+ * =========================================
+ * Global Middlewares
+ * =========================================
  */
 
-// Sécurité HTTP headers
 app.use(
   helmet({
-    crossOriginResourcePolicy: false, // requis pour images / uploads
+    crossOriginResourcePolicy: false,
   })
 );
 
-// CORS
 app.use(
   cors({
     origin: ENV.CORS_ORIGIN,
@@ -46,22 +49,21 @@ app.use(
   })
 );
 
-// ⚠️ IMPORTANT : taille augmentée pour base64 image
+/**
+ * ⚠️ express.json DOIT être après le webhook
+ */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false }));
-
-// Cookies (refresh token)
 app.use(cookieParser());
 
-// Logs HTTP
 if (ENV.NODE_ENV !== "test") {
   app.use(morgan("dev"));
 }
 
 /**
- * ======================
+ * =========================================
  * Health check
- * ======================
+ * =========================================
  */
 app.get("/health", (_req, res) => {
   res.status(200).json({
@@ -72,26 +74,27 @@ app.get("/health", (_req, res) => {
 });
 
 /**
- * ======================
+ * =========================================
  * API Routes
- * ======================
+ * =========================================
  */
 app.use("/dashboard", dashboardRoutes);
-app.use("/vision", visionRoutes); // ✅ ROUTE VISION OK
+app.use("/vision", visionRoutes);
+app.use("/stripe", stripeRoutes);
 
 /**
- * ======================
- * 404 fallback
- * ======================
+ * =========================================
+ * 404 Handler
+ * =========================================
  */
 app.use((_req, res) => {
   res.status(404).json({ error: "Route introuvable" });
 });
 
 /**
- * ======================
- * Error handler (TOUJOURS EN DERNIER)
- * ======================
+ * =========================================
+ * Global Error Handler
+ * =========================================
  */
 app.use(errorHandler);
 

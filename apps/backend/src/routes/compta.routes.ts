@@ -28,26 +28,35 @@ router.post(
     }
 
     try {
-      const input = req.body;
-
-      const response = await runAI("compta", input);
+      /**
+       * ✅ On récupère le prompt validé
+       * (ton comptaSchema doit contenir un champ "prompt")
+       */
+      const { prompt } = req.body;
 
       /**
-       * Enregistrement de l'usage APRÈS succès
-       * ➜ analyse comptable = feature coûteuse
+       * ✅ Appel correct de runAI
+       */
+      const response = await runAI("compta", {
+        prompt,
+      });
+
+      /**
+       * ✅ Enregistrement usage après succès
        */
       quotaService
         .recordUsage(
           user.id,
           "compta",
-          JSON.stringify(input),
-          JSON.stringify(response)
+          prompt,
+          response
         )
         .catch((err) =>
           console.error("[Compta Usage Log Error]", err)
         );
 
       return res.status(200).json({ response });
+
     } catch (err) {
       console.error("[Compta Error]", err);
       return res.status(500).json({
