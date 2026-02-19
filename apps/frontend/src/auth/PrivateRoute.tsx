@@ -1,18 +1,23 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../store/auth.store";
+import React from "react";
 
-export default function PrivateRoute({
-  children,
-}: {
-  children: JSX.Element;
-}) {
+interface PrivateRouteProps {
+  children: React.ReactNode;
+}
+
+export default function PrivateRoute({ children }: PrivateRouteProps) {
   const { user, accessToken, isLoading } = useAuth();
 
   /**
-   * ⏳ Attente de la restauration globale (App.tsx)
+   * ⏳ Attente de la restauration de session
    */
   if (isLoading) {
-    return <p>Chargement...</p>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p>Chargement...</p>
+      </div>
+    );
   }
 
   /**
@@ -25,5 +30,5 @@ export default function PrivateRoute({
   /**
    * ✅ Auth OK
    */
-  return children;
+  return <>{children}</>;
 }
