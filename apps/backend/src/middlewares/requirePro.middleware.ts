@@ -12,25 +12,42 @@ export const requirePro = async (
   res: Response,
   next: NextFunction
 ) => {
-  const user = (req as any).user;
+  try {
+    const user = (req as any).user;
 
-  if (!user?.id) {
-    return res.status(401).json({ message: "Unauthorized" });
+    if (!user?.id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("plan, subscription_status, current_period_end")
+      .eq("id", user.id)
+      .single();
+
+    if (error || !data) {
+      return res.status(404).json({ message: "User profile not found" });
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+
+    // 🔒 Sécurité SaaS complète
+    if (
+      data.plan !== "PRO" ||
+      data.subscription_status !== "active" ||
+      (data.current_period_end &&
+        data.current_period_end < now)
+    ) {
+      return res.status(403).json({
+        message: "Active Pro subscription required",
+      });
+    }
+
+    next();
+  } catch (err) {
+    console.error("requirePro error:", err);
+    return res.status(500).json({
+      message: "Subscription check failed",
+    });
   }
-
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("plan")
-    .eq("id", user.id)
-    .single();
-
-  if (error || !data) {
-    return res.status(403).json({ message: "User not found" });
-  }
-
-  if (data.plan !== "PRO") {
-    return res.status(403).json({ message: "Pro subscription required" });
-  }
-
-  next();
 };

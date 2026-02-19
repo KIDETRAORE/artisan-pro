@@ -20,9 +20,6 @@ app.set("trust proxy", 1);
  * =========================================
  * 🔥 STRIPE WEBHOOK (DOIT ÊTRE EN PREMIER)
  * =========================================
- * ⚠️ IMPORTANT :
- * - DOIT être AVANT express.json()
- * - DOIT utiliser express.raw()
  */
 app.use(
   "/stripe/webhook",
@@ -35,7 +32,6 @@ app.use(
  * Global Middlewares
  * =========================================
  */
-
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
@@ -49,9 +45,6 @@ app.use(
   })
 );
 
-/**
- * ⚠️ express.json DOIT être après le webhook
- */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -78,6 +71,7 @@ app.get("/health", (_req, res) => {
  * API Routes
  * =========================================
  */
+
 app.use("/dashboard", dashboardRoutes);
 app.use("/vision", visionRoutes);
 app.use("/stripe", stripeRoutes);

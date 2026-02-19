@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from "express";
-import { Permission } from "../auth/permissions";
 
-export function can(permission: Permission) {
+export function can(requiredRole: "admin") {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({
@@ -9,10 +8,10 @@ export function can(permission: Permission) {
       });
     }
 
-    if (!req.user.permissions.includes(permission)) {
+    if (req.user.role !== requiredRole) {
       return res.status(403).json({
-        message: "Permission refusée",
-        permission,
+        message: "Accès refusé",
+        requiredRole,
       });
     }
 

@@ -4,19 +4,25 @@ import { HttpError } from "../utils/httpError";
 const FREE_LIMIT = 5;
 
 export class SubscriptionService {
+
   /* ================================
      PLAN
   ================================== */
 
   static async getUserPlan(userId: string): Promise<"FREE" | "PRO"> {
     const { data, error } = await supabaseAdmin
-      .from("users")
+      .from("profiles") // ✅ CORRIGÉ
       .select("plan")
       .eq("id", userId)
       .single();
 
-    if (error || !data) {
-      throw new HttpError(404, "User not found");
+    if (error) {
+      console.error("getUserPlan error:", error);
+      throw new HttpError(500, "Failed to fetch user plan");
+    }
+
+    if (!data) {
+      throw new HttpError(404, "User profile not found");
     }
 
     return data.plan as "FREE" | "PRO";
@@ -38,6 +44,29 @@ export class SubscriptionService {
   static async getMonthlyUsage(userId: string): Promise<number> {
     const month = this.getCurrentMonthKey();
 
+    const { data, error } = await supabaseAdmin
+      .from("user_usage")
+      .select("analyses_count")
+      .eq("user_id", userId)
+      .eq("month", month)
+      .maybeSingle();
+
+    if (error) {
+      console.error("getMonthlyUsage error:", error);
+      throw new HttpError(500, "Failed to fetch usage");
+    }
+
+    return data?.analyses_count ?? 0;
+  }
+
+  /* ================================
+     INCREMENT
+  ================================== */
+
+  static async incrementUsage(userId: string): Promise<void> {
+    const month = this.getCurrentMonthKey();
+
+    // On vérifie si une ligne existe
     const { data } = await supabaseAdmin
       .from("user_usage")
       .select("analyses_count")
@@ -45,40 +74,37 @@ export class SubscriptionService {
       .eq("month", month)
       .maybeSingle();
 
-    return data?.analyses_count ?? 0;
-  }
-
-  /* ================================
-     INCREMENT (safe version)
-  ================================== */
-
-  static async incrementUsage(userId: string): Promise<void> {
-    const month = this.getCurrentMonthKey();
-
-    // Upsert atomique (évite race condition)
-    const { error } = await supabaseAdmin
-      .from("user_usage")
-      .upsert(
-        {
+    if (!data) {
+      // Première analyse du mois
+      const { error } = await supabaseAdmin
+        .from("user_usage")
+        .insert({
           user_id: userId,
           month,
           analyses_count: 1,
-        },
-        {
-          onConflict: "user_id,month",
-          ignoreDuplicates: false,
-        }
-      );
+        });
 
-    if (error) {
-      throw new HttpError(500, "Failed to increment usage");
+      if (error) {
+        console.error("incrementUsage insert error:", error);
+        throw new HttpError(500, "Failed to increment usage");
+      }
+
+      return;
     }
 
-    // Si déjà existant → on incrémente proprement
-    await supabaseAdmin.rpc("increment_usage", {
-      p_user_id: userId,
-      p_month: month,
-    });
+    // Sinon on incrémente
+    const { error } = await supabaseAdmin
+      .from("user_usage")
+      .update({
+        analyses_count: data.analyses_count + 1,
+      })
+      .eq("user_id", userId)
+      .eq("month", month);
+
+    if (error) {
+      console.error("incrementUsage update error:", error);
+      throw new HttpError(500, "Failed to increment usage");
+    }
   }
 
   /* ================================

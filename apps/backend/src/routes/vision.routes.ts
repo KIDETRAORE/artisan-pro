@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { validate } from "@middlewares/validate.middleware";
+import { checkQuota } from "@middlewares/checkQuota.middleware";
 import {
   analyzeVisionController,
   getVisionHistoryController,
@@ -16,12 +17,13 @@ const visionSchema = z.object({
 
 /**
  * POST /api/vision/analyze
- * FREE → 5 analyses / mois
+ * FREE → 3 analyses / mois
  * PRO → illimité
  */
 router.post(
   "/analyze",
   authMiddleware,
+  checkQuota,               // 🔥 ajout SaaS ici
   validate(visionSchema),
   analyzeVisionController
 );

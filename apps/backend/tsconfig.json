@@ -48,6 +48,7 @@
     "baseUrl": "src",
     "paths": {
       "@config/*": ["config/*"],
+      "@auth/*": ["auth/*"],
       "@routes/*": ["routes/*"],
       "@controllers/*": ["controllers/*"],
       "@services/*": ["services/*"],

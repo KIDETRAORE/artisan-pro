@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import { type UserRole } from "@auth/permissions";
+import { type Permission } from "@auth/permissions";
 
-export const requireRole =
-  (role: UserRole) =>
+export const requirePermission =
+  (permission: Permission) =>
   (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({
@@ -10,9 +10,9 @@ export const requireRole =
       });
     }
 
-    if (req.user.role !== role) {
+    if (!req.user.permissions.includes(permission)) {
       return res.status(403).json({
-        message: "Rôle insuffisant",
+        message: "Permission insuffisante",
       });
     }
 

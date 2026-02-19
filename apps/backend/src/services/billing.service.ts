@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 
-type Plan = "FREE" | "PRO";
+export type Plan = "FREE" | "PRO";
 
 export async function updateSubscriptionData(params: {
   userId: string;
@@ -24,7 +24,7 @@ export async function updateSubscriptionData(params: {
       subscription_status: subscriptionStatus,
       stripe_subscription_id: stripeSubscriptionId ?? null,
       current_period_end: currentPeriodEnd
-        ? new Date(currentPeriodEnd * 1000)
+        ? new Date(currentPeriodEnd * 1000).toISOString()
         : null,
     })
     .eq("id", userId);

@@ -2,7 +2,6 @@ import { Router } from "express";
 import visionRoutes from "./vision.routes";
 
 // Auth & Core
-import authRoutes from "./auth.routes";
 import healthRoutes from "./health.routes";
 import dashboardRoutes from "./dashboard.routes";
 
@@ -16,7 +15,6 @@ import { devisRouter } from "./devis.routes";
 const router = Router();
 
 router.use("/health", healthRoutes);
-router.use("/auth", authRoutes);
 
 router.use("/dashboard", dashboardRoutes);
 router.use("/assistant", assistantRoutes);

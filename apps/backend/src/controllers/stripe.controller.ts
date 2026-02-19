@@ -1,15 +1,23 @@
 import { Request, Response } from "express";
+import Stripe from "stripe";
 import { stripe } from "../services/stripe.service";
 import { requireUser } from "../utils/requireUser";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { ENV } from "../config/env";
-import { setUserPlan } from "../services/billing.service";
+import { updateSubscriptionData } from "../services/billing.service";
 
-/**
- * =====================================
- * POST /stripe/create-checkout-session
- * =====================================
- */
+/* =====================================================
+   TYPES
+===================================================== */
+
+type InvoiceWithSubscription = Stripe.Invoice & {
+  subscription?: string | Stripe.Subscription | null;
+};
+
+/* =====================================================
+   CREATE CHECKOUT SESSION
+===================================================== */
+
 export async function createCheckoutSession(
   req: Request,
   res: Response
@@ -20,13 +28,13 @@ export async function createCheckoutSession(
     return res.status(401).json({ error: "User non authentifié" });
   }
 
-  const { data: profile, error } = await supabaseAdmin
+  const { data: profile } = await supabaseAdmin
     .from("profiles")
     .select("email, stripe_customer_id")
     .eq("id", user.id)
     .single();
 
-  if (error || !profile) {
+  if (!profile) {
     return res.status(404).json({ error: "Profil introuvable" });
   }
 
@@ -66,11 +74,10 @@ export async function createCheckoutSession(
   return res.json({ url: session.url });
 }
 
-/**
- * =====================================
- * POST /stripe/create-portal-session
- * =====================================
- */
+/* =====================================================
+   CREATE PORTAL SESSION
+===================================================== */
+
 export async function createPortalSession(
   req: Request,
   res: Response
@@ -81,13 +88,13 @@ export async function createPortalSession(
     return res.status(401).json({ error: "User non authentifié" });
   }
 
-  const { data: profile, error } = await supabaseAdmin
+  const { data: profile } = await supabaseAdmin
     .from("profiles")
     .select("stripe_customer_id")
     .eq("id", user.id)
     .single();
 
-  if (error || !profile?.stripe_customer_id) {
+  if (!profile?.stripe_customer_id) {
     return res.status(400).json({ error: "Customer Stripe introuvable" });
   }
 
@@ -99,11 +106,10 @@ export async function createPortalSession(
   return res.json({ url: portalSession.url });
 }
 
-/**
- * =====================================
- * POST /stripe/webhook
- * =====================================
- */
+/* =====================================================
+   STRIPE WEBHOOK
+===================================================== */
+
 export async function stripeWebhook(
   req: Request,
   res: Response
@@ -114,7 +120,7 @@ export async function stripeWebhook(
     return res.status(400).send("Missing stripe-signature");
   }
 
-  let event;
+  let event: Stripe.Event;
 
   try {
     event = stripe.webhooks.constructEvent(
@@ -127,45 +133,60 @@ export async function stripeWebhook(
   }
 
   try {
+
     switch (event.type) {
 
-      case "invoice.payment_succeeded": {
-        const invoice = event.data.object as any;
-        if (!invoice.subscription) break;
-
-        const subscription = await stripe.subscriptions.retrieve(
-          invoice.subscription
-        );
-
-        const userId = subscription.metadata?.userId;
-        if (!userId) break;
-
-        await setUserPlan(userId, "PRO");
-        break;
-      }
-
+      case "invoice.payment_succeeded":
       case "invoice.payment_failed": {
-        const invoice = event.data.object as any;
+
+        const invoice = event.data.object as InvoiceWithSubscription;
         if (!invoice.subscription) break;
 
+        const subscriptionId =
+          typeof invoice.subscription === "string"
+            ? invoice.subscription
+            : invoice.subscription.id;
+
         const subscription = await stripe.subscriptions.retrieve(
-          invoice.subscription
-        );
+          subscriptionId
+        ) as Stripe.Subscription;
 
         const userId = subscription.metadata?.userId;
         if (!userId) break;
 
-        await setUserPlan(userId, "FREE");
+        const firstItem = subscription.items?.data?.[0];
+
+        const currentPeriodEnd =
+          firstItem && typeof firstItem.current_period_end === "number"
+            ? firstItem.current_period_end
+            : null;
+
+        await updateSubscriptionData({
+          userId,
+          plan: subscription.status === "active" ? "PRO" : "FREE",
+          subscriptionStatus: subscription.status,
+          stripeSubscriptionId: subscription.id,
+          currentPeriodEnd,
+        });
+
         break;
       }
 
       case "customer.subscription.deleted": {
-        const subscription = event.data.object as any;
+
+        const subscription = event.data.object as Stripe.Subscription;
 
         const userId = subscription.metadata?.userId;
         if (!userId) break;
 
-        await setUserPlan(userId, "FREE");
+        await updateSubscriptionData({
+          userId,
+          plan: "FREE",
+          subscriptionStatus: subscription.status,
+          stripeSubscriptionId: subscription.id,
+          currentPeriodEnd: null,
+        });
+
         break;
       }
 

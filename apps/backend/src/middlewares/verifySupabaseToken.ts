@@ -1,6 +1,6 @@
 import { jwtVerify, createRemoteJWKSet, JWTPayload } from "jose";
 import { Request, Response, NextFunction } from "express";
-import { ENV } from "../config/env";
+import { ENV } from "../config/env.js";
 
 // 🔐 JWKS Supabase
 const JWKS = createRemoteJWKSet(
@@ -11,18 +11,6 @@ interface SupabaseJwtPayload extends JWTPayload {
   sub: string;
   email?: string;
   role?: string;
-}
-
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        email: string;
-        role: string;
-      };
-    }
-  }
 }
 
 export async function verifySupabaseToken(
@@ -60,10 +48,13 @@ export async function verifySupabaseToken(
       });
     }
 
+    // ✅ Conforme à ton types/express/index.d.ts
     req.user = Object.freeze({
       id: jwtPayload.sub,
       email: jwtPayload.email ?? "",
-      role: jwtPayload.role,
+      role: "authenticated",
+      permissions: [], // 🔥 obligatoire pour matcher ton type global
+      stripePlan: null
     });
 
     return next();

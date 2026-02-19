@@ -5,20 +5,12 @@ import { createClient } from "@supabase/supabase-js";
 
 const router = Router();
 
-const stripe = new Stripe(ENV.STRIPE_SECRET_KEY, {
-});
+const stripe = new Stripe(ENV.STRIPE_SECRET_KEY);
 
 const supabase = createClient(
   ENV.SUPABASE_URL,
   ENV.SUPABASE_SERVICE_ROLE_KEY
 );
-
-/**
- * On étend proprement le type Invoice
- */
-type InvoiceWithSubscription = Stripe.Invoice & {
-  subscription?: string | Stripe.Subscription | null;
-};
 
 router.post("/", async (req: Request, res: Response) => {
   const signature = req.headers["stripe-signature"];
@@ -35,7 +27,7 @@ router.post("/", async (req: Request, res: Response) => {
       signature,
       ENV.STRIPE_WEBHOOK_SECRET
     );
-  } catch (err: unknown) {
+  } catch (err) {
     if (err instanceof Error) {
       console.error("❌ Signature verification failed:", err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -47,14 +39,12 @@ router.post("/", async (req: Request, res: Response) => {
 
   try {
     switch (event.type) {
-      /**
-       * =====================================
-       * CHECKOUT COMPLETED
-       * =====================================
-       */
+
+      /* ================================
+         CHECKOUT COMPLETED
+      ================================= */
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-
         if (!session.subscription) break;
 
         const subscriptionId =
@@ -78,21 +68,22 @@ router.post("/", async (req: Request, res: Response) => {
         break;
       }
 
-      /**
-       * =====================================
-       * INVOICE EVENTS
-       * =====================================
-       */
+      /* ================================
+         INVOICE EVENTS (Stripe v20 safe)
+      ================================= */
       case "invoice.payment_succeeded":
       case "invoice.payment_failed": {
-        const invoice = event.data.object as InvoiceWithSubscription;
 
-        if (!invoice.subscription) break;
+        const invoice = event.data.object as Stripe.Invoice;
+
+        // 🔐 Stripe v20 safe access
+        const subscriptionRef = (invoice as any)?.subscription;
+        if (!subscriptionRef) break;
 
         const subscriptionId =
-          typeof invoice.subscription === "string"
-            ? invoice.subscription
-            : invoice.subscription.id;
+          typeof subscriptionRef === "string"
+            ? subscriptionRef
+            : subscriptionRef.id;
 
         const subscription = await stripe.subscriptions.retrieve(
           subscriptionId
@@ -105,11 +96,9 @@ router.post("/", async (req: Request, res: Response) => {
         break;
       }
 
-      /**
-       * =====================================
-       * SUBSCRIPTION UPDATED
-       * =====================================
-       */
+      /* ================================
+         SUBSCRIPTION UPDATED
+      ================================= */
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
 
@@ -120,11 +109,9 @@ router.post("/", async (req: Request, res: Response) => {
         break;
       }
 
-      /**
-       * =====================================
-       * SUBSCRIPTION DELETED
-       * =====================================
-       */
+      /* ================================
+         SUBSCRIPTION DELETED
+      ================================= */
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
 
@@ -138,6 +125,9 @@ router.post("/", async (req: Request, res: Response) => {
             subscription_status: "canceled",
             stripe_subscription_id: null,
             current_period_end: null,
+            monthly_quota_limit: 10,
+            monthly_quota_used: 0,
+            quota_reset_at: null,
           })
           .eq("id", userId);
 
@@ -150,17 +140,17 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     return res.status(200).json({ received: true });
+
   } catch (error) {
     console.error("❌ Webhook processing error:", error);
     return res.sendStatus(500);
   }
 });
 
-/**
- * =====================================
- * SAFE SYNC FUNCTION
- * =====================================
- */
+/* =====================================
+   SAFE SYNC FUNCTION (Stripe v20 safe)
+===================================== */
+
 async function syncSubscription(
   userId: string,
   subscription: Stripe.Subscription,
@@ -169,30 +159,38 @@ async function syncSubscription(
   const status = subscription.status;
   const isActive = status === "active" || status === "trialing";
 
-  let currentPeriodEnd: Date | null = null;
+  // 🔐 Lecture runtime compatible Stripe v20
+  const periodEnd =
+    (subscription as any)?.current_period_end ??
+    subscription.items?.data?.[0]?.current_period_end ??
+    null;
 
-  if (
-    "current_period_end" in subscription &&
-    typeof subscription.current_period_end === "number"
-  ) {
-    currentPeriodEnd = new Date(subscription.current_period_end * 1000);
+  const updateData: Record<string, any> = {
+    plan: isActive ? "PRO" : "FREE",
+    subscription_status: status,
+    stripe_subscription_id: subscription.id,
+    current_period_end: periodEnd
+      ? new Date(periodEnd * 1000).toISOString()
+      : null,
+    monthly_quota_limit: isActive ? 500 : 10,
+    quota_reset_at: periodEnd,
+  };
+
+  if (!isActive) {
+    updateData.monthly_quota_used = 0;
+  }
+
+  if (customerId) {
+    updateData.stripe_customer_id = customerId;
   }
 
   await supabase
     .from("profiles")
-    .update({
-      plan: isActive ? "PRO" : "FREE",
-      subscription_status: status,
-      stripe_subscription_id: subscription.id,
-      stripe_customer_id: customerId ?? undefined,
-      current_period_end: currentPeriodEnd,
-    })
+    .update(updateData)
     .eq("id", userId);
 
   console.log(
-    `🔄 Sync → ${userId} | status=${status} | plan=${
-      isActive ? "PRO" : "FREE"
-    }`
+    `🔄 Sync → ${userId} | status=${status} | plan=${isActive ? "PRO" : "FREE"}`
   );
 }
 
