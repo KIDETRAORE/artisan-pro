@@ -1,144 +1,156 @@
 import React from 'react';
 import { 
   TrendingUp, 
-  Users, 
-  ClipboardCheck, 
-  AlertCircle,
-  ArrowUpRight,
-  Plus
+  Clock, 
+  AlertTriangle, 
+  Send, 
+  ArrowRight,
+  FileText,
+  Users
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom'; // <-- Ajouté pour la navigation
-import { useUser } from '../context/user.context';
-
-// Définition des types pour les composants internes
-interface StatCardProps {
-  title: string;
-  value: string;
-  trend: string;
-  icon: React.ReactNode;
-  color: string;
-}
-
-interface ProjectItemProps {
-  name: string;
-  status: 'En cours' | 'Terminé' | 'En attente';
-  date: string;
-  amount: string;
-}
+import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
-  const { userData } = useUser();
-  const navigate = useNavigate(); // <-- Initialisation du hook de navigation
-
   return (
-    <div className="space-y-8">
-      {/* 1. Header de bienvenue */}
-      <div className="flex justify-between items-end">
-        <div>
-          <h2 className="text-3xl font-bold text-slate-900">
-            Bonjour, {userData?.name || 'Artisan'} 👋
-          </h2>
-          <p className="text-slate-500 mt-1">Voici ce qui se passe sur vos chantiers aujourd'hui.</p>
-        </div>
-        <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-semibold transition-all shadow-lg shadow-blue-200">
-          <Plus size={20} />
-          Nouveau Devis
-        </button>
+    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
+      
+      {/* 1. EN-TÊTE DYNAMIQUE */}
+      <div>
+        <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">Tableau de bord</h2>
+        <p className="text-slate-500 mt-1">Bienvenue sur votre centre de pilotage ArtisanPro.</p>
       </div>
 
-      {/* 2. Cartes de Statistiques */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* 2. STATS RAPIDES (DEVIS & CA) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard 
-          title="CA Prévisionnel" 
+          title="Chiffre d'Affaires" 
           value="12 450 €" 
-          trend="+12%" 
-          icon={<TrendingUp className="text-emerald-600" size={24} />} 
-          color="bg-emerald-50"
+          trend="+12% ce mois" 
+          icon={<TrendingUp className="text-emerald-500" />} 
         />
         <StatCard 
-          title="Chantiers Actifs" 
+          title="Devis en attente" 
           value="8" 
-          trend="En cours" 
-          icon={<ClipboardCheck className="text-blue-600" size={24} />} 
-          color="bg-blue-50"
+          trend="3 urgents" 
+          icon={<Clock className="text-amber-500" />} 
         />
         <StatCard 
-          title="Nouveaux Clients" 
-          value="14" 
-          trend="+3 cette semaine" 
-          icon={<Users className="text-purple-600" size={24} />} 
-          color="bg-purple-50"
-        />
-        <StatCard 
-          title="Devis à relancer" 
-          value="3" 
-          trend="Urgent" 
-          icon={<AlertCircle className="text-amber-600" size={24} />} 
-          color="bg-amber-50"
+          title="Factures impayées" 
+          value="3 200 €" 
+          trend="Action requise" 
+          icon={<AlertTriangle className="text-red-500" />} 
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* 3. Liste des derniers chantiers (Large) */}
-        <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-50 flex justify-between items-center">
-            <h3 className="font-bold text-slate-800">Chantiers récents</h3>
-            <button className="text-blue-600 text-sm font-semibold hover:underline">Voir tout</button>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        {/* 3. SECTION FACTURES & RELANCES (L'élément clé) */}
+        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden flex flex-col">
+          <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Factures & Relances</h3>
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-1">Trésorerie active</p>
+            </div>
+            <Link to="/factures" className="text-blue-600 text-sm font-bold flex items-center gap-1 hover:gap-2 transition-all">
+              Gérer les impayés <ArrowRight size={14} />
+            </Link>
           </div>
-          <div className="divide-y divide-slate-50">
-            <ProjectItem name="Rénovation Cuisine - Villa Cap d'Ail" status="En cours" date="12 Fév 2026" amount="4 200 €" />
-            <ProjectItem name="Installation Pompe à Chaleur" status="Terminé" date="10 Fév 2026" amount="8 500 €" />
-            <ProjectItem name="Réfection Toiture Garage" status="En attente" date="08 Fév 2026" amount="2 100 €" />
+
+          <div className="p-4 space-y-3 flex-1">
+            <InvoiceReminderItem 
+              client="Hôtel de la Plage" 
+              amount="1 450 €" 
+              daysLate={12} 
+              status="CRITIQUE" 
+            />
+            <InvoiceReminderItem 
+              client="M. Marchand" 
+              amount="850 €" 
+              daysLate={5} 
+              status="RETARD" 
+            />
+            <InvoiceReminderItem 
+              client="Sarl Batipro" 
+              amount="2 100 €" 
+              daysLate={0} 
+              status="À VENIR" 
+            />
           </div>
         </div>
 
-        {/* 4. Raccourcis Vision AI (Petit) */}
-        <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-3xl p-8 text-white shadow-xl shadow-blue-200 relative overflow-hidden">
-          <div className="relative z-10">
-            <h3 className="text-xl font-bold mb-2">Tester Vision AI</h3>
-            <p className="text-blue-100 text-sm mb-6">Prenez une photo de vos fournitures pour générer un inventaire automatique.</p>
-            <button 
-              onClick={() => navigate('/vision')} 
-              className="w-full bg-white text-blue-600 font-bold py-3 rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-2 group"
-            >
-              Analyser une photo
-              <ArrowUpRight size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-            </button>
+        {/* 4. SECTION DEVIS RÉCENTS */}
+        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+          <div className="p-6 border-b border-slate-50 flex justify-between items-center">
+            <h3 className="text-lg font-bold text-slate-900">Derniers Devis</h3>
+            <Link to="/devis" className="text-slate-400 hover:text-blue-600 transition-colors">
+               <ArrowRight size={20} />
+            </Link>
           </div>
-          <div className="absolute -right-4 -bottom-4 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+          
+          <div className="divide-y divide-slate-50">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400">
+                        <FileText size={18} />
+                    </div>
+                    <div>
+                        <p className="text-sm font-bold text-slate-900">Projet Rénovation #{i}42</p>
+                        <p className="text-xs text-slate-500 font-medium">Client #00{i}</p>
+                    </div>
+                </div>
+                <span className="text-sm font-bold text-slate-700">950 €</span>
+              </div>
+            ))}
+          </div>
+          <div className="p-4 bg-slate-50/50 text-center">
+             <Link to="/devis" className="text-xs font-bold text-slate-400 hover:text-blue-600 uppercase tracking-widest">
+                Voir tout l'historique
+             </Link>
+          </div>
         </div>
+
       </div>
     </div>
   );
 }
 
-const StatCard = ({ title, value, trend, icon, color }: StatCardProps) => (
-  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-    <div className={`w-12 h-12 ${color} rounded-2xl flex items-center justify-center mb-4`}>
-      {icon}
-    </div>
-    <p className="text-sm font-medium text-slate-500">{title}</p>
-    <div className="flex items-baseline gap-2 mt-1">
-      <h4 className="text-2xl font-bold text-slate-900">{value}</h4>
-      <span className="text-xs font-bold text-emerald-600">{trend}</span>
-    </div>
-  </div>
-);
+// --- SOUS-COMPOSANTS INTERNES ---
 
-const ProjectItem = ({ name, status, date, amount }: ProjectItemProps) => (
-  <div className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
-    <div className="flex flex-col">
-      <span className="font-semibold text-slate-800">{name}</span>
-      <span className="text-sm text-slate-400">{date}</span>
+function StatCard({ title, value, trend, icon }: any) {
+  return (
+    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all group">
+      <div className="flex justify-between items-start mb-4">
+        <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">{icon}</div>
+        <span className="text-[10px] font-bold px-2 py-1 bg-slate-100 rounded-lg text-slate-500">{trend}</span>
+      </div>
+      <p className="text-slate-500 text-sm font-medium">{title}</p>
+      <h4 className="text-2xl font-black text-slate-900 mt-1">{value}</h4>
     </div>
-    <div className="flex items-center gap-6">
-      <span className="text-sm font-bold text-slate-700">{amount}</span>
-      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-        status === 'En cours' ? 'bg-blue-100 text-blue-600' : 
-        status === 'Terminé' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'
-      }`}>
-        {status}
-      </span>
+  );
+}
+
+function InvoiceReminderItem({ client, amount, daysLate, status }: any) {
+  return (
+    <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-50 hover:border-blue-100 hover:bg-blue-50/30 transition-all group">
+      <div className="flex items-center gap-4">
+        <div className={`w-1.5 h-8 rounded-full ${
+          status === 'CRITIQUE' ? 'bg-red-500' : status === 'RETARD' ? 'bg-amber-500' : 'bg-blue-500'
+        }`} />
+        <div>
+          <p className="text-sm font-bold text-slate-900">{client}</p>
+          <p className="text-[11px] text-slate-500 font-medium">
+            {status === 'À VENIR' ? 'Échéance demain' : `${daysLate} jours de retard`}
+          </p>
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-4">
+        <span className="text-sm font-black text-slate-900">{amount}</span>
+        <button className="flex items-center gap-2 bg-slate-900 text-white px-3 py-2 rounded-xl text-xs font-bold hover:bg-blue-600 transition-all opacity-0 group-hover:opacity-100 shadow-lg shadow-slate-200">
+          <Send size={12} /> Relancer
+        </button>
+      </div>
     </div>
-  </div>
-);
+  );
+}

@@ -61,7 +61,7 @@ export function Topbar() {
           ) : (
             <div className="flex items-center gap-1 text-[11px] text-emerald-600 font-bold mt-1 uppercase">
               <ShieldCheck size={12} />
-              Usage Illimité
+              <span className="tracking-tight">Usage Illimité</span>
             </div>
           )}
         </div>
