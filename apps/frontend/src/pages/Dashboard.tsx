@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 import { useAuth } from "../store/auth.store";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -31,56 +31,62 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
 
-  const loadDashboard = async () => {
+  const loadDashboard = useCallback(async () => {
     try {
       setLoading(true);
 
       const json = await fetchWithAuth<DashboardResponse>("/dashboard");
       setData(json);
 
-      // 🔥 Injection globale dans le header
+      // ✅ CORRECTION ICI : pas de null
       setUserData({
         plan: json.user.plan ?? "FREE",
         quota: json.quota,
       });
 
-    } catch (err: any) {
-      if (err.message === "Session expirée") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "Session expirée") {
         await logout();
         navigate("/login");
         return;
       }
+
       setError("Impossible de charger le dashboard");
     } finally {
       setLoading(false);
     }
-  };
+  }, [logout, navigate, setUserData]);
 
   useEffect(() => {
     loadDashboard();
-  }, []);
+  }, [loadDashboard]);
 
   useEffect(() => {
     if (searchParams.get("success") === "true") {
       loadDashboard();
       navigate("/dashboard", { replace: true });
     }
-  }, [searchParams]);
+  }, [searchParams, loadDashboard, navigate]);
 
   const handleUpgrade = async () => {
     try {
       setUpgradeLoading(true);
+
       const json = await fetchWithAuth<{ url: string }>(
         "/stripe/create-checkout-session",
         { method: "POST" }
       );
-      if (json.url) window.location.href = json.url;
-    } catch (err: any) {
-      alert(err.message || "Impossible de lancer le paiement");
+
+      if (json.url) {
+        window.location.href = json.url;
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        alert(err.message);
+      }
     } finally {
       setUpgradeLoading(false);
     }
@@ -89,13 +95,19 @@ export default function Dashboard() {
   const handleManageSubscription = async () => {
     try {
       setPortalLoading(true);
+
       const json = await fetchWithAuth<{ url: string }>(
         "/stripe/portal",
         { method: "POST" }
       );
-      if (json.url) window.location.href = json.url;
-    } catch (err: any) {
-      alert(err.message || "Impossible d'ouvrir le portail");
+
+      if (json.url) {
+        window.location.href = json.url;
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        alert(err.message);
+      }
     } finally {
       setPortalLoading(false);
     }

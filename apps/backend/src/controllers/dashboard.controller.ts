@@ -4,6 +4,7 @@ import { Request, Response } from "express";
 import { createClient } from "@supabase/supabase-js";
 import { ENV } from "../config/env";
 import { Plan } from "../types/plan";
+import { quotaService } from "../services/quota.service";
 
 /**
  * Client Supabase admin (SERVICE ROLE)
@@ -14,9 +15,6 @@ const supabaseAdmin = createClient(
   ENV.SUPABASE_SERVICE_ROLE_KEY
 );
 
-/**
- * DASHBOARD CONTROLLER
- */
 export class DashboardController {
   /**
    * GET /dashboard
@@ -31,7 +29,7 @@ export class DashboardController {
       }
 
       // ===============================
-      // 🔎 Lecture du profil en base
+      // 🔎 Lecture du profil
       // ===============================
       const { data: profile, error } = await supabaseAdmin
         .from("profiles")
@@ -46,8 +44,19 @@ export class DashboardController {
         });
       }
 
-      // Si jamais plan null → FREE par défaut
       const plan: Plan = (profile?.plan as Plan) ?? "FREE";
+
+      // ===============================
+      // 🔥 Récupération quota
+      // ===============================
+      const quota = await quotaService.getUserQuota(user.id);
+
+      const used = quota?.used ?? 0;
+      const limit = quota?.monthly_limit ?? 0;
+      const resetAt = quota?.reset_at ?? null;
+
+      const percent =
+        limit > 0 ? Math.round((used / limit) * 100) : 0;
 
       // ===============================
       // 🔥 Features dynamiques
@@ -66,6 +75,12 @@ export class DashboardController {
           plan,
         },
         features,
+        quota: {
+          used,
+          limit,
+          percent,
+          resetAt,
+        },
       });
     } catch (error) {
       console.error("Dashboard error:", error);

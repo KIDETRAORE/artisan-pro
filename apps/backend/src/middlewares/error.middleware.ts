@@ -12,21 +12,42 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ) {
-  // Erreurs métier contrôlées
+  const isDev = process.env.NODE_ENV !== "production";
+
+  /* ================================
+     ERREURS MÉTIER CONTRÔLÉES
+  ================================== */
   if (err instanceof HttpError) {
+    if (isDev) {
+      console.error("[HttpError]", {
+        status: err.statusCode,
+        message: err.message,
+        stack: err.stack,
+      });
+    }
+
     return res.status(err.statusCode).json({
+      success: false,
       message: err.message,
     });
   }
 
-  // Erreurs JS natives
+  /* ================================
+     ERREURS JS NATIVES
+  ================================== */
   if (err instanceof Error) {
     console.error("[Unhandled Error]", err.message, err.stack);
   } else {
     console.error("[Unknown Error]", err);
   }
 
+  /* ================================
+     ERREUR INTERNE
+  ================================== */
   return res.status(500).json({
-    message: "Erreur interne du serveur",
+    success: false,
+    message: isDev
+      ? "Internal server error"
+      : "Erreur interne du serveur",
   });
 }

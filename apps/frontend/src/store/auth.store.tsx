@@ -14,14 +14,13 @@ interface AuthState {
   isLoading: boolean;
 
   login: (email: string, password: string) => Promise<void>;
-  restoreSession: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
 export const useAuth = create<AuthState>((set) => ({
   user: null,
   accessToken: null,
-  isLoading: false,
+  isLoading: true, // 🔥 Important : true au démarrage
 
   /**
    * ======================
@@ -29,62 +28,14 @@ export const useAuth = create<AuthState>((set) => ({
    * ======================
    */
   login: async (email: string, password: string) => {
-    set({ isLoading: true });
-
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      set({ isLoading: false });
       throw error;
     }
-
-    if (!data.session || !data.user) {
-      set({ isLoading: false });
-      throw new Error("Authentication failed");
-    }
-
-    set({
-      user: {
-        id: data.user.id,
-        email: data.user.email ?? "",
-      },
-      accessToken: data.session.access_token,
-      isLoading: false,
-    });
-  },
-
-  /**
-   * ======================
-   * RESTORE SESSION
-   * ======================
-   */
-  restoreSession: async () => {
-    set({ isLoading: true });
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) {
-      set({
-        user: null,
-        accessToken: null,
-        isLoading: false,
-      });
-      return;
-    }
-
-    set({
-      user: {
-        id: session.user.id,
-        email: session.user.email ?? "",
-      },
-      accessToken: session.access_token,
-      isLoading: false,
-    });
   },
 
   /**
@@ -94,34 +45,37 @@ export const useAuth = create<AuthState>((set) => ({
    */
   logout: async () => {
     await supabase.auth.signOut();
-
-    set({
-      user: null,
-      accessToken: null,
-      isLoading: false,
-    });
   },
 }));
 
 /**
  * ======================
- * 🔥 Synchronisation automatique Supabase
+ * 🔥 Sync UNIQUE et contrôlée
  * ======================
  */
 supabase.auth.onAuthStateChange((_event, session) => {
-  if (!session) {
-    useAuth.setState({
-      user: null,
-      accessToken: null,
-    });
-    return;
-  }
+  useAuth.setState((state) => {
+    const newUser = session
+      ? {
+          id: session.user.id,
+          email: session.user.email ?? "",
+        }
+      : null;
 
-  useAuth.setState({
-    user: {
-      id: session.user.id,
-      email: session.user.email ?? "",
-    },
-    accessToken: session.access_token,
+    const newToken = session?.access_token ?? null;
+
+    // 🚫 Évite les updates inutiles
+    if (
+      state.user?.id === newUser?.id &&
+      state.accessToken === newToken
+    ) {
+      return state;
+    }
+
+    return {
+      user: newUser,
+      accessToken: newToken,
+      isLoading: false,
+    };
   });
 });

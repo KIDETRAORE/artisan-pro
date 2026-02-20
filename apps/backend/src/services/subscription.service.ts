@@ -4,14 +4,13 @@ import { HttpError } from "../utils/httpError";
 const FREE_LIMIT = 5;
 
 export class SubscriptionService {
-
   /* ================================
      PLAN
   ================================== */
 
   static async getUserPlan(userId: string): Promise<"FREE" | "PRO"> {
     const { data, error } = await supabaseAdmin
-      .from("profiles") // ✅ CORRIGÉ
+      .from("profiles")
       .select("plan")
       .eq("id", userId)
       .single();
@@ -34,7 +33,9 @@ export class SubscriptionService {
 
   static getCurrentMonthKey(): string {
     const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    return `${now.getFullYear()}-${String(
+      now.getMonth() + 1
+    ).padStart(2, "0")}`;
   }
 
   /* ================================
@@ -60,49 +61,22 @@ export class SubscriptionService {
   }
 
   /* ================================
-     INCREMENT
+     INCREMENT (ATOMIC SAFE)
   ================================== */
 
   static async incrementUsage(userId: string): Promise<void> {
     const month = this.getCurrentMonthKey();
 
-    // On vérifie si une ligne existe
-    const { data } = await supabaseAdmin
-      .from("user_usage")
-      .select("analyses_count")
-      .eq("user_id", userId)
-      .eq("month", month)
-      .maybeSingle();
-
-    if (!data) {
-      // Première analyse du mois
-      const { error } = await supabaseAdmin
-        .from("user_usage")
-        .insert({
-          user_id: userId,
-          month,
-          analyses_count: 1,
-        });
-
-      if (error) {
-        console.error("incrementUsage insert error:", error);
-        throw new HttpError(500, "Failed to increment usage");
+    const { error } = await supabaseAdmin.rpc(
+      "increment_monthly_usage",
+      {
+        uid: userId,
+        m: month,
       }
-
-      return;
-    }
-
-    // Sinon on incrémente
-    const { error } = await supabaseAdmin
-      .from("user_usage")
-      .update({
-        analyses_count: data.analyses_count + 1,
-      })
-      .eq("user_id", userId)
-      .eq("month", month);
+    );
 
     if (error) {
-      console.error("incrementUsage update error:", error);
+      console.error("incrementUsage rpc error:", error);
       throw new HttpError(500, "Failed to increment usage");
     }
   }
@@ -114,8 +88,10 @@ export class SubscriptionService {
   static async checkAccess(userId: string): Promise<void> {
     const plan = await this.getUserPlan(userId);
 
+    // PRO → accès illimité
     if (plan === "PRO") return;
 
+    // FREE → vérifier quota
     const usage = await this.getMonthlyUsage(userId);
 
     if (usage >= FREE_LIMIT) {

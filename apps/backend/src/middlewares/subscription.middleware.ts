@@ -7,14 +7,35 @@ export const subscriptionMiddleware = async (
   next: NextFunction
 ) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user?.id) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      });
     }
 
     await SubscriptionService.checkAccess(req.user.id);
 
-    next();
-  } catch (error) {
-    next(error);
+    return next();
+  } catch (error: any) {
+    // Gestion explicite des erreurs métier
+    if (error.code === "PLAN_REQUIRED") {
+      return res.status(403).json({
+        message: "Upgrade to PRO required",
+      });
+    }
+
+    if (error.code === "SUBSCRIPTION_INACTIVE") {
+      return res.status(403).json({
+        message: "Subscription inactive",
+      });
+    }
+
+    if (error.code === "QUOTA_EXCEEDED") {
+      return res.status(403).json({
+        message: "Quota exceeded",
+      });
+    }
+
+    return next(error);
   }
 };
