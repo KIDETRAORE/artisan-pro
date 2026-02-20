@@ -6,7 +6,7 @@ import {
 } from "react";
 
 /* ============================
-   TYPES
+    TYPES
 ============================ */
 
 export type Quota = {
@@ -15,6 +15,8 @@ export type Quota = {
 };
 
 export type UserData = {
+  name?: string;     // <-- AJOUTÉ
+  email?: string;    // <-- AJOUTÉ
   plan?: string;
   quota?: Quota;
 };
@@ -26,7 +28,7 @@ type UserContextType = {
 };
 
 /* ============================
-   CONTEXT
+    CONTEXT
 ============================ */
 
 const UserContext = createContext<UserContextType | undefined>(
@@ -34,7 +36,7 @@ const UserContext = createContext<UserContextType | undefined>(
 );
 
 /* ============================
-   PROVIDER
+    PROVIDER
 ============================ */
 
 export function UserProvider({
@@ -63,7 +65,7 @@ export function UserProvider({
 }
 
 /* ============================
-   HOOK
+    HOOK
 ============================ */
 
 export function useUser() {
