@@ -1,6 +1,7 @@
 import app from "./app";
 import { ENV } from "./config/env";
 import { logger } from "./utils/logger";
+import { initScheduler } from "./automation/scheduler"; // Import du planificateur
 
 /**
  * ======================
@@ -29,6 +30,13 @@ logger.info("PORT CHECK", {
  */
 const server = app.listen(PORT, () => {
   logger.info(`🚀 ArtisanPro API running on port ${PORT}`);
+  
+  // 🔥 INITIALISATION DES TÂCHES AUTOMATIQUES (CRON)
+  try {
+    initScheduler();
+  } catch (err) {
+    logger.error("❌ Erreur lors de l'initialisation du Scheduler", err);
+  }
 });
 
 /**
@@ -52,8 +60,8 @@ const shutdown = (signal: string) => {
 };
 
 // OS signals
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 /**
  * ======================

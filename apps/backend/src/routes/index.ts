@@ -1,25 +1,45 @@
 import { Router } from "express";
 import visionRoutes from "./vision.routes";
-
-// Auth & Core
+import vocalRoutes from "./vocal.routes";
 import healthRoutes from "./health.routes";
 import dashboardRoutes from "./dashboard.routes";
-
-// Features IA (PHASE 1 stubs)
 import assistantRoutes from "./assistant.routes";
 import comptaRoutes from "./compta.routes";
-
-// Business
+import automationRoutes from "./automation.routes";
 import { devisRouter } from "./devis.routes";
 
 const router = Router();
 
+/**
+ * ============================
+ * ROUTES TECHNIQUES
+ * ============================
+ */
 router.use("/health", healthRoutes);
 
+/**
+ * ============================
+ * ROUTES BUSINESS & DASHBOARD
+ * ============================
+ */
 router.use("/dashboard", dashboardRoutes);
+router.use("/devis", devisRouter);
+
+/**
+ * ============================
+ * MODULES IA
+ * ============================
+ */
 router.use("/assistant", assistantRoutes);
 router.use("/compta", comptaRoutes);
-router.use("/devis", devisRouter);
 router.use("/vision", visionRoutes);
+router.use("/vocal", vocalRoutes);
+
+/**
+ * ============================
+ * AUTOMATISATION (Phase 3)
+ * ============================
+ */
+router.use("/automation", automationRoutes); 
 
 export default router;

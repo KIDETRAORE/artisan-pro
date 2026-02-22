@@ -1,78 +1,25 @@
-import { Request, Response, NextFunction } from "express";
-import { HttpError } from "../utils/httpError";
+import rateLimit from "express-rate-limit";
+// On garde HttpError si tu veux rester cohérent avec ton utils actuel
+import { HttpError } from "../utils/httpError"; 
 
-/**
- * Fenêtre de limitation (1 minute)
- */
-const WINDOW_MS = 60_000;
+// 1. Limite Globale (300 requêtes / 15 min) - Protection Serveur
+export const globalRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  message: { error: "Trop de requêtes globales, réessayez plus tard." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
-/**
- * Nombre max de requêtes par fenêtre
- */
-const MAX_REQUESTS = 30;
-
-type RateLimitEntry = {
-  count: number;
-  lastReset: number;
-};
-
-/**
- * Store en mémoire (OK pour dev / MVP)
- */
-const rateLimitStore = new Map<string, RateLimitEntry>();
-
-export function rateLimiter(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
-  try {
-    const key =
-      req.ip ||
-      req.headers["x-forwarded-for"]?.toString() ||
-      "unknown";
-
-    const now = Date.now();
-    const entry = rateLimitStore.get(key);
-
-    // Première requête
-    if (!entry) {
-      rateLimitStore.set(key, {
-        count: 1,
-        lastReset: now,
-      });
-      next();
-      return;
-    }
-
-    // Fenêtre expirée → reset
-    if (now - entry.lastReset > WINDOW_MS) {
-      entry.count = 1;
-      entry.lastReset = now;
-      next();
-      return;
-    }
-
-    // Incrément
-    entry.count += 1;
-
-    // Limite dépassée
-    if (entry.count > MAX_REQUESTS) {
-      const retryAfter = Math.ceil(
-        (entry.lastReset + WINDOW_MS - now) / 1000
-      );
-
-      res.setHeader("Retry-After", retryAfter.toString());
-
-      res.status(429).json({
-        error: "Trop de requêtes, veuillez réessayer plus tard",
-        retryAfter,
-      });
-      return;
-    }
-
-    next();
-  } catch (error) {
-    next(new HttpError(500, "Rate limit middleware error"));
+// 2. Limite IA (20 requêtes / minute) - Protection Budget / Token
+export const aiRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  message: { error: "Limite d'utilisation de l'IA atteinte pour cette minute." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Optionnel : On peut personnaliser l'erreur pour utiliser ton HttpError
+  handler: (req, res, next, options) => {
+    res.status(429).json(options.message);
   }
-}
+});

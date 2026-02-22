@@ -21,7 +21,6 @@ const ENABLE_DEBUG = ENV !== "production";
 /**
  * =========================
  * SAFE JSON STRINGIFY
- * (évite crash sur objets circulaires)
  * =========================
  */
 function safeStringify(value: unknown): string {
@@ -37,6 +36,7 @@ function safeStringify(value: unknown): string {
 /**
  * =========================
  * SERIALIZE META
+ * (Amélioré pour Google Cloud)
  * =========================
  */
 function serializeMeta(meta: unknown): unknown {
@@ -47,7 +47,7 @@ function serializeMeta(meta: unknown): unknown {
       stack: meta.stack,
     };
   }
-
+  // Si c'est déjà un objet, on le retourne tel quel
   return meta;
 }
 
@@ -72,12 +72,13 @@ function formatLog(
     entry.meta = serializeMeta(meta);
   }
 
+  // Pour Google Cloud Run, le JSON sur une seule ligne est le standard
   return safeStringify(entry);
 }
 
 /**
  * =========================
- * LOGGER
+ * LOGGER (Version Phase 1 - Robuste)
  * =========================
  */
 export const logger = {
@@ -94,6 +95,7 @@ export const logger = {
     console.warn(formatLog("warn", message, meta));
   },
 
+  // On s'assure que la signature accepte (string, unknown)
   error(message: string, meta?: unknown) {
     console.error(formatLog("error", message, meta));
   },

@@ -1,11 +1,6 @@
 import { Request, Response, NextFunction } from "express";
-import { createClient } from "@supabase/supabase-js";
-import { ENV } from "../config/env";
-
-const supabase = createClient(
-  ENV.SUPABASE_URL,
-  ENV.SUPABASE_SERVICE_ROLE_KEY
-);
+import { supabaseAdmin } from "../lib/supabaseAdmin";
+import { logger } from "../utils/logger";
 
 export const quotaMiddleware = async (
   req: Request,
@@ -16,55 +11,62 @@ export const quotaMiddleware = async (
     const user = (req as any).user;
 
     if (!user?.id) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return res.status(401).json({ success: false, message: "Utilisateur non authentifié" });
     }
 
-    // 🔎 Récupération du profil
-    const { data: profile, error } = await supabase
+    // 🔎 1. Récupération du profil
+    const { data: profile, error } = await supabaseAdmin
       .from("profiles")
-      .select("quota_reset_at")
+      .select("quota_reset_at, monthly_quota_used, plan")
       .eq("id", user.id)
       .single();
 
     if (error || !profile) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ success: false, message: "Profil introuvable" });
     }
 
-    const now = Math.floor(Date.now() / 1000);
+    const nowTimestamp = Math.floor(Date.now() / 1000);
 
-    // 🔄 Reset automatique si période dépassée
-    if (profile.quota_reset_at && now > profile.quota_reset_at) {
-      await supabase
+    // 🔄 2. Reset automatique de période
+    // Si la date de reset est passée, on remet à zéro ET on décale la date au mois suivant
+    if (profile.quota_reset_at && nowTimestamp > profile.quota_reset_at) {
+      logger.info(`🔄 Reset du quota mensuel pour l'utilisateur ${user.id}`);
+      
+      // On calcule la nouvelle date de reset (Date actuelle + 30 jours)
+      const nextReset = nowTimestamp + (30 * 24 * 60 * 60);
+
+      await supabaseAdmin
         .from("profiles")
         .update({
           monthly_quota_used: 0,
-          quota_reset_at: null, // sera remis à jour par Stripe
+          quota_reset_at: nextReset
         })
         .eq("id", user.id);
+      
+      // Note: On ne bloque pas ici, on laisse l'incrément se faire sur un compteur frais
     }
 
-    // 🛡 Incrément atomique sécurisé via RPC SQL
-    const { data: allowed, error: rpcError } = await supabase.rpc(
+    // 🛡 3. Incrément atomique sécurisé (RPC)
+    const { data: allowed, error: rpcError } = await supabaseAdmin.rpc(
       "increment_quota_if_allowed",
-      { user_id: user.id }
+      { _user_id: user.id }
     );
 
     if (rpcError) {
-      console.error("RPC quota error:", rpcError);
-      return res.status(500).json({ message: "Quota check failed" });
+      logger.error("❌ Erreur RPC Quota:", rpcError);
+      return res.status(500).json({ success: false, message: "Erreur vérification quota" });
     }
 
     if (!allowed) {
       return res.status(403).json({
-        message: "Monthly quota exceeded",
+        success: false,
+        message: "Quota mensuel IA dépassé. Passez au plan PRO pour plus d'analyses !",
       });
     }
 
     next();
   } catch (err) {
-    console.error("Quota middleware error:", err);
-    return res.status(500).json({
-      message: "Quota check failed",
-    });
+    logger.error("🔥 Erreur critique Quota Middleware:", err);
+    return res.status(500).json({ success: false, message: "Erreur interne" });
   }
 };

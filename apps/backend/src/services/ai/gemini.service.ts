@@ -1,162 +1,140 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ENV } from "../../config/env";
+import { logger } from "../../utils/logger";
+import { HttpError } from "../../utils/httpError";
+import { getArtisanContext } from "./context.service";
+import { PROMPTS } from "./prompts"; // On importe tes prompts centralisés
+
+const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY || "");
 
 /**
  * ============================
- * TYPES
+ * TYPES & INTERFACES (Corrigés)
  * ============================
  */
-
-export type AIType = "vision" | "compta";
+// Ajout de "vocal" pour corriger l'erreur de comparaison TS
+export type AIType = "assistant" | "devis" | "compta" | "vision" | "relance" | "vocal";
 
 interface VisionAIParams {
   prompt: string;
   image: Buffer;
+  userId: string;
 }
 
 interface ComptaAIParams {
   prompt: string;
+  userId: string;
 }
 
-type AIPayload = VisionAIParams | ComptaAIParams;
-
-interface GeminiResponse {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
+interface VocalAIParams {
+  prompt: string;
+  audioBuffer: Buffer;
+  mimeType: string;
+  userId: string;
 }
+
+type AIPayload = VisionAIParams | ComptaAIParams | VocalAIParams;
 
 /**
  * ============================
- * RUN AI
+ * RUN AI (DYNAMIQUE)
  * ============================
  */
-
 export async function runAI(
   type: AIType,
   payload: AIPayload
 ): Promise<string> {
 
-  console.log("🚀 runAI START");
-
   if (!ENV.GEMINI_API_KEY) {
-    console.error("❌ GEMINI_API_KEY missing");
-    throw new Error("GEMINI_API_KEY missing");
+    logger.error("GEMINI_API_KEY missing");
+    throw new HttpError(500, "Configuration IA incomplète");
   }
 
-  const model = "gemini-2.5-flash";
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  // 1. Récupération du contexte métier (Artisan)
+  const artisanContext = await getArtisanContext(payload.userId);
 
-  let body: any;
+  // 2. Sélection de l'instruction système basée sur le type (DYNAMIQUE)
+  // On utilise le dictionnaire PROMPTS que tu as créé dans prompts.ts
+  const specificInstruction = PROMPTS[type as keyof typeof PROMPTS] || PROMPTS.assistant;
 
-  /**
-   * ============================
-   * VISION MODE
-   * ============================
-   */
-  if (type === "vision") {
-    const visionPayload = payload as VisionAIParams;
+  const fullPrompt = `
+${specificInstruction}
 
-    const base64 = visionPayload.image.toString("base64");
+CONTEXTE DE L'ARTISAN :
+${artisanContext}
 
-    body = {
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: visionPayload.prompt },
-            {
-              inlineData: {
-                mimeType: "image/jpeg",
-                data: base64,
-              },
-            },
-          ],
-        },
-      ],
-    };
-  }
+DEMANDE :
+${payload.prompt}
 
-  /**
-   * ============================
-   * COMPTA MODE
-   * ============================
-   */
-  else if (type === "compta") {
-    const comptaPayload = payload as ComptaAIParams;
+IMPORTANT : Réponds uniquement au format JSON valide.
+  `;
 
-    body = {
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: comptaPayload.prompt }],
-        },
-      ],
-    };
-  }
+  // 3. Liste des modèles par priorité
+  const models = ["gemini-2.5-flash", "gemini-1.5-flash"]; 
+  let lastError: any = null;
 
-  else {
-    throw new Error(`Unsupported AI type: ${type}`);
-  }
+  for (const modelName of models) {
+    try {
+      logger.info(`🤖 Tentative IA avec le modèle : ${modelName}`);
 
-  console.log("🌍 Calling Gemini API...");
+      const model = genAI.getGenerativeModel(
+        { model: modelName },
+        { apiVersion: "v1" } 
+      );
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+      const generationConfig = {
+        temperature: 0.1,
+      };
 
-  let response: Response;
+      let result;
 
-  try {
-    response = await fetch(
-      `${endpoint}?key=${ENV.GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
+      // 4. Gestion des flux (Vision / Vocal / Texte)
+      if (type === "vision" && "image" in payload) {
+        result = await model.generateContent({
+          contents: [{ role: "user", parts: [
+            { text: fullPrompt },
+            { inlineData: { mimeType: "image/jpeg", data: payload.image.toString("base64") } }
+          ]}],
+          generationConfig
+        });
+      } 
+      else if (type === "vocal" && "audioBuffer" in payload) {
+        result = await model.generateContent({
+          contents: [{ role: "user", parts: [
+            { text: fullPrompt },
+            { inlineData: { mimeType: payload.mimeType, data: payload.audioBuffer.toString("base64") } }
+          ]}],
+          generationConfig
+        });
+      } 
+      else {
+        result = await model.generateContent({
+          contents: [{ role: "user", parts: [{ text: fullPrompt }]}],
+          generationConfig
+        });
       }
-    );
-  } catch (error: unknown) {
-    clearTimeout(timeout);
 
-    console.error("🔥 Network error:", error);
+      const response = await result.response;
+      const text = response.text();
 
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Gemini API timeout (20s)");
+      if (!text) throw new Error("Réponse vide de l'IA");
+
+      logger.info(`✅ Succès avec ${modelName}`);
+      return text;
+
+    } catch (error: any) {
+      lastError = error;
+      const isQuotaError = error.message?.includes("429");
+      const isNotFoundError = error.message?.toLowerCase().includes("not found");
+
+      if (isQuotaError || isNotFoundError) {
+        logger.warn(`⚠️ Échec avec ${modelName}. Passage au suivant...`);
+        continue; 
+      }
+      logger.error(`❌ Erreur sur ${modelName}:`, error.message);
+      break;
     }
-
-    throw new Error("Gemini API network error");
   }
 
-  clearTimeout(timeout);
-
-  console.log("📡 Gemini status:", response.status);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("🔥 Gemini error body:", errorText);
-
-    throw new Error(
-      `Gemini API error ${response.status}: ${errorText}`
-    );
-  }
-
-  const data = (await response.json()) as GeminiResponse;
-
-  console.log("📦 Gemini raw response received");
-
-  const text =
-    data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) {
-    console.error("❌ Empty Gemini response:", data);
-    throw new Error("GEMINI_EMPTY_RESPONSE");
-  }
-
-  console.log("✅ runAI SUCCESS");
-
-  return text;
+  throw new HttpError(500, `L'IA a échoué: ${lastError?.message}`);
 }

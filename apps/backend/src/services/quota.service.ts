@@ -22,6 +22,7 @@ const FEATURE_WEIGHTS: Record<string, number> = {
   vision: 10,
   compta: 3,
   relance: 1,
+  vocal: 1,
 };
 
 /**

@@ -60,13 +60,15 @@ function extractBase64(data: string): string {
 }
 
 export async function analyzeImageWithVision(
-  imageBuffer: Buffer
+  imageBuffer: Buffer,
+  userId: string
 ): Promise<VisionAnalysis> {
   const prompt = buildVisionPrompt();
 
   const rawText = await runAI("vision", {
     prompt,
     image: imageBuffer,
+    userId,
   });
 
   /**

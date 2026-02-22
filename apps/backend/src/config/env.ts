@@ -78,9 +78,10 @@ export const ENV = {
 
   /**
    * =========================
-   * SUPABASE
+   * SUPABASE / DATABASE
    * =========================
    */
+  DATABASE_URL: required("DATABASE_URL"), // Ajouté pour la connexion pg
   SUPABASE_URL: required("SUPABASE_URL"),
   SUPABASE_SERVICE_ROLE_KEY: required("SUPABASE_SERVICE_ROLE_KEY"),
 
@@ -126,13 +127,10 @@ export const ENV = {
 if (ENV.NODE_ENV === "development") {
   console.log("✅ Environment loaded", {
     PORT: ENV.PORT,
+    DATABASE_LOADED: !!ENV.DATABASE_URL, // Vérification debug
     CORS_ORIGIN: ENV.CORS_ORIGIN,
-    SHUTDOWN_TIMEOUT: ENV.SHUTDOWN_TIMEOUT,
     QUOTA_ENABLED: ENV.QUOTA_ENABLED,
-
     STRIPE_KEY_LOADED: !!ENV.STRIPE_SECRET_KEY,
-    STRIPE_PRICE_ID: ENV.STRIPE_PRICE_ID?.slice(0, 12) + "...",
-
     SUPABASE_URL: ENV.SUPABASE_URL,
   });
 }

@@ -1,10 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import { HttpError } from "../utils/httpError";
+import { logger } from "../utils/logger";
 
 /**
- * Middleware global de gestion des erreurs
- * ➜ capture toutes les erreurs non gérées
- * ➜ normalise la réponse API
+ * Middleware global de gestion des erreurs - Corrigé pour TS strict
  */
 export function errorHandler(
   err: unknown,
@@ -18,13 +17,9 @@ export function errorHandler(
      ERREURS MÉTIER CONTRÔLÉES
   ================================== */
   if (err instanceof HttpError) {
-    if (isDev) {
-      console.error("[HttpError]", {
-        status: err.statusCode,
-        message: err.message,
-        stack: err.stack,
-      });
-    }
+    // On passe le message en premier pour satisfaire TS, 
+    // et l'objet de données après
+    logger.error(err.message, { status: err.statusCode });
 
     return res.status(err.statusCode).json({
       success: false,
@@ -33,12 +28,13 @@ export function errorHandler(
   }
 
   /* ================================
-     ERREURS JS NATIVES
+     ERREURS JS NATIVES OU INCONNUES
   ================================== */
   if (err instanceof Error) {
-    console.error("[Unhandled Error]", err.message, err.stack);
+    // On log le message et la stack séparément pour éviter l'erreur de type
+    logger.error(err.message, { stack: err.stack });
   } else {
-    console.error("[Unknown Error]", err);
+    logger.error("Unknown Error", { detail: err });
   }
 
   /* ================================
@@ -46,8 +42,8 @@ export function errorHandler(
   ================================== */
   return res.status(500).json({
     success: false,
-    message: isDev
-      ? "Internal server error"
+    message: isDev 
+      ? (err instanceof Error ? err.message : "Internal server error")
       : "Erreur interne du serveur",
   });
 }
