@@ -1,51 +1,25 @@
-########################################
-# 1. Image de base
-########################################
-FROM node:20-slim
-
-########################################
-# 2. Dépendances système (Sharp)
-########################################
-RUN apt-get update && apt-get install -y \
-    python3 \
-    make \
-    g++ \
-    libvips-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-########################################
-# 3. Répertoire de travail
-########################################
+# Étape de build
+FROM node:20-alpine AS builder
 WORKDIR /app
-
-########################################
-# 4. Dépendances Node
-########################################
-COPY package.json package-lock.json ./
-RUN npm ci
-
-########################################
-# 5. Code source
-########################################
 COPY . .
+RUN npm install && npm run build
 
-########################################
-# 6. Build TypeScript (si présent)
-########################################
-# ⚠️ à garder uniquement si tu compiles (tsc)
-# RUN npm run build
-
-########################################
-# 7. Variables d'environnement
-########################################
+# Étape de production
+FROM node:20-alpine
+WORKDIR /app
 ENV NODE_ENV=production
 
-########################################
-# 8. Exposition du port API
-########################################
-EXPOSE 8080
+# Sécurité : Créer un utilisateur non-root
+RUN addgroup -S artisan && adduser -S artisanuser -G artisan
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+RUN npm install --only=production
 
-########################################
-# 9. Démarrage
-########################################
-CMD ["npm", "start"]
+USER artisanuser
+
+# Healthcheck pour Docker/Kubernetes
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+EXPOSE 8080
+CMD ["node", "dist/server.js"]

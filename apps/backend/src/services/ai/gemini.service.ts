@@ -3,41 +3,30 @@ import { ENV } from "../../config/env";
 import { logger } from "../../utils/logger";
 import { HttpError } from "../../utils/httpError";
 import { getArtisanContext } from "./context.service";
-import { PROMPTS } from "./prompts"; // On importe tes prompts centralisés
+import { PROMPTS } from "./prompts";
+import { supabaseAdmin } from "../../lib/supabaseAdmin"; 
+import { v4 as uuidv4 } from "uuid";
 
 const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY || "");
 
 /**
  * ============================
- * TYPES & INTERFACES (Corrigés)
+ * EXPORTS DES TYPES (PHASE 7)
  * ============================
  */
-// Ajout de "vocal" pour corriger l'erreur de comparaison TS
 export type AIType = "assistant" | "devis" | "compta" | "vision" | "relance" | "vocal";
 
-interface VisionAIParams {
-  prompt: string;
-  image: Buffer;
-  userId: string;
-}
+export interface VisionAIParams { prompt: string; image: Buffer; userId: string; }
+export interface ComptaAIParams { prompt: string; userId: string; }
+export interface VocalAIParams { prompt: string; audioBuffer: Buffer; mimeType: string; userId: string; }
+export interface RelanceAIParams { prompt: string; userId: string; }
 
-interface ComptaAIParams {
-  prompt: string;
-  userId: string;
-}
-
-interface VocalAIParams {
-  prompt: string;
-  audioBuffer: Buffer;
-  mimeType: string;
-  userId: string;
-}
-
-type AIPayload = VisionAIParams | ComptaAIParams | VocalAIParams;
+// Exporté pour être utilisé par ai.worker.ts
+export type AIPayload = VisionAIParams | ComptaAIParams | VocalAIParams | RelanceAIParams;
 
 /**
  * ============================
- * RUN AI (DYNAMIQUE)
+ * FONCTION PRINCIPALE RUN AI
  * ============================
  */
 export async function runAI(
@@ -50,11 +39,7 @@ export async function runAI(
     throw new HttpError(500, "Configuration IA incomplète");
   }
 
-  // 1. Récupération du contexte métier (Artisan)
   const artisanContext = await getArtisanContext(payload.userId);
-
-  // 2. Sélection de l'instruction système basée sur le type (DYNAMIQUE)
-  // On utilise le dictionnaire PROMPTS que tu as créé dans prompts.ts
   const specificInstruction = PROMPTS[type as keyof typeof PROMPTS] || PROMPTS.assistant;
 
   const fullPrompt = `
@@ -69,7 +54,6 @@ ${payload.prompt}
 IMPORTANT : Réponds uniquement au format JSON valide.
   `;
 
-  // 3. Liste des modèles par priorité
   const models = ["gemini-2.5-flash", "gemini-1.5-flash"]; 
   let lastError: any = null;
 
@@ -82,56 +66,98 @@ IMPORTANT : Réponds uniquement au format JSON valide.
         { apiVersion: "v1" } 
       );
 
-      const generationConfig = {
-        temperature: 0.1,
-      };
-
+      const generationConfig = { temperature: 0.1 };
       let result;
 
-      // 4. Gestion des flux (Vision / Vocal / Texte)
-      if (type === "vision" && "image" in payload) {
-        result = await model.generateContent({
-          contents: [{ role: "user", parts: [
-            { text: fullPrompt },
-            { inlineData: { mimeType: "image/jpeg", data: payload.image.toString("base64") } }
-          ]}],
-          generationConfig
-        });
-      } 
-      else if (type === "vocal" && "audioBuffer" in payload) {
-        result = await model.generateContent({
-          contents: [{ role: "user", parts: [
-            { text: fullPrompt },
-            { inlineData: { mimeType: payload.mimeType, data: payload.audioBuffer.toString("base64") } }
-          ]}],
-          generationConfig
-        });
-      } 
-      else {
-        result = await model.generateContent({
-          contents: [{ role: "user", parts: [{ text: fullPrompt }]}],
-          generationConfig
-        });
-      }
+      // 🔥 AJOUT TIMEOUT SÉCURISÉ (15 secondes)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT_EXCEEDED")), 15000)
+      );
 
-      const response = await result.response;
+      // --- Exécution de la requête avec Race pour le timeout ---
+      const aiCall = async () => {
+        if (type === "vision" && "image" in payload) {
+          return await model.generateContent({
+            contents: [{ role: "user", parts: [
+              { text: fullPrompt },
+              { inlineData: { mimeType: "image/jpeg", data: payload.image.toString("base64") } }
+            ]}],
+            generationConfig
+          });
+        } 
+        else if (type === "vocal" && "audioBuffer" in payload) {
+          return await model.generateContent({
+            contents: [{ role: "user", parts: [
+              { text: fullPrompt },
+              { inlineData: { mimeType: payload.mimeType, data: payload.audioBuffer.toString("base64") } }
+            ]}],
+            generationConfig
+          });
+        } 
+        else {
+          return await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: fullPrompt }]}],
+            generationConfig
+          });
+        }
+      };
+
+      // On lance la course entre l'IA et le Timeout
+      const aiResponse: any = await Promise.race([aiCall(), timeoutPromise]);
+
+      const response = await aiResponse.response;
       const text = response.text();
+      
+      // 🔥 Extraction des tokens
+      const tokensUsed = response.usageMetadata?.totalTokenCount || 0;
 
       if (!text) throw new Error("Réponse vide de l'IA");
 
-      logger.info(`✅ Succès avec ${modelName}`);
+      // --- ENREGISTREMENT ASYNC (LOGS & QUOTAS) ---
+      Promise.all([
+        supabaseAdmin.rpc('increment_profile_quota', { 
+            user_id: payload.userId, 
+            tokens: tokensUsed 
+        }).then(({ error }) => { if (error) logger.error("RPC Quota Error:", error); }),
+
+        supabaseAdmin.from('ai_usage').insert({
+            id: uuidv4(),
+            user_id: payload.userId,
+            feature: type,
+            tokens_estimated: tokensUsed
+        }).then(({ error }) => { if (error) logger.error("AI Usage Insert Error:", error); }),
+
+        supabaseAdmin.from('ai_logs').insert({
+            id: uuidv4(),
+            user_id: payload.userId,
+            prompt: payload.prompt,
+            response: text,
+            status: 'SUCCESS'
+        }).then(({ error }) => { if (error) logger.error("AI Logs Insert Error:", error); })
+      ]).catch(err => logger.error("⚠️ Promise.all Logging Error:", err));
+
+      logger.info(`✅ Succès avec ${modelName} (${tokensUsed} tokens)`);
       return text;
 
     } catch (error: any) {
       lastError = error;
-      const isQuotaError = error.message?.includes("429");
-      const isNotFoundError = error.message?.toLowerCase().includes("not found");
+      
+      // Log de l'échec en DB
+      supabaseAdmin.from('ai_logs').insert({
+          id: uuidv4(),
+          user_id: payload.userId,
+          prompt: payload.prompt,
+          status: 'ERROR',
+          error_message: error.message
+      }).then(({ error: logErr }) => {
+          if (logErr) logger.error("Failed to log AI error to DB:", logErr);
+      });
 
-      if (isQuotaError || isNotFoundError) {
-        logger.warn(`⚠️ Échec avec ${modelName}. Passage au suivant...`);
+      // Si timeout ou erreur 429, on tente le modèle suivant
+      if (error.message === "TIMEOUT_EXCEEDED" || error.message?.includes("429") || error.message?.toLowerCase().includes("not found")) {
+        logger.warn(`⚠️ Échec/Timeout avec ${modelName}. Passage au suivant...`);
         continue; 
       }
-      logger.error(`❌ Erreur sur ${modelName}:`, error.message);
       break;
     }
   }
