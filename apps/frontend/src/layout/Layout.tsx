@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useLocation, Link, Outlet } from 'react-router-dom';
-import { FileText, Camera, PieChart, MessageSquare, X } from 'lucide-react';
+import { FileText, Camera, PieChart, MessageSquare, X, Sparkles } from 'lucide-react';
+// 🔥 Import du nouveau composant expert
+import AiModePanel from "../features/ai/AiModePanel";
 
 export default function Layout() {
   const location = useLocation();
@@ -24,7 +26,7 @@ export default function Layout() {
       <header className="bg-white px-6 py-4 flex justify-between items-center shadow-sm border-b border-slate-100 shrink-0 z-40">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-[#2563eb] rounded-full flex items-center justify-center text-white shadow-lg">
-             <span className="text-lg">🛠️</span>
+              <span className="text-lg">🛠️</span>
           </div>
           <div>
             <h1 className="text-xl font-black text-slate-900 leading-none flex items-center gap-1">
@@ -47,36 +49,40 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      {/* BULLE FLOTTANTE EXPERT AI */}
+      {/* 🟦 BULLE FLOTTANTE EXPERT AI (PHASE 5) */}
       <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-end gap-4">
         {isChatOpen && (
-          <div className="bg-white w-[320px] h-[450px] rounded-[2rem] shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
-            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+          <div className="bg-white w-[350px] max-h-[600px] rounded-[2.5rem] shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
+            {/* Header du Panel */}
+            <div className="p-5 bg-slate-900 text-white flex justify-between items-center">
               <span className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                <MessageSquare size={14} className="text-blue-400" /> Expert AI Mode
+                <Sparkles size={14} className="text-purple-400" /> Mode Expert Stratégique
               </span>
-              <button onClick={() => setIsChatOpen(false)} className="p-1 hover:bg-white/10 rounded-lg">
+              <button 
+                onClick={() => setIsChatOpen(false)} 
+                className="p-1.5 hover:bg-white/10 rounded-xl transition-colors"
+              >
                 <X size={18} />
               </button>
             </div>
-            <div className="flex-1 p-6 bg-slate-50 flex flex-col items-center justify-center text-center">
-              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
-                <MessageSquare size={24} />
-              </div>
-              <p className="text-slate-500 text-[11px] font-bold uppercase tracking-wide leading-relaxed">
-                Posez vos questions techniques ici.<br/>L'IA vous répond en direct.
-              </p>
+            
+            {/* 🧠 Injection du Mode Expert IA qu'on a codé ensemble */}
+            <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
+              <AiModePanel />
             </div>
           </div>
         )}
         
+        {/* Bouton de la Bulle */}
         <button 
           onClick={() => setIsChatOpen(!isChatOpen)}
           className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 border-4 border-white ${
-            isChatOpen ? 'bg-slate-900 text-white rotate-90' : 'bg-[#2563eb] text-white hover:scale-110 active:scale-95'
+            isChatOpen 
+              ? 'bg-slate-900 text-white rotate-90 scale-90' 
+              : 'bg-gradient-to-tr from-purple-600 to-blue-600 text-white hover:scale-110 active:scale-95'
           }`}
         >
-          {isChatOpen ? <X size={24} /> : <MessageSquare size={24} />}
+          {isChatOpen ? <X size={24} /> : <Sparkles size={24} className="animate-pulse" />}
         </button>
       </div>
 

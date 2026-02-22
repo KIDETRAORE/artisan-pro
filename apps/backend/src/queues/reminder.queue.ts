@@ -11,7 +11,7 @@ export const reminderQueue = new Queue("reminderQueue", {
     attempts: 3,
     backoff: {
       type: "exponential",
-      delay: 1000,
+      delay: 5000,
     },
     removeOnComplete: true,
   },

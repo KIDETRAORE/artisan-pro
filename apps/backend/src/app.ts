@@ -12,11 +12,12 @@ import { authMiddleware } from "./middlewares/auth.middleware";
 import { logger } from "./utils/logger";
 
 /**
- * 👷 WORKER & QUEUE
- * L'import du worker lance l'écoute des jobs Redis au démarrage.
+ * 👷 WORKERS & QUEUES (IMPORTATION POUR ACTIVATION)
+ * Indispensable pour que les processus d'arrière-plan écoutent Redis
  */
 import "./workers/reminder.worker";
-import "./events/event.worker";
+import "./workers/ai.worker";    // 🔥 AJOUTÉ : Pour traiter les tâches IA async
+import "./workers/event.worker"; // Corrigé : import depuis /workers si c'est son emplacement
 
 // --- Imports des Routes ---
 import dashboardRoutes from "./routes/dashboard.routes";
@@ -27,15 +28,18 @@ import vocalRoutes from "./routes/vocal.routes";
 import comptaRoutes from "./routes/compta.routes";     
 import automationRoutes from "./routes/automation.routes"; 
 import assistantRoutes from "./routes/assistant.routes"; 
+import aiRoutes from "./routes/ai.routes"; 
 import { devisRouter } from "./routes/devis.routes";   
 
 const app = express();
 
-app.set("trust proxy", 1);
+/**
+ * CONFIGURATION RÉSEAU
+ */
+app.set("trust proxy", 1); // Nécessaire pour le Rate Limiting derrière un reverse proxy (Docker/Nginx)
 
 /**
- * 🔥 STRIPE WEBHOOK (AVANT LE JSON PARSER)
- * Doit impérativement rester avant express.json()
+ * 🔥 STRIPE WEBHOOK (Doit être avant express.json())
  */
 app.use(
   "/stripe/webhook",
@@ -64,12 +68,13 @@ if (ENV.NODE_ENV !== "production") {
 }
 
 /**
- * HEALTH CHECK
+ * 🔍 HEALTH CHECK (PHASE 7 - Pour le Docker Healthcheck)
  */
 app.get("/health", (_req, res) => {
   res.status(200).json({
     status: "ok",
     service: "ArtisanPro API",
+    mode: ENV.NODE_ENV,
     timestamp: new Date().toISOString(),
   });
 });
@@ -83,11 +88,12 @@ app.use("/dashboard", dashboardRoutes);
 app.use("/stripe", stripeRoutes);
 app.use("/devis", devisRouter);
 
-// Modules IA (Protégés par Auth + Quota)
+// Modules IA (Protégés par Auth + Quota + Rate Limit spécifique)
 app.use("/vision", aiRateLimit, authMiddleware, quotaMiddleware, visionRoutes);
 app.use("/vocal", aiRateLimit, authMiddleware, quotaMiddleware, vocalRoutes);
 app.use("/compta", aiRateLimit, authMiddleware, quotaMiddleware, comptaRoutes);
 app.use("/assistant", aiRateLimit, authMiddleware, quotaMiddleware, assistantRoutes);
+app.use("/ai", aiRateLimit, authMiddleware, quotaMiddleware, aiRoutes);
 
 // Automatisation & Relances
 app.use("/automation", authMiddleware, quotaMiddleware, automationRoutes); 
@@ -104,6 +110,6 @@ app.use((_req, res) => {
  */
 app.use(errorHandler);
 
-logger.info(`Application initialisée en mode: ${ENV.NODE_ENV}`);
+logger.info(`✅ Application initialisée en mode: ${ENV.NODE_ENV}`);
 
 export default app;
