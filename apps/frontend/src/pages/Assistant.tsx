@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Bot, User, Paperclip, Loader2, Sparkles, Trash2 } from 'lucide-react';
 import { useUser } from '../context/user.context';
+import { useAuth } from '../store/auth.store';
 
-// Définition de l'interface
+const API_URL = "http://localhost:8080/ai";
+
 interface Message {
   id: string;
   role: 'assistant' | 'user';
@@ -12,32 +14,50 @@ interface Message {
 
 export default function Assistant() {
   const { userData } = useUser();
+  const { accessToken } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [analysisContext, setAnalysisContext] = useState<any>(null);
 
-  // Utilisation d'une fonction pour générer le message de bienvenue initial
-  const getWelcomeMessage = useCallback((): Message => ({
-    id: 'initial',
+  // Générateur de message de bienvenue
+  const getWelcomeMessage = useCallback((customText?: string): Message => ({
+    id: Date.now().toString(),
     role: 'assistant',
-    content: `Bonjour ${userData?.name || 'Artisan'} ! Je suis votre assistant ArtisanPro. Je peux vous aider à calculer des surfaces, choisir des matériaux ou rédiger des descriptifs de travaux. Que puis-je faire pour vous ?`,
+    content: customText || `Bonjour ${userData?.name || 'Artisan'} ! Je suis votre expert ArtisanPro. Je peux vous aider à analyser vos devis, calculer vos marges ou répondre à vos questions comptables.`,
     timestamp: new Date()
   }), [userData?.name]);
 
-  const [messages, setMessages] = useState<Message[]>([]);
-
-  // Initialisation du premier message au montage
+  // Initialisation et Écoute du Mode Expert (depuis la page Compta)
   useEffect(() => {
-    setMessages([getWelcomeMessage()]);
-  }, [getWelcomeMessage]);
+    // Premier message standard
+    if (messages.length === 0) {
+      setMessages([getWelcomeMessage()]);
+    }
 
-  // Auto-scroll vers le bas
+    // Écouteur pour le Mode Expert déclenché par Compta.tsx
+    const handleExpertEvent = (e: any) => {
+      const { analysisData, message } = e.detail;
+      setAnalysisContext(analysisData); // On stocke les chiffres pour le prompt
+      
+      const expertMsg: Message = {
+        id: `expert-${Date.now()}`,
+        role: 'assistant',
+        content: message,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, expertMsg]);
+    };
+
+    window.addEventListener('openExpertChat', handleExpertEvent);
+    return () => window.removeEventListener('openExpertChat', handleExpertEvent);
+  }, [getWelcomeMessage, messages.length]);
+
+  // Auto-scroll
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isLoading]);
 
@@ -55,52 +75,121 @@ export default function Assistant() {
     setInput('');
     setIsLoading(true);
 
-    // Simulation de l'appel API Backend
-    setTimeout(() => {
-      const botMsg: Message = {
-        id: (Date.now() + 1).toString(),
+    try {
+      // Préparation du prompt enrichi si on a un contexte comptable
+      let finalPrompt = input;
+      if (analysisContext) {
+        finalPrompt = `CONTEXTE COMPTABLE: ${JSON.stringify(analysisContext)}. QUESTION: ${input}`;
+      }
+
+      const response = await fetch(`${API_URL}/run`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          type: 'expert', // On utilise le type expert défini dans le backend
+          prompt: finalPrompt
+        })
+      });
+
+      const data = await response.json();
+      
+      // Ici, on attend le jobId si c'est asynchrone, 
+      // mais pour un chat simple, votre backend pourrait répondre directement.
+      // Si votre backend utilise des Jobs, il faudra faire du polling ici aussi.
+      // Pour cet exemple, on simule une réponse directe ou on gère le résultat du job.
+      
+      if (data.jobId) {
+        startPolling(data.jobId);
+      } else {
+        throw new Error("Erreur de communication avec l'IA");
+      }
+
+    } catch (err) {
+      console.error("Chat Error:", err);
+      const errorMsg: Message = {
+        id: 'err',
         role: 'assistant',
-        content: `J'ai bien reçu votre demande concernant : "${userMsg.content}". Je suis prêt à être connecté à votre backend Java pour vous fournir une analyse technique détaillée.`,
+        content: "Désolé, j'ai rencontré une erreur technique. Vérifiez votre connexion au serveur.",
         timestamp: new Date()
       };
-      setMessages(prev => [...prev, botMsg]);
+      setMessages(prev => [...prev, errorMsg]);
       setIsLoading(false);
+    }
+  };
+
+  // Polling pour récupérer la réponse de l'IA (comme dans Compta.tsx)
+  const startPolling = (jobId: string) => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/status/${jobId}`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        const data = await res.json();
+
+        if (data.status === 'completed') {
+          clearInterval(interval);
+          const botMsg: Message = {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: data.result,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, botMsg]);
+          setIsLoading(false);
+        } else if (data.status === 'failed') {
+          clearInterval(interval);
+          setIsLoading(false);
+        }
+      } catch (err) {
+        clearInterval(interval);
+        setIsLoading(false);
+      }
     }, 1500);
   };
 
   return (
-    <div className="max-w-4xl mx-auto h-[calc(100vh-180px)] flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="max-w-4xl mx-auto h-[calc(100vh-140px)] flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-700 px-4">
 
       {/* Barre d'outils supérieure */}
-      <div className="flex justify-between items-center mb-4 px-2">
+      <div className="flex justify-between items-center mb-4 px-2 pt-2">
         <div className="flex items-center gap-2">
-          <Sparkles className="text-blue-500" size={18} />
-          <span className="text-sm font-bold text-slate-600 uppercase tracking-wider">Expert AI Mode</span>
+          <div className="bg-blue-500 p-1.5 rounded-lg">
+            <Sparkles className="text-white" size={14} />
+          </div>
+          <span className="text-xs font-black text-slate-700 uppercase tracking-widest">
+            {analysisContext ? "Analyse Expert Active" : "Expert AI Mode"}
+          </span>
         </div>
 
         <button
-          onClick={() => setMessages([getWelcomeMessage()])}
-          className="flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-red-500 transition-colors"
+          onClick={() => {
+            setMessages([getWelcomeMessage()]);
+            setAnalysisContext(null);
+          }}
+          className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 hover:text-red-500 transition-colors tracking-tighter"
         >
-          <Trash2 size={14} /> Effacer la discussion
+          <Trash2 size={12} /> Effacer
         </button>
       </div>
 
-      <div className="flex-1 bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 flex flex-col overflow-hidden">
+      <div className="flex-1 bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 flex flex-col overflow-hidden mb-4">
 
         {/* Zone des Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/30">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-slate-50/30">
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`flex gap-4 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${
+              <div className={`flex gap-3 max-w-[90%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
                   msg.role === 'user' ? 'bg-white text-slate-600 border border-slate-200' : 'bg-slate-900 text-white'
                 }`}>
-                  {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
+                  {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
                 </div>
-                <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                <div className={`p-4 rounded-2xl text-[13px] leading-relaxed shadow-sm ${
                   msg.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-tr-none'
+                    ? 'bg-blue-600 text-white rounded-tr-none font-medium'
                     : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'
                 }`}>
                   {msg.content}
@@ -110,13 +199,13 @@ export default function Assistant() {
           ))}
 
           {isLoading && (
-            <div className="flex justify-start animate-in fade-in duration-300">
-              <div className="flex gap-4 items-center">
-                <div className="w-10 h-10 rounded-2xl bg-slate-900 flex items-center justify-center text-white">
-                  <Loader2 size={20} className="animate-spin" />
+            <div className="flex justify-start animate-pulse">
+              <div className="flex gap-3 items-center">
+                <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white">
+                  <Loader2 size={16} className="animate-spin" />
                 </div>
-                <div className="text-slate-400 text-xs font-medium italic">
-                  ArtisanPro analyse votre demande...
+                <div className="text-slate-400 text-[11px] font-bold italic uppercase tracking-wider">
+                  Expertise en cours...
                 </div>
               </div>
             </div>
@@ -124,15 +213,15 @@ export default function Assistant() {
         </div>
 
         {/* Zone de Saisie */}
-        <div className="p-6 bg-white border-t border-slate-100">
-          <div className="flex items-center gap-3">
+        <div className="p-4 bg-white border-t border-slate-100">
+          <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                placeholder="Posez une question technique ou demandez un calcul..."
+                placeholder={analysisContext ? "Posez une question sur vos chiffres..." : "Posez votre question technique..."}
                 className="w-full pl-6 pr-12 py-4 bg-slate-100 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl transition-all text-sm outline-none"
               />
               <button className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600 transition-colors">

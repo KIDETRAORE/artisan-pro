@@ -12,34 +12,25 @@ import { authMiddleware } from "./middlewares/auth.middleware";
 import { logger } from "./utils/logger";
 
 /**
- * 👷 WORKERS & QUEUES (IMPORTATION POUR ACTIVATION)
- * Indispensable pour que les processus d'arrière-plan écoutent Redis
+ * 👷 WORKERS & QUEUES
  */
 import "./workers/reminder.worker";
-import "./workers/ai.worker";    // 🔥 AJOUTÉ : Pour traiter les tâches IA async
-import "./workers/event.worker"; // Corrigé : import depuis /workers si c'est son emplacement
+import "./workers/ai.worker";    
 
 // --- Imports des Routes ---
 import dashboardRoutes from "./routes/dashboard.routes";
-import visionRoutes from "./routes/vision.routes";
 import stripeRoutes from "./routes/stripe.routes";
 import stripeWebhookRoutes from "./routes/stripe.webhook";
-import vocalRoutes from "./routes/vocal.routes";
-import comptaRoutes from "./routes/compta.routes";     
 import automationRoutes from "./routes/automation.routes"; 
-import assistantRoutes from "./routes/assistant.routes"; 
 import aiRoutes from "./routes/ai.routes"; 
 import { devisRouter } from "./routes/devis.routes";   
 
 const app = express();
 
-/**
- * CONFIGURATION RÉSEAU
- */
-app.set("trust proxy", 1); // Nécessaire pour le Rate Limiting derrière un reverse proxy (Docker/Nginx)
+app.set("trust proxy", 1);
 
 /**
- * 🔥 STRIPE WEBHOOK (Doit être avant express.json())
+ * 🔥 STRIPE WEBHOOK (Doit être avant express.json)
  */
 app.use(
   "/stripe/webhook",
@@ -52,15 +43,22 @@ app.use(
  */
 app.use(globalRateLimit);
 app.use(helmet({ crossOriginResourcePolicy: false }));
+
+/**
+ * 🛡️ CONFIGURATION CORS
+ */
 app.use(
   cors({
-    origin: ENV.CORS_ORIGIN,
+    origin: ["http://localhost:3000", "http://localhost:5173"],
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
   })
 );
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: false }));
+// Augmentation de la limite pour les fichiers (Photos/Audios Base64)
+app.use(express.json({ limit: "50mb" })); 
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
 
 if (ENV.NODE_ENV !== "production") {
@@ -68,46 +66,36 @@ if (ENV.NODE_ENV !== "production") {
 }
 
 /**
- * 🔍 HEALTH CHECK (PHASE 7 - Pour le Docker Healthcheck)
+ * 🔍 HEALTH CHECK
  */
 app.get("/health", (_req, res) => {
-  res.status(200).json({
-    status: "ok",
-    service: "ArtisanPro API",
-    mode: ENV.NODE_ENV,
-    timestamp: new Date().toISOString(),
-  });
+  res.status(200).json({ status: "ok", service: "Artisan-AI-Backend" });
 });
 
 /**
  * API ROUTES
  */
 
-// Routes Business & Stripe
-app.use("/dashboard", dashboardRoutes);
+// --- Routes de gestion ---
+app.use("/dashboard", authMiddleware, dashboardRoutes);
 app.use("/stripe", stripeRoutes);
-app.use("/devis", devisRouter);
+app.use("/devis", authMiddleware, devisRouter);
 
-// Modules IA (Protégés par Auth + Quota + Rate Limit spécifique)
-app.use("/vision", aiRateLimit, authMiddleware, quotaMiddleware, visionRoutes);
-app.use("/vocal", aiRateLimit, authMiddleware, quotaMiddleware, vocalRoutes);
-app.use("/compta", aiRateLimit, authMiddleware, quotaMiddleware, comptaRoutes);
-app.use("/assistant", aiRateLimit, authMiddleware, quotaMiddleware, assistantRoutes);
-app.use("/ai", aiRateLimit, authMiddleware, quotaMiddleware, aiRoutes);
+// --- MODULE IA CENTRALISÉ ---
+// Toutes les fonctionnalités (Vocal, Vision, Compta) passent désormais par /ai
+// Le type (vocal/vision/compta) est passé dans le body de la requête
+app.use("/ai", authMiddleware, aiRateLimit, quotaMiddleware, aiRoutes);
 
-// Automatisation & Relances
+// --- Automatisation ---
 app.use("/automation", authMiddleware, quotaMiddleware, automationRoutes); 
 
 /**
- * 404 HANDLER
+ * 404 & ERROR HANDLER
  */
 app.use((_req, res) => {
-  res.status(404).json({ success: false, error: "Route introuvable" });
+  res.status(404).json({ success: false, error: "Route introuvable sur le serveur AI" });
 });
 
-/**
- * GLOBAL ERROR HANDLER
- */
 app.use(errorHandler);
 
 logger.info(`✅ Application initialisée en mode: ${ENV.NODE_ENV}`);

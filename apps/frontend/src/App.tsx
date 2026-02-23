@@ -1,14 +1,13 @@
 import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Calculator } from 'lucide-react'; // Import manquant précédemment
 import { useAuth } from './store/auth.store';
 import { useUser } from './context/user.context';
 import Layout from './layout/Layout';
 import Login from './pages/Login';
 import Vision from './pages/Vision';
 import Devis from './pages/Devis';
+import Compta from './pages/Compta'; // <-- 1. ON IMPORTE TON COMPOSANT
 
-// ATTENTION : Le mot-clé "default" est CRUCIAL ici
 export default function App() {
   const { user, accessToken } = useAuth();
   const { setUserData } = useUser();
@@ -29,30 +28,29 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
+      {/* 1. Route Publique */}
+      <Route 
+        path="/login" 
+        element={!accessToken ? <Login /> : <Navigate to="/vision" replace />} 
+      />
 
-      <Route element={<Layout />}>
+      {/* 2. Groupe de Routes Protégées */}
+      <Route element={accessToken ? <Layout /> : <Navigate to="/login" replace />}>
+        
         <Route path="/vision" element={<Vision />} />
         <Route path="/devis" element={<Devis />} />
         
-        {/* Route Compta intégrée directement */}
-        <Route path="/compta" element={
-          <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400 space-y-4 font-sans">
-            <Calculator size={48} className="opacity-20" />
-            <p className="font-medium italic text-lg text-center">
-              Espace Comptabilité <br/> 
-              <span className="text-sm not-italic opacity-60">En cours de configuration...</span>
-            </p>
-          </div>
-        } />
+        {/* 2. ON REMPLACE LE PLACEHOLDER PAR LE VRAI COMPOSANT COMPTA */}
+        <Route path="/compta" element={<Compta />} />
         
-        {/* Redirections de nettoyage */}
+        {/* Redirections internes */}
         <Route path="/" element={<Navigate to="/vision" replace />} />
         <Route path="/dashboard" element={<Navigate to="/vision" replace />} />
         <Route path="/assistant" element={<Navigate to="/vision" replace />} />
         <Route path="/factures" element={<Navigate to="/devis" replace />} />
       </Route>
 
+      {/* 3. Fallback */}
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );

@@ -9,158 +9,121 @@ import { v4 as uuidv4 } from "uuid";
 
 const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY || "");
 
-/**
- * ============================
- * EXPORTS DES TYPES (PHASE 7)
- * ============================
- */
 export type AIType = "assistant" | "devis" | "compta" | "vision" | "relance" | "vocal";
 
-export interface VisionAIParams { prompt: string; image: Buffer; userId: string; }
-export interface ComptaAIParams { prompt: string; userId: string; }
-export interface VocalAIParams { prompt: string; audioBuffer: Buffer; mimeType: string; userId: string; }
-export interface RelanceAIParams { prompt: string; userId: string; }
+export interface AIParams {
+  prompt?: string;
+  fileBase64?: string;
+  mimeType?: string;
+  userId: string;
+}
 
-// Exporté pour être utilisé par ai.worker.ts
-export type AIPayload = VisionAIParams | ComptaAIParams | VocalAIParams | RelanceAIParams;
-
-/**
- * ============================
- * FONCTION PRINCIPALE RUN AI
- * ============================
- */
-export async function runAI(
-  type: AIType,
-  payload: AIPayload
-): Promise<string> {
-
+export async function runAI(type: AIType, payload: AIParams): Promise<string> {
   if (!ENV.GEMINI_API_KEY) {
     logger.error("GEMINI_API_KEY missing");
     throw new HttpError(500, "Configuration IA incomplète");
   }
 
   const artisanContext = await getArtisanContext(payload.userId);
-  const specificInstruction = PROMPTS[type as keyof typeof PROMPTS] || PROMPTS.assistant;
+  const baseInstruction = PROMPTS[type] || PROMPTS.assistant;
+  
+  // Si c'est de la compta, on donne une consigne par défaut plus forte si le prompt est vide
+  const userPrompt = payload.prompt || (type === "compta" 
+    ? "Analyse ce document comptable, calcule les totaux Recettes, Dépenses et TVA." 
+    : "Analyse de document");
+
+  // --- CONSTRUCTION DU PROMPT ---
+  // On ne force le jsonStructure QUE pour Devis/Vision/Vocal
+  const jsonStructureDevis = `
+Structure JSON impérative pour DEVIS/VISION :
+{
+  "clientName": "string ou null",
+  "totalHT": number,
+  "totalTTC": number,
+  "items": [{ "description": "string", "price": number }]
+}`;
 
   const fullPrompt = `
-${specificInstruction}
+${baseInstruction}
+
+${(type === 'vision' || type === 'vocal' || type === 'devis') ? jsonStructureDevis : ''}
 
 CONTEXTE DE L'ARTISAN :
 ${artisanContext}
 
 DEMANDE :
-${payload.prompt}
+${userPrompt}
 
-IMPORTANT : Réponds uniquement au format JSON valide.
+IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte avant ou après le JSON.
   `;
 
-  const models = ["gemini-2.5-flash", "gemini-1.5-flash"]; 
-  let lastError: any = null;
+  // Utilisation de gemini-1.5-flash qui est excellent pour les fichiers structurés (CSV/PDF)
+  const model = genAI.getGenerativeModel({ model: "gemini-pro" }); 
 
-  for (const modelName of models) {
+  try {
+    logger.info(`🤖 Tentative IA [${type}] pour user: ${payload.userId}`);
+
+    const generationConfig = { 
+        temperature: 0.1,
+        topP: 1,
+        topK: 32
+    };
+
+    let result;
+
+    if (payload.fileBase64 && payload.mimeType) {
+      // Correction MimeType pour CSV (Gemini préfère text/plain pour les CSV en inlineData parfois)
+      let finalMimeType = payload.mimeType;
+      if (finalMimeType === "text/csv") finalMimeType = "text/plain";
+
+      result = await model.generateContent({
+        contents: [{
+          role: "user",
+          parts: [
+            { text: fullPrompt },
+            { inlineData: { mimeType: finalMimeType, data: payload.fileBase64 } }
+          ]
+        }],
+        generationConfig
+      });
+    } else {
+      result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: fullPrompt }]}],
+        generationConfig
+      });
+    }
+
+    const response = await result.response;
+    let text = response.text();
+    
+    // Nettoyage JSON robuste (Enlève les balises markdown et les espaces inutiles)
+    text = text.replace(/```json|```/g, "").trim();
+    
+    // Extraction sécurisée du JSON (au cas où l'IA bavarde)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+        text = jsonMatch[0];
+    }
+
+    const tokensUsed = response.usageMetadata?.totalTokenCount || 0;
+
+    // Log Supabase (Conservation du bloc pour ton historique)
     try {
-      logger.info(`🤖 Tentative IA avec le modèle : ${modelName}`);
-
-      const model = genAI.getGenerativeModel(
-        { model: modelName },
-        { apiVersion: "v1" } 
-      );
-
-      const generationConfig = { temperature: 0.1 };
-      let result;
-
-      // 🔥 AJOUT TIMEOUT SÉCURISÉ (15 secondes)
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("TIMEOUT_EXCEEDED")), 15000)
-      );
-
-      // --- Exécution de la requête avec Race pour le timeout ---
-      const aiCall = async () => {
-        if (type === "vision" && "image" in payload) {
-          return await model.generateContent({
-            contents: [{ role: "user", parts: [
-              { text: fullPrompt },
-              { inlineData: { mimeType: "image/jpeg", data: payload.image.toString("base64") } }
-            ]}],
-            generationConfig
-          });
-        } 
-        else if (type === "vocal" && "audioBuffer" in payload) {
-          return await model.generateContent({
-            contents: [{ role: "user", parts: [
-              { text: fullPrompt },
-              { inlineData: { mimeType: payload.mimeType, data: payload.audioBuffer.toString("base64") } }
-            ]}],
-            generationConfig
-          });
-        } 
-        else {
-          return await model.generateContent({
-            contents: [{ role: "user", parts: [{ text: fullPrompt }]}],
-            generationConfig
-          });
-        }
-      };
-
-      // On lance la course entre l'IA et le Timeout
-      const aiResponse: any = await Promise.race([aiCall(), timeoutPromise]);
-
-      const response = await aiResponse.response;
-      const text = response.text();
-      
-      // 🔥 Extraction des tokens
-      const tokensUsed = response.usageMetadata?.totalTokenCount || 0;
-
-      if (!text) throw new Error("Réponse vide de l'IA");
-
-      // --- ENREGISTREMENT ASYNC (LOGS & QUOTAS) ---
-      Promise.all([
-        supabaseAdmin.rpc('increment_profile_quota', { 
-            user_id: payload.userId, 
-            tokens: tokensUsed 
-        }).then(({ error }) => { if (error) logger.error("RPC Quota Error:", error); }),
-
-        supabaseAdmin.from('ai_usage').insert({
+        await supabaseAdmin.from('ai_logs').insert({
             id: uuidv4(),
             user_id: payload.userId,
-            feature: type,
-            tokens_estimated: tokensUsed
-        }).then(({ error }) => { if (error) logger.error("AI Usage Insert Error:", error); }),
-
-        supabaseAdmin.from('ai_logs').insert({
-            id: uuidv4(),
-            user_id: payload.userId,
-            prompt: payload.prompt,
+            prompt: userPrompt,
             response: text,
             status: 'SUCCESS'
-        }).then(({ error }) => { if (error) logger.error("AI Logs Insert Error:", error); })
-      ]).catch(err => logger.error("⚠️ Promise.all Logging Error:", err));
-
-      logger.info(`✅ Succès avec ${modelName} (${tokensUsed} tokens)`);
-      return text;
-
-    } catch (error: any) {
-      lastError = error;
-      
-      // Log de l'échec en DB
-      supabaseAdmin.from('ai_logs').insert({
-          id: uuidv4(),
-          user_id: payload.userId,
-          prompt: payload.prompt,
-          status: 'ERROR',
-          error_message: error.message
-      }).then(({ error: logErr }) => {
-          if (logErr) logger.error("Failed to log AI error to DB:", logErr);
-      });
-
-      // Si timeout ou erreur 429, on tente le modèle suivant
-      if (error.message === "TIMEOUT_EXCEEDED" || error.message?.includes("429") || error.message?.toLowerCase().includes("not found")) {
-        logger.warn(`⚠️ Échec/Timeout avec ${modelName}. Passage au suivant...`);
-        continue; 
-      }
-      break;
+        });
+    } catch (dbErr) {
+        logger.error("DB Log Error:", dbErr);
     }
-  }
 
-  throw new HttpError(500, `L'IA a échoué: ${lastError?.message}`);
+    return text;
+
+  } catch (error: any) {
+    logger.error(`❌ Échec Gemini: ${error.message}`);
+    throw new HttpError(500, `Erreur IA: ${error.message}`);
+  }
 }

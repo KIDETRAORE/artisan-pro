@@ -4,6 +4,7 @@
     "express-rate-limit": "^8.2.1",
     "lucide-react": "^0.575.0",
     "mic-recorder-to-mp3": "^2.2.2",
+    "react-hot-toast": "^2.6.0",
     "resend": "^6.9.2",
     "tsconfig-paths": "^4.2.0",
     "zustand": "^5.0.11"

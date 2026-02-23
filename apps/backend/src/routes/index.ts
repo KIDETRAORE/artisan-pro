@@ -7,6 +7,7 @@ import assistantRoutes from "./assistant.routes";
 import comptaRoutes from "./compta.routes";
 import automationRoutes from "./automation.routes";
 import { devisRouter } from "./devis.routes";
+import aiRoutes from "./ai.routes";
 
 const router = Router();
 
@@ -34,6 +35,7 @@ router.use("/assistant", assistantRoutes);
 router.use("/compta", comptaRoutes);
 router.use("/vision", visionRoutes);
 router.use("/vocal", vocalRoutes);
+router.use("/ai", aiRoutes);
 
 /**
  * ============================
