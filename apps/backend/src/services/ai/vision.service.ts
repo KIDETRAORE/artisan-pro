@@ -1,11 +1,5 @@
 import { runAI } from "./gemini.service";
 
-/**
- * ==============================
- * TYPES MÉTIER — ANALYSE VISION
- * ==============================
- */
-
 export type VisionRiskLevel = "low" | "medium" | "high";
 
 export interface VisionAnalysis {
@@ -16,11 +10,6 @@ export interface VisionAnalysis {
   notes: string;
 }
 
-/**
- * ==============================
- * PROMPT VISION — ULTRA CADRÉ
- * ==============================
- */
 function buildVisionPrompt(): string {
   return `
 Tu es un expert du bâtiment et des travaux artisanaux.
@@ -43,20 +32,7 @@ Règles STRICTES :
 - Pas de markdown
 - Pas de commentaire
 - Si information inconnue, utiliser une chaîne vide ou un tableau vide
-`;
-}
-
-/**
- * ==============================
- * SERVICE PRINCIPAL
- * ==============================
- */
-function extractBase64(data: string): string {
-  const matches = data.match(/^data:(.+);base64,(.+)$/);
-  if (!matches) {
-    throw new Error("Invalid base64 image format");
-  }
-  return matches[2];
+`.trim();
 }
 
 export async function analyzeImageWithVision(
@@ -67,14 +43,13 @@ export async function analyzeImageWithVision(
 
   const rawText = await runAI("vision", {
     prompt,
-    image: imageBuffer,
+    fileBase64: imageBuffer.toString("base64"),
+    mimeType: "image/jpeg", // ✅ ajuste si tu connais le vrai type (png/jpg)
     userId,
   });
 
-  /**
-   * Nettoyage sécurité IA (au cas où)
-   */
-  const cleaned = rawText.trim()
+  const cleaned = rawText
+    .trim()
     .replace(/^```json/, "")
     .replace(/```$/, "")
     .trim();
@@ -91,13 +66,8 @@ export async function analyzeImageWithVision(
     throw new Error("VISION_INVALID_RESPONSE");
   }
 
-  const {
-    workType,
-    materials,
-    visibleIssues,
-    riskLevel,
-    notes,
-  } = parsed as Partial<VisionAnalysis>;
+  const { workType, materials, visibleIssues, riskLevel, notes } =
+    parsed as Partial<VisionAnalysis>;
 
   if (
     typeof workType !== "string" ||

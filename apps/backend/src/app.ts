@@ -1,5 +1,6 @@
+// apps/backend/src/app.ts
 import express from "express";
-import cors from "cors";
+import cors, { type CorsOptions } from "cors";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 
@@ -19,37 +20,40 @@ import automationRoutes from "./routes/automation.routes";
 import aiRoutes from "./routes/ai.routes";
 import { devisRouter } from "./routes/devis.routes";
 
+// ✅ Scheduler (leader election Redis)
+import { startScheduler } from "./automation/scheduler";
+
 const app = express();
 
 /**
  * ======================
  * TRUST PROXY
  * ======================
- * Important pour rate-limit derrière proxy/LB
  */
 app.set("trust proxy", 1);
 
 /**
  * ======================
- * SECURITY HEADERS (Helmet + CSP + HSTS prod)
+ * SECURITY HEADERS
  * ======================
- * Centralisé dans src/middlewares/security.middleware.ts
  */
 applySecurity(app);
 
 /**
  * ======================
  * STRIPE WEBHOOK (RAW BODY)
- * DOIT être AVANT express.json()
  * ======================
  */
-app.use("/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookRoutes);
+app.use(
+  "/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  stripeWebhookRoutes
+);
 
 /**
  * ======================
  * GLOBAL RATE LIMIT
  * ======================
- * (Le webhook Stripe est explicitement exclu via skip() dans rateLimit.middleware.ts)
  */
 app.use(globalRateLimit);
 
@@ -63,30 +67,24 @@ const allowedOrigins =
     ? [ENV.FRONTEND_URL]
     : ["http://localhost:3000", "http://localhost:5173"];
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // autorise calls sans Origin (curl/postman/mobile)
-      if (!origin) return callback(null, true);
+const corsOptions: CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("CORS not allowed"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Stripe-Signature"],
+};
 
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-
-      return callback(new Error("CORS not allowed"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-// Préflight global (important pour certains clients)
-app.options("*", cors());
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 /**
  * ======================
  * BODY PARSERS (LIMIT PROTECTION)
  * ======================
- * ⚠️ Le webhook Stripe est en RAW, donc express.json doit venir après
  */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -120,11 +118,10 @@ app.get("/health", (_req, res) => {
  * ======================
  */
 app.use("/dashboard", authMiddleware, dashboardRoutes);
-app.use("/stripe", authMiddleware, stripeRoutes); // ✅ recommandé: protège tes endpoints Stripe
+app.use("/stripe", authMiddleware, stripeRoutes);
 app.use("/devis", authMiddleware, devisRouter);
 
 app.use("/ai", authMiddleware, aiRateLimit, quotaMiddleware, aiRoutes);
-
 app.use("/automation", authMiddleware, quotaMiddleware, automationRoutes);
 
 /**
@@ -142,6 +139,20 @@ app.use((_req, res) => {
  * ======================
  */
 app.use(errorHandler);
+
+/**
+ * ======================
+ * SCHEDULER (leader election via Redis)
+ * ======================
+ * ✅ OK en multi-instances: une seule instance exécute réellement les jobs grâce au lock.
+ */
+try {
+  startScheduler();
+} catch (err) {
+  logger.error("Scheduler start failed", {
+    message: err instanceof Error ? err.message : String(err),
+  });
+}
 
 logger.info(`✅ App initialized in ${ENV.NODE_ENV} mode`);
 

@@ -6,14 +6,7 @@ import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { ENV } from "../config/env";
 import { updateSubscriptionData } from "../services/billing.service";
 import { logger } from "../utils/logger";
-
-/* =====================================================
-   TYPES
-===================================================== */
-
-type InvoiceWithSubscription = Stripe.Invoice & {
-  subscription?: string | Stripe.Subscription | null;
-};
+import { HttpError } from "../utils/httpError";
 
 /* =====================================================
    PRICE / PLAN SECURITY
@@ -70,56 +63,56 @@ function alreadySeen(eventId: string): boolean {
 
 export async function createCheckoutSession(req: Request, res: Response) {
   const user = requireUser(req);
+  if (!user?.id) throw new HttpError(401, "Unauthorized");
 
-  if (!user?.id) {
-    return res.status(401).json({ success: false, error: "User non authentifié" });
-  }
-
-  const { data: profile } = await supabaseAdmin
+  const { data: profile, error: profileError } = await supabaseAdmin
     .from("profiles")
     .select("email, stripe_customer_id")
     .eq("id", user.id)
     .single();
 
-  if (!profile) {
-    return res.status(404).json({ success: false, error: "Profil introuvable" });
+  if (profileError || !profile) {
+    logger.warn("Stripe checkout: profil introuvable", { userId: user.id });
+    throw new HttpError(404, "Profil introuvable");
   }
 
-  let customerId = profile.stripe_customer_id;
+  let customerId = profile.stripe_customer_id ?? null;
 
   if (!customerId) {
     const customer = await stripe.customers.create({
-      email: profile.email,
+      email: profile.email ?? undefined,
       metadata: { userId: user.id },
     });
 
     customerId = customer.id;
 
-    await supabaseAdmin
+    const { error: updateError } = await supabaseAdmin
       .from("profiles")
       .update({ stripe_customer_id: customerId })
       .eq("id", user.id);
+
+    if (updateError) {
+      logger.error("Stripe checkout: impossible de sauvegarder stripe_customer_id", {
+        userId: user.id,
+        message: updateError.message,
+      });
+      throw new HttpError(500, "Erreur interne");
+    }
   }
 
-  // ✅ price_id whitelist (checkout)
-  if (!ALLOWED_PRICE_IDS.has(ENV.STRIPE_PRICE_ID)) {
-    logger.error("Stripe price_id not allowed (misconfig)", { priceId: ENV.STRIPE_PRICE_ID });
-    return res.status(500).json({ success: false, error: "Configuration Stripe invalide" });
+  // ✅ price_id whitelist
+  const priceId = ENV.STRIPE_PRICE_ID;
+  if (!priceId || !ALLOWED_PRICE_IDS.has(priceId)) {
+    logger.error("Stripe checkout: price_id non autorisé ou manquant", { userId: user.id });
+    throw new HttpError(500, "Configuration Stripe invalide");
   }
 
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: "subscription",
-    line_items: [
-      {
-        price: ENV.STRIPE_PRICE_ID,
-        quantity: 1,
-      },
-    ],
+    line_items: [{ price: priceId, quantity: 1 }],
     metadata: { userId: user.id },
-    subscription_data: {
-      metadata: { userId: user.id },
-    },
+    subscription_data: { metadata: { userId: user.id } },
     success_url: `${ENV.FRONTEND_URL}/dashboard?success=true`,
     cancel_url: `${ENV.FRONTEND_URL}/dashboard?canceled=true`,
   });
@@ -133,19 +126,16 @@ export async function createCheckoutSession(req: Request, res: Response) {
 
 export async function createPortalSession(req: Request, res: Response) {
   const user = requireUser(req);
+  if (!user?.id) throw new HttpError(401, "Unauthorized");
 
-  if (!user?.id) {
-    return res.status(401).json({ success: false, error: "User non authentifié" });
-  }
-
-  const { data: profile } = await supabaseAdmin
+  const { data: profile, error: profileError } = await supabaseAdmin
     .from("profiles")
     .select("stripe_customer_id")
     .eq("id", user.id)
     .single();
 
-  if (!profile?.stripe_customer_id) {
-    return res.status(400).json({ success: false, error: "Customer Stripe introuvable" });
+  if (profileError || !profile?.stripe_customer_id) {
+    throw new HttpError(400, "Customer Stripe introuvable");
   }
 
   const portalSession = await stripe.billingPortal.sessions.create({
@@ -164,7 +154,8 @@ export async function stripeWebhook(req: Request, res: Response) {
   const sig = req.headers["stripe-signature"] as string | undefined;
 
   if (!sig) {
-    return res.status(400).send("Missing stripe-signature");
+    // ✅ ne pas trop détailler
+    return res.status(400).send("Webhook Error");
   }
 
   let event: Stripe.Event;
@@ -173,9 +164,12 @@ export async function stripeWebhook(req: Request, res: Response) {
     // IMPORTANT: req.body doit être RAW (Buffer) via express.raw dans app.ts
     event = stripe.webhooks.constructEvent(req.body, sig, ENV.STRIPE_WEBHOOK_SECRET);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "invalid signature";
-    logger.warn("Stripe webhook signature verification failed", { message });
-    return res.status(400).send(`Webhook Error: ${message}`);
+    // ✅ log minimal (pas d'objet complet, pas de stack)
+    logger.warn("Stripe webhook: signature invalide", {
+      message: err instanceof Error ? err.message : "invalid signature",
+    });
+    // ✅ ne jamais renvoyer err.message au client
+    return res.status(400).send("Webhook Error");
   }
 
   // ✅ Idempotency fallback (best effort)
@@ -187,31 +181,37 @@ export async function stripeWebhook(req: Request, res: Response) {
     switch (event.type) {
       case "invoice.payment_succeeded":
       case "invoice.payment_failed": {
-        const invoice = event.data.object as InvoiceWithSubscription;
-        if (!invoice.subscription) break;
+        const invoice = event.data.object as Stripe.Invoice;
+
+        // Stripe v20: invoice.subscription est union → runtime access
+        const subscriptionRef = (invoice as any).subscription as string | Stripe.Subscription | null | undefined;
+        if (!subscriptionRef) break;
 
         const subscriptionId =
-          typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription.id;
+          typeof subscriptionRef === "string" ? subscriptionRef : subscriptionRef.id;
 
         const subscription = (await stripe.subscriptions.retrieve(subscriptionId)) as Stripe.Subscription;
 
         const userId = subscription.metadata?.userId;
         if (!userId) break;
 
-        // ✅ price whitelist + mapping plan sécurisé
-        const priceId = subscription.items?.data?.[0]?.price?.id
-          ? String(subscription.items.data[0].price.id)
-          : null;
+        const firstItem = subscription.items?.data?.[0];
+        const priceId = firstItem?.price?.id ? String(firstItem.price.id) : null;
 
+        // ✅ whitelist
         if (priceId && !ALLOWED_PRICE_IDS.has(priceId)) {
-          logger.error("Unauthorized Stripe price_id in subscription", { userId, priceId, eventId: event.id });
-          break; // on ne casse pas le webhook, mais on n'upgrade pas
+          logger.error("Stripe webhook: price_id non autorisé", {
+            userId,
+            priceId,
+            eventId: event.id,
+          });
+          break; // on n'upgrade pas, mais on ne fail pas le webhook
         }
 
         const mappedPlan = priceId ? PRICE_TO_PLAN[priceId] : undefined;
         const plan = isActive(subscription.status) && mappedPlan === "PRO" ? "PRO" : "FREE";
 
-        // ✅ current_period_end sur subscription (Stripe) (runtime-safe)
+        // ✅ current_period_end est sur Subscription (runtime-safe)
         const currentPeriodEnd = (subscription as any).current_period_end as number | null | undefined;
 
         await updateSubscriptionData({
@@ -243,13 +243,15 @@ export async function stripeWebhook(req: Request, res: Response) {
       }
 
       default:
-        // ok: ignore
         break;
     }
 
     return res.json({ received: true });
-  } catch (error: unknown) {
-    logger.error("❌ Webhook processing error", { eventId: event.id, error });
+  } catch (err: unknown) {
+    logger.error("Stripe webhook: processing error", {
+      eventId: event.id,
+      message: err instanceof Error ? err.message : String(err),
+    });
     return res.sendStatus(500);
   }
 }

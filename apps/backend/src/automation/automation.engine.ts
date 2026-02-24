@@ -1,85 +1,114 @@
+// apps/backend/src/automation/automation.engine.ts
 import pool from "../config/db";
-import { runAI } from "../services/ai/gemini.service";
 import { logger } from "../utils/logger";
-// 🔥 NOUVEAUX IMPORTS POUR LES EVENTS
 import { emitEvent } from "../events/event.bus";
 import { EventType } from "../events/event.types";
 
-const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
+/**
+ * Automation relances (Event-driven)
+ *
+ * Objectif: émettre uniquement un event minimal { invoiceId, userId }
+ * - Pas de contenu email
+ * - Pas de PII
+ * - Pas d’appel IA ici (sera fait dans reminder.worker.ts)
+ *
+ * Idempotency:
+ * - sélection candidates (faible charge)
+ * - lock par facture (FOR UPDATE SKIP LOCKED)
+ * - update last_reminder_at uniquement après succès (emitEvent)
+ */
 export async function runReminderAutomation() {
-  logger.info("🚀 Lancement de l'automation des relances (Mode Event-Driven)...");
+  logger.info("🚀 Automation relances - start");
 
-  const result = await pool.query(`
-    SELECT i.*, p.full_name as artisan_name, p.company_name
+  // 1) Liste d’IDs candidats (léger)
+  const candidatesResult = await pool.query(
+    `
+    SELECT i.id
     FROM invoices i
-    JOIN profiles p ON i.user_id = p.id
-    WHERE i.status = 'UNPAID' AND i.due_date < NOW()
-  `);
+    WHERE i.status = 'UNPAID'
+      AND i.due_date < NOW()
+      AND (i.last_reminder_at IS NULL OR i.last_reminder_at < NOW() - INTERVAL '7 days')
+    ORDER BY i.due_date ASC
+    LIMIT 200
+    `
+  );
 
-  if (result.rows.length === 0) {
+  const candidates: Array<{ id: string }> = (candidatesResult?.rows ?? []) as any;
+
+  if (candidates.length === 0) {
     logger.info("✅ Aucune facture en retard à relancer.");
     return;
   }
 
-  for (const invoice of result.rows) {
+  for (const row of candidates) {
+    const invoiceId = row.id;
+
+    // 2) Client DB via ton wrapper
+    const client = await pool.getClient();
+
     try {
-      if (invoice.last_reminder_at) {
-        const lastDate = new Date(invoice.last_reminder_at).getTime();
-        const diffDays = (Date.now() - lastDate) / (1000 * 3600 * 24);
-        if (diffDays < 7) {
-          logger.debug(`⏩ Saut de la facture ${invoice.id} (déjà relancée récemment)`);
-          continue;
-        }
-      }
+      await client.query("BEGIN");
 
-      const prompt = `Rédige un email de relance cordial mais ferme pour le client ${invoice.client_name}. 
-      Détails de la facture :
-      - Numéro : ${invoice.id}
-      - Montant dû : ${invoice.total_amount}€
-      - Entreprise émettrice : ${invoice.company_name}
-      L'email doit être complet et professionnel.`;
+      // 3) Lock atomique + re-check conditions
+      const lockedResult = await client.query(
+        `
+        SELECT
+          i.id,
+          i.user_id
+        FROM invoices i
+        WHERE i.id = $1
+          AND i.status = 'UNPAID'
+          AND i.due_date < NOW()
+          AND (i.last_reminder_at IS NULL OR i.last_reminder_at < NOW() - INTERVAL '7 days')
+        FOR UPDATE SKIP LOCKED
+        `,
+        [invoiceId]
+      );
 
-      logger.info(`🤖 Génération IA (Module RELANCE) pour ${invoice.client_name}...`);
-      
-      const aiResponseRaw = await runAI("relance", { prompt, userId: invoice.user_id });
-
-      let finalEmailContent: string;
-      try {
-        const parsed = JSON.parse(aiResponseRaw);
-        finalEmailContent = parsed.answer || aiResponseRaw;
-      } catch (e) {
-        finalEmailContent = aiResponseRaw.replace(/```json|```/g, "").trim();
-      }
-
-      if (finalEmailContent.includes("Je ne peux pas") || finalEmailContent.includes("Ma fonction est")) {
-        logger.error(`⚠️ L'IA a refusé la rédaction pour ${invoice.client_name}.`);
+      if (!lockedResult.rows?.length) {
+        await client.query("ROLLBACK");
         continue;
       }
 
-      /**
-       * 🔵 ÉTAPE 3 DU PLAN : DÉCLENCHER L'EVENT
-       * On ne parle plus à la reminderQueue ici.
-       */
+      const invoice = lockedResult.rows[0] as {
+        id: string;
+        user_id: string;
+      };
+
+      // 4) Emit event minimal (validation unique côté event.bus.ts via Zod schemas)
       await emitEvent(EventType.INVOICE_OVERDUE, {
         invoiceId: invoice.id,
-        email: invoice.client_email,
-        clientName: invoice.client_name,
-        content: finalEmailContent,
         userId: invoice.user_id,
-        totalAmount: invoice.total_amount,
-        clientId: invoice.client_id
       });
 
-      logger.info(`📡 Événement INVOICE_OVERDUE émis pour ${invoice.client_name}`);
+      // 5) Idempotency persistée après succès
+      await client.query(`UPDATE invoices SET last_reminder_at = NOW() WHERE id = $1`, [
+        invoice.id,
+      ]);
 
-      await delay(4000);
+      await client.query("COMMIT");
 
-    } catch (error: any) {
-      logger.error(`❌ Échec du traitement pour la facture ${invoice.id}:`, error.message);
-      continue;
+      logger.info("📡 Event INVOICE_OVERDUE émis", { invoiceId: invoice.id });
+
+      // Throttle pour éviter burst
+      await delay(500);
+    } catch (err: unknown) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore
+      }
+
+      logger.error("❌ Automation relance: erreur", {
+        invoiceId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      client.release();
     }
   }
-  
-  logger.info("🏁 Fin de l'automation des relances.");
+
+  logger.info("🏁 Automation relances - end");
 }

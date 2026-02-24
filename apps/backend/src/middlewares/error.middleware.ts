@@ -1,49 +1,100 @@
-import { Request, Response, NextFunction } from "express";
+// apps/backend/src/middlewares/error.middleware.ts
+import type { Request, Response, NextFunction } from "express";
+import { ZodError } from "zod";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
 
 /**
- * Middleware global de gestion des erreurs - Corrigé pour TS strict
+ * Middleware global de gestion des erreurs (TS strict)
+ * ✅ pas de stack exposée au client
+ * ✅ pas de logs sensibles (pas de body/headers/cookies/tokens)
+ * ✅ gère HttpError (métier) + ZodError (validation) + erreurs inconnues
  */
 export function errorHandler(
   err: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction
 ) {
-  const isDev = process.env.NODE_ENV !== "production";
+  // Optionnel si tu as un middleware qui met un id de corrélation (sinon undefined)
+  const requestId =
+    (req.headers["x-request-id"] as string | undefined) ??
+    (req as any).requestId ??
+    undefined;
 
   /* ================================
-     ERREURS MÉTIER CONTRÔLÉES
+     1) ERREURS ZOD (VALIDATION)
   ================================== */
-  if (err instanceof HttpError) {
-    // On passe le message en premier pour satisfaire TS, 
-    // et l'objet de données après
-    logger.error(err.message, { status: err.statusCode });
+  if (err instanceof ZodError) {
+    // Log minimal (pas de payload)
+    logger.warn("Validation error", {
+      requestId,
+      issues: err.issues.map((i) => ({
+        path: i.path.join("."),
+        code: i.code,
+        message: i.message,
+      })),
+    });
 
-    return res.status(err.statusCode).json({
+    return res.status(400).json({
       success: false,
-      message: err.message,
+      message: "Erreur de validation",
+      errors: err.issues.map((e) => ({
+        field: e.path.length ? e.path.join(".") : "body",
+        message: e.message,
+      })),
+      requestId,
     });
   }
 
   /* ================================
-     ERREURS JS NATIVES OU INCONNUES
+     2) ERREURS MÉTIER CONTRÔLÉES
   ================================== */
-  if (err instanceof Error) {
-    // On log le message et la stack séparément pour éviter l'erreur de type
-    logger.error(err.message, { stack: err.stack });
-  } else {
-    logger.error("Unknown Error", { detail: err });
+  if (err instanceof HttpError) {
+    // Log safe (ne pas inclure req.body, cookies, headers…)
+    logger.error(err.message, {
+      requestId,
+      status: err.statusCode,
+      code: (err as any).code, // si tu as un code interne optionnel
+      path: req.path,
+      method: req.method,
+    });
+
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message,
+      requestId,
+    });
   }
 
   /* ================================
-     ERREUR INTERNE
+     3) ERREURS INCONNUES / NATIVES
+  ================================== */
+  if (err instanceof Error) {
+    // En prod, OK de log stack côté serveur (pas côté client)
+    logger.error("Unhandled error", {
+      requestId,
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+      path: req.path,
+      method: req.method,
+    });
+  } else {
+    logger.error("Unhandled non-Error thrown", {
+      requestId,
+      detail: err,
+      path: req.path,
+      method: req.method,
+    });
+  }
+
+  /* ================================
+     4) RÉPONSE CLIENT (GENÉRIQUE)
   ================================== */
   return res.status(500).json({
     success: false,
-    message: isDev 
-      ? (err instanceof Error ? err.message : "Internal server error")
-      : "Erreur interne du serveur",
+    message: "Erreur interne du serveur",
+    requestId,
   });
 }

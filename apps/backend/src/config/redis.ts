@@ -7,28 +7,45 @@ import { logger } from "../utils/logger";
  * Base options (BullMQ safe)
  * =========================
  */
-
 const baseOptions: RedisOptions = {
   maxRetriesPerRequest: null, // obligatoire pour BullMQ
   enableReadyCheck: true,
   retryStrategy: (times) => {
     const delay = Math.min(times * 50, 2000);
-    logger.warn(`🔁 Redis reconnect attempt #${times}`);
+    logger.warn("🔁 Redis reconnect attempt", { times });
     return delay;
   },
 };
 
 /**
  * =========================
- * Redis Options for BullMQ
+ * Helpers
  * =========================
  */
+function buildRedisOptionsFromUrl(redisUrl: string): RedisOptions {
+  const u = new URL(redisUrl);
 
+  const isTls = u.protocol === "rediss:";
+  const password = u.password ? decodeURIComponent(u.password) : undefined;
+
+  return {
+    ...baseOptions,
+    host: u.hostname,
+    port: u.port ? Number(u.port) : 6379,
+    password,
+    tls: isTls ? {} : undefined,
+  };
+}
+
+/**
+ * =========================
+ * Redis Options for BullMQ
+ * =========================
+ * ✅ Toujours fournir un objet RedisOptions complet (host/port/...)
+ * sinon BullMQ peut échouer.
+ */
 export const redisOptions: RedisOptions = ENV.REDIS_URL
-  ? {
-      ...baseOptions,
-      tls: ENV.REDIS_URL.startsWith("rediss://") ? {} : undefined,
-    }
+  ? buildRedisOptionsFromUrl(ENV.REDIS_URL)
   : {
       ...baseOptions,
       host: ENV.REDIS_HOST,
@@ -38,28 +55,18 @@ export const redisOptions: RedisOptions = ENV.REDIS_URL
 
 /**
  * =========================
- * Redis Instance (typed properly)
+ * Redis Instance (shared)
  * =========================
  */
-
-let redisConnection: Redis;
-
-if (ENV.REDIS_URL) {
-  // Cas 1: URL (Redis Cloud / Railway / Upstash)
-  redisConnection = new IORedis(ENV.REDIS_URL, baseOptions);
-} else {
-  // Cas 2: Host / Port (local dev / docker)
-  redisConnection = new IORedis(redisOptions);
-}
-
-export { redisConnection };
+export const redisConnection: Redis = ENV.REDIS_URL
+  ? new IORedis(ENV.REDIS_URL, baseOptions)
+  : new IORedis(redisOptions);
 
 /**
  * =========================
- * Event listeners
+ * Event listeners (logs safe)
  * =========================
  */
-
 redisConnection.on("connect", () => {
   logger.info("✅ Redis connected");
 });
@@ -69,7 +76,7 @@ redisConnection.on("ready", () => {
 });
 
 redisConnection.on("error", (err) => {
-  logger.error("❌ Redis error", err);
+  logger.error("❌ Redis error", { message: err instanceof Error ? err.message : String(err) });
 });
 
 redisConnection.on("close", () => {
@@ -81,12 +88,13 @@ redisConnection.on("close", () => {
  * Graceful shutdown
  * =========================
  */
-
 export const closeRedis = async (): Promise<void> => {
   try {
     await redisConnection.quit();
     logger.info("✅ Redis connection closed");
   } catch (err) {
-    logger.error("❌ Error closing Redis connection", err);
+    logger.error("❌ Error closing Redis connection", {
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 };

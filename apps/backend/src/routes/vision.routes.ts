@@ -1,8 +1,10 @@
+// apps/backend/src/routes/vision.routes.ts
 import { Router } from "express";
 import { z } from "zod";
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { validate } from "@middlewares/validate.middleware";
 import { checkQuota } from "@middlewares/checkQuota.middleware";
+import { asyncHandler } from "@utils/asyncHandler";
 import {
   analyzeVisionController,
   getVisionHistoryController,
@@ -23,9 +25,9 @@ const visionSchema = z.object({
 router.post(
   "/analyze",
   authMiddleware,
-  checkQuota,               // 🔥 ajout SaaS ici
+  checkQuota,
   validate(visionSchema),
-  analyzeVisionController
+  asyncHandler(analyzeVisionController)
 );
 
 /**
@@ -35,7 +37,7 @@ router.post(
 router.get(
   "/history",
   authMiddleware,
-  getVisionHistoryController
+  asyncHandler(getVisionHistoryController)
 );
 
 /**
@@ -44,7 +46,7 @@ router.get(
 router.get(
   "/:id",
   authMiddleware,
-  getVisionByIdController
+  asyncHandler(getVisionByIdController)
 );
 
 export default router;
