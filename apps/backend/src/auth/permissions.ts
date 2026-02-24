@@ -1,19 +1,18 @@
 /**
- * Rôles système
+ * Rôles système / business
  */
-export type UserRole = "user" | "admin";
+export type UserRole = "user" | "admin" | "free" | "pro";
 
 /**
- * Permissions métier
+ * Permissions métier (naming stable)
  */
 export const PERMISSIONS = {
-  ACCESS_DASHBOARD: "access_dashboard",
-  USE_VISION: "use_vision",
-  MANAGE_USERS: "manage_users",
+  ACCESS_DASHBOARD: "dashboard:read",
+  DEVIS_READ: "devis:read",
+  DEVIS_WRITE: "devis:write",
+  AI_USE: "ai:use",
+  AUTOMATION_USE: "automation:use",
+  MANAGE_USERS: "users:manage",
 } as const;
 
-/**
- * Type Permission strict
- */
-export type Permission =
-  typeof PERMISSIONS[keyof typeof PERMISSIONS];
+export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];

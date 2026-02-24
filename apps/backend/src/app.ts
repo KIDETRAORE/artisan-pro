@@ -2,102 +2,147 @@ import express from "express";
 import cors from "cors";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
-import helmet from "helmet";
 
 import { ENV } from "./config/env";
 import { errorHandler } from "./middlewares/error.middleware";
 import { globalRateLimit, aiRateLimit } from "./middlewares/rateLimit.middleware";
-import { quotaMiddleware } from "./middlewares/quota.middleware"; 
-import { authMiddleware } from "./middlewares/auth.middleware"; 
+import { quotaMiddleware } from "./middlewares/quota.middleware";
+import { authMiddleware } from "./middlewares/auth.middleware";
 import { logger } from "./utils/logger";
+import { applySecurity } from "./middlewares/security.middleware";
 
-/**
- * 👷 WORKERS & QUEUES
- */
-import "./workers/reminder.worker";
-import "./workers/ai.worker";    
-
-// --- Imports des Routes ---
+// Routes
 import dashboardRoutes from "./routes/dashboard.routes";
 import stripeRoutes from "./routes/stripe.routes";
 import stripeWebhookRoutes from "./routes/stripe.webhook";
-import automationRoutes from "./routes/automation.routes"; 
-import aiRoutes from "./routes/ai.routes"; 
-import { devisRouter } from "./routes/devis.routes";   
+import automationRoutes from "./routes/automation.routes";
+import aiRoutes from "./routes/ai.routes";
+import { devisRouter } from "./routes/devis.routes";
 
 const app = express();
 
+/**
+ * ======================
+ * TRUST PROXY
+ * ======================
+ * Important pour rate-limit derrière proxy/LB
+ */
 app.set("trust proxy", 1);
 
 /**
- * 🔥 STRIPE WEBHOOK (Doit être avant express.json)
+ * ======================
+ * SECURITY HEADERS (Helmet + CSP + HSTS prod)
+ * ======================
+ * Centralisé dans src/middlewares/security.middleware.ts
  */
-app.use(
-  "/stripe/webhook",
-  express.raw({ type: "application/json" }),
-  stripeWebhookRoutes
-);
+applySecurity(app);
 
 /**
- * GLOBAL MIDDLEWARES
+ * ======================
+ * STRIPE WEBHOOK (RAW BODY)
+ * DOIT être AVANT express.json()
+ * ======================
+ */
+app.use("/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookRoutes);
+
+/**
+ * ======================
+ * GLOBAL RATE LIMIT
+ * ======================
+ * (Le webhook Stripe est explicitement exclu via skip() dans rateLimit.middleware.ts)
  */
 app.use(globalRateLimit);
-app.use(helmet({ crossOriginResourcePolicy: false }));
 
 /**
- * 🛡️ CONFIGURATION CORS
+ * ======================
+ * CORS
+ * ======================
  */
+const allowedOrigins =
+  ENV.NODE_ENV === "production"
+    ? [ENV.FRONTEND_URL]
+    : ["http://localhost:3000", "http://localhost:5173"];
+
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:5173"],
+    origin: (origin, callback) => {
+      // autorise calls sans Origin (curl/postman/mobile)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      return callback(new Error("CORS not allowed"));
+    },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// Augmentation de la limite pour les fichiers (Photos/Audios Base64)
-app.use(express.json({ limit: "50mb" })); 
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+// Préflight global (important pour certains clients)
+app.options("*", cors());
+
+/**
+ * ======================
+ * BODY PARSERS (LIMIT PROTECTION)
+ * ======================
+ * ⚠️ Le webhook Stripe est en RAW, donc express.json doit venir après
+ */
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
 
+/**
+ * ======================
+ * DEV LOGGER
+ * ======================
+ */
 if (ENV.NODE_ENV !== "production") {
   app.use(morgan("dev"));
 }
 
 /**
- * 🔍 HEALTH CHECK
+ * ======================
+ * HEALTH CHECK
+ * ======================
  */
 app.get("/health", (_req, res) => {
-  res.status(200).json({ status: "ok", service: "Artisan-AI-Backend" });
+  res.status(200).json({
+    status: "ok",
+    service: "ArtisanPro Backend",
+    env: ENV.NODE_ENV,
+  });
 });
 
 /**
+ * ======================
  * API ROUTES
+ * ======================
  */
-
-// --- Routes de gestion ---
 app.use("/dashboard", authMiddleware, dashboardRoutes);
-app.use("/stripe", stripeRoutes);
+app.use("/stripe", authMiddleware, stripeRoutes); // ✅ recommandé: protège tes endpoints Stripe
 app.use("/devis", authMiddleware, devisRouter);
 
-// --- MODULE IA CENTRALISÉ ---
-// Toutes les fonctionnalités (Vocal, Vision, Compta) passent désormais par /ai
-// Le type (vocal/vision/compta) est passé dans le body de la requête
 app.use("/ai", authMiddleware, aiRateLimit, quotaMiddleware, aiRoutes);
 
-// --- Automatisation ---
-app.use("/automation", authMiddleware, quotaMiddleware, automationRoutes); 
+app.use("/automation", authMiddleware, quotaMiddleware, automationRoutes);
 
 /**
- * 404 & ERROR HANDLER
+ * ======================
+ * 404
+ * ======================
  */
 app.use((_req, res) => {
-  res.status(404).json({ success: false, error: "Route introuvable sur le serveur AI" });
+  res.status(404).json({ success: false, error: "Route not found" });
 });
 
+/**
+ * ======================
+ * ERROR HANDLER
+ * ======================
+ */
 app.use(errorHandler);
 
-logger.info(`✅ Application initialisée en mode: ${ENV.NODE_ENV}`);
+logger.info(`✅ App initialized in ${ENV.NODE_ENV} mode`);
 
 export default app;

@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     /* ===============================
-     * Cœur TypeScript / Node
+     * Core TypeScript / Node
      * =============================== */
     "target": "ES2021",
     "module": "CommonJS",
@@ -9,21 +9,21 @@
     "lib": ["ES2021"],
 
     /* ===============================
-     * Entrées / sorties
+     * Input / output
      * =============================== */
     "rootDir": "src",
     "outDir": "dist",
     "sourceMap": true,
 
     /* ===============================
-     * Interop & qualité
+     * Interop & quality
      * =============================== */
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
 
     /* ===============================
-     * Typage strict
+     * Strict typing
      * =============================== */
     "strict": true,
     "noImplicitAny": true,
@@ -33,17 +33,18 @@
     /* ===============================
      * Node / Express
      * =============================== */
-    "types": ["node"],
+    "types": ["node", "express"],
+
     "resolveJsonModule": true,
 
     /* ===============================
-     * Performance & sécurité
+     * Performance & safety
      * =============================== */
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
 
     /* ===============================
-     * Imports absolus (alias)
+     * Absolute imports (aliases)
      * =============================== */
     "baseUrl": "src",
     "paths": {
@@ -59,5 +60,6 @@
     }
   },
 
+  "include": ["src/**/*.ts", "src/**/*.d.ts"],
   "exclude": ["node_modules", "dist"]
 }

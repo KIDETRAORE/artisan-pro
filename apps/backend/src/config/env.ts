@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 
 /**
- * ⚠️ DOIT être exécuté avant tout accès à process.env
+ * ⚠️ Must run before accessing process.env
  */
 dotenv.config();
 
@@ -34,7 +34,7 @@ function optionalNumber(name: string, defaultValue: number): number {
   const parsed = value ? Number(value) : defaultValue;
 
   if (Number.isNaN(parsed)) {
-    throw new Error(`❌ Environment variable ${name} must be a number`);
+    throw new Error(`❌ Environment variable ${name} must be a valid number`);
   }
 
   return parsed;
@@ -42,20 +42,42 @@ function optionalNumber(name: string, defaultValue: number): number {
 
 function optionalBoolean(name: string, defaultValue: boolean): boolean {
   const value = clean(process.env[name]);
+
   if (value === undefined) return defaultValue;
+
+  if (value !== "true" && value !== "false") {
+    throw new Error(
+      `❌ Environment variable ${name} must be "true" or "false"`
+    );
+  }
+
   return value === "true";
 }
 
 /**
  * =========================
- * CONFIGURATION GLOBALE
+ * ENVIRONMENT TYPE SAFETY
+ * =========================
+ */
+
+const NODE_ENV = optional("NODE_ENV", "development");
+
+if (!["development", "production", "test"].includes(NODE_ENV)) {
+  throw new Error(
+    `❌ NODE_ENV must be "development", "production" or "test"`
+  );
+}
+
+/**
+ * =========================
+ * GLOBAL CONFIG
  * =========================
  */
 
 export const ENV = {
-  NODE_ENV: optional("NODE_ENV", "development"),
-  PORT: optionalNumber("PORT", 8080),
+  NODE_ENV: NODE_ENV as "development" | "production" | "test",
 
+  PORT: optionalNumber("PORT", 8080),
   SHUTDOWN_TIMEOUT: optionalNumber("SHUTDOWN_TIMEOUT", 10_000),
 
   /**
@@ -71,17 +93,17 @@ export const ENV = {
 
   /**
    * =========================
-   * CORS
+   * FRONTEND / CORS
    * =========================
    */
-  CORS_ORIGIN: optional("CORS_ORIGIN", "http://localhost:5173"),
+  FRONTEND_URL: required("FRONTEND_URL"),
 
   /**
    * =========================
-   * SUPABASE / DATABASE
+   * DATABASE
    * =========================
    */
-  DATABASE_URL: required("DATABASE_URL"), // Ajouté pour la connexion pg
+  DATABASE_URL: required("DATABASE_URL"),
   SUPABASE_URL: required("SUPABASE_URL"),
   SUPABASE_SERVICE_ROLE_KEY: required("SUPABASE_SERVICE_ROLE_KEY"),
 
@@ -93,7 +115,16 @@ export const ENV = {
   STRIPE_SECRET_KEY: required("STRIPE_SECRET_KEY"),
   STRIPE_WEBHOOK_SECRET: required("STRIPE_WEBHOOK_SECRET"),
   STRIPE_PRICE_ID: required("STRIPE_PRICE_ID"),
-  FRONTEND_URL: required("FRONTEND_URL"),
+
+  /**
+   * =========================
+   * REDIS
+   * =========================
+   */
+  REDIS_URL: optional("REDIS_URL"),
+  REDIS_HOST: optional("REDIS_HOST", "127.0.0.1"),
+  REDIS_PORT: optionalNumber("REDIS_PORT", 6379),
+  REDIS_PASSWORD: optional("REDIS_PASSWORD"),
 
   /**
    * =========================
@@ -116,21 +147,48 @@ export const ENV = {
    * =========================
    */
   QUOTA_ENABLED: optionalBoolean("QUOTA_ENABLED", false),
+  ENABLE_SCHEDULER: optionalBoolean("ENABLE_SCHEDULER", false),
 } as const;
 
 /**
  * =========================
- * DEBUG DEV
+ * PRODUCTION SAFETY CHECKS
+ * =========================
+ */
+
+if (ENV.NODE_ENV === "production") {
+  if (!ENV.REDIS_URL && !ENV.REDIS_HOST) {
+    throw new Error("❌ Redis configuration missing in production");
+  }
+
+  if (ENV.JWT_ACCESS_SECRET.length < 32) {
+    throw new Error("❌ JWT_ACCESS_SECRET too short (min 32 chars)");
+  }
+
+  if (ENV.JWT_REFRESH_SECRET.length < 32) {
+    throw new Error("❌ JWT_REFRESH_SECRET too short (min 32 chars)");
+  }
+
+  if (!ENV.FRONTEND_URL.startsWith("https://")) {
+    throw new Error("❌ FRONTEND_URL must use HTTPS in production");
+  }
+}
+
+/**
+ * =========================
+ * DEV DEBUG (SAFE)
  * =========================
  */
 
 if (ENV.NODE_ENV === "development") {
   console.log("✅ Environment loaded", {
+    NODE_ENV: ENV.NODE_ENV,
     PORT: ENV.PORT,
-    DATABASE_LOADED: !!ENV.DATABASE_URL, // Vérification debug
-    CORS_ORIGIN: ENV.CORS_ORIGIN,
+    FRONTEND_URL: ENV.FRONTEND_URL,
+    DATABASE_CONFIGURED: !!ENV.DATABASE_URL,
+    STRIPE_CONFIGURED: !!ENV.STRIPE_SECRET_KEY,
+    REDIS_CONFIGURED: !!(ENV.REDIS_URL || ENV.REDIS_HOST),
     QUOTA_ENABLED: ENV.QUOTA_ENABLED,
-    STRIPE_KEY_LOADED: !!ENV.STRIPE_SECRET_KEY,
-    SUPABASE_URL: ENV.SUPABASE_URL,
+    ENABLE_SCHEDULER: ENV.ENABLE_SCHEDULER,
   });
 }

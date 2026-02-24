@@ -1,39 +1,60 @@
-import { Pool } from "pg";
+import { Pool, PoolConfig } from "pg";
 import { ENV } from "./env";
 import { logger } from "../utils/logger";
 
 /**
  * Configuration du Pool PostgreSQL
- * Le Pool permet de réutiliser les connexions pour de meilleures performances.
+ * L'utilisation d'un Pool est indispensable en production pour la scalabilité.
  */
-const pool = new Pool({
+const poolConfig: PoolConfig = {
   connectionString: ENV.DATABASE_URL,
-  // Sécurité : évite les fuites de connexion
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+  
+  // 🔐 SÉCURITÉ DB : SSL activé en production
+  // Supabase et la plupart des providers managés l'exigent
+  ssl: ENV.NODE_ENV === "production" 
+    ? { rejectUnauthorized: false } // Permet la connexion sécurisée sur les DB managées
+    : false,
+
+  // 📈 PERFORMANCE : Gestion du pool
+  max: ENV.NODE_ENV === "production" ? 20 : 5, // Max de connexions simultanées
+  idleTimeoutMillis: 30000, // Temps avant de fermer une connexion inactive
+  connectionTimeoutMillis: 2000, // Temps max pour établir la connexion (Fail fast)
+};
+
+const pool = new Pool(poolConfig);
 
 /**
- * Test de connexion immédiat au démarrage
- */
-pool.connect((err, client, release) => {
-  if (err) {
-    logger.error("❌ ÉCHEC de connexion à PostgreSQL/Supabase", { 
-      message: err.message,
-      stack: err.stack 
-    });
-  } else {
-    logger.info("✅ Connexion PostgreSQL/Supabase établie avec succès !");
-    release(); // Libère le client pour le pool
-  }
-});
-
-/**
- * Gestionnaire d'erreurs global sur le pool
+ * Gestion des erreurs de connexion au pool
  */
 pool.on("error", (err) => {
-  logger.error("Erreur inattendue sur le pool de base de données", err);
+  logger.error("❌ Unexpected error on idle database client", err);
+  process.exit(-1);
 });
 
-export default pool;
+/**
+ * Helper pour les requêtes avec gestion de log et timeout
+ */
+export const db = {
+  async query(text: string, params?: any[]) {
+    const start = Date.now();
+    try {
+      const res = await pool.query(text, params);
+      const duration = Date.now() - start;
+      
+      // Log uniquement en dev pour éviter de saturer les logs prod
+      if (ENV.NODE_ENV === "development") {
+        logger.info("Executed query", { text, duration, rows: res.rowCount });
+      }
+      
+      return res;
+    } catch (error) {
+      logger.error("Database Query Error", { text, error });
+      throw error;
+    }
+  },
+  
+  // Pour les transactions complexes
+  getClient: () => pool.connect(),
+};
+
+export default db;

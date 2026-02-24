@@ -1,17 +1,19 @@
+// apps/backend/src/routes/automation.routes.ts
 import { Router } from "express";
 import { runReminderAutomation } from "../automation/automation.engine";
 import { logger } from "../utils/logger";
+import { authMiddleware } from "@middlewares/auth.middleware";
+import { requireRole } from "@middlewares/requireRole.middleware";
 
 const router = Router();
 
-// Route pour déclencher manuellement les relances (Test Postman)
-router.post("/run-reminders", async (req, res) => {
+router.post("/run-reminders", authMiddleware, requireRole("admin"), async (_req, res) => {
   try {
     logger.info("🚀 Lancement manuel de l'automation des relances");
     await runReminderAutomation();
-    res.json({ success: true, message: "Moteur d'automation lancé. Les jobs sont en file d'attente." });
+    return res.json({ success: true, message: "Jobs en file d'attente." });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: "Internal error" });
   }
 });
 

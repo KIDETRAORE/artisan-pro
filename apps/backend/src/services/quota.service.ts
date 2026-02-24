@@ -1,4 +1,6 @@
-import { supabaseAdmin } from "./supabaseAdmin.js";
+import { supabaseAdmin } from "../lib/supabaseAdmin";
+import { logger } from "../utils/logger";
+import { consumeAiQuotaOrThrow } from "./quota/consumeQuota";
 
 /**
  * ======================
@@ -8,15 +10,15 @@ import { supabaseAdmin } from "./supabaseAdmin.js";
 const PLAN_LIMITS: Record<string, number> = {
   free: 100,
   pro: 1000,
-  pro_plus: 5000,
 };
 
 /**
  * ======================
- * RÉFÉRENTIEL DES POIDS
+ * POIDS PAR FEATURE
  * ======================
+ * 1 appel IA = N unités
  */
-const FEATURE_WEIGHTS: Record<string, number> = {
+export const FEATURE_WEIGHTS: Record<string, number> = {
   assistant: 1,
   devis: 2,
   vision: 10,
@@ -27,8 +29,9 @@ const FEATURE_WEIGHTS: Record<string, number> = {
 
 /**
  * ======================
- * PLAFONDS PAR FEATURE
+ * CAPS PAR FEATURE
  * ======================
+ * Limites mensuelles indépendantes
  */
 export const FEATURE_CAPS: Record<string, number> = {
   vision: 15,
@@ -40,13 +43,21 @@ export const FEATURE_CAPS: Record<string, number> = {
  * UTILS
  * ======================
  */
-export function estimateTokens(text?: string): number {
+function estimateTokens(text?: string): number {
   if (!text) return 0;
   return Math.ceil(text.length / 4);
 }
 
 function nextResetDate(from = new Date()) {
-  return new Date(from.getTime() + 30 * 24 * 60 * 60 * 1000);
+  return new Date(from.getFullYear(), from.getMonth() + 1, 1);
+}
+
+function normalizePlan(plan?: string | null) {
+  return String(plan ?? "free").toLowerCase();
+}
+
+function normalizeStatus(status?: string | null) {
+  return String(status ?? "inactive").toLowerCase();
 }
 
 /**
@@ -55,183 +66,192 @@ function nextResetDate(from = new Date()) {
  * ======================
  */
 export const quotaService = {
-
-  async checkAndLockQuota(userId: string, feature: string) {
-
-    if (!userId) {
-      return { allowed: false, reason: "User ID manquant" };
-    }
-
-    const weight = FEATURE_WEIGHTS[feature] ?? 1;
-
-    /**
-     * 1️⃣ Récupération abonnement
-     */
-    const { data: subscription, error: subError } = await supabaseAdmin
+  /**
+   * Assure l'existence de ai_quota + synchro monthly_limit
+   */
+  async ensureQuotaRow(userId: string) {
+    // 1️⃣ Subscription = source de vérité plan
+    const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
-      .select("plan")
+      .select("plan,status")
       .eq("user_id", userId)
-      .single();
+      .maybeSingle();
 
-    if (subError || !subscription) {
-      return { allowed: false, reason: "Abonnement introuvable" };
+    if (subErr) {
+      logger.error("[QuotaService] subscriptions lookup error", { userId, subErr });
+      throw new Error("subscriptions_lookup_error");
     }
 
-    const plan = subscription.plan.toLowerCase();
-    const planLimit = PLAN_LIMITS[plan] ?? 100;
+    const plan = normalizePlan(sub?.plan);
+    const status = normalizeStatus(sub?.status);
+    const isProActive = plan === "pro" && (status === "active" || status === "trialing");
+    const planLimit = PLAN_LIMITS[isProActive ? "pro" : "free"];
 
-    /**
-     * 2️⃣ Récupération quota
-     */
-    let { data: quota, error } = await supabaseAdmin
+    // 2️⃣ ai_quota
+    const { data: quota, error: quotaErr } = await supabaseAdmin
       .from("ai_quota")
-      .select("*")
+      .select("user_id, monthly_limit, used, reset_at")
       .eq("user_id", userId)
-      .single();
+      .maybeSingle();
 
-    if (error && error.code !== "PGRST116") {
-      console.error("[QuotaService] Fetch error:", error);
-      return { allowed: false, reason: "Erreur quota utilisateur" };
+    if (quotaErr) {
+      logger.error("[QuotaService] ai_quota lookup error", { userId, quotaErr });
+      throw new Error("ai_quota_lookup_error");
     }
 
-    /**
-     * 3️⃣ Création si inexistant
-     */
+    // 3️⃣ Création si absente
     if (!quota) {
-      const { data: newQuota, error: insertError } = await supabaseAdmin
-        .from("ai_quota")
-        .insert({
-          user_id: userId,
-          monthly_limit: planLimit,
-          used: 0,
-          reset_at: nextResetDate().toISOString(),
-        })
-        .select()
-        .single();
+      const resetAt = nextResetDate().toISOString();
 
-      if (insertError || !newQuota) {
-        return { allowed: false, reason: "Impossible d'initialiser le quota" };
+      const { error: insertErr } = await supabaseAdmin.from("ai_quota").insert({
+        user_id: userId,
+        monthly_limit: planLimit,
+        used: 0,
+        reset_at: resetAt,
+      });
+
+      if (insertErr) {
+        logger.error("[QuotaService] ai_quota insert error", { userId, insertErr });
+        throw new Error("ai_quota_insert_error");
       }
 
-      quota = newQuota;
+      // cache UI (best effort)
+      void (async () => {
+        try {
+          await supabaseAdmin
+            .from("profiles")
+            .update({
+              monthly_quota_used: 0,
+              monthly_quota_limit: planLimit,
+              quota_reset_at: Math.floor(new Date(resetAt).getTime() / 1000),
+            })
+            .eq("id", userId);
+        } catch {
+          /* ignore */
+        }
+      })();
+
+      return { monthly_limit: planLimit, used: 0, reset_at: resetAt };
     }
 
-    /**
-     * 4️⃣ Synchronisation limite si plan changé
-     */
-    if (quota.monthly_limit !== planLimit) {
-      const { data: updatedQuota } = await supabaseAdmin
+    // 4️⃣ Sync limite si plan changé
+    if (Number(quota.monthly_limit) !== planLimit) {
+      const { error: updErr } = await supabaseAdmin
         .from("ai_quota")
         .update({ monthly_limit: planLimit })
-        .eq("user_id", userId)
-        .select()
-        .single();
+        .eq("user_id", userId);
 
-      if (updatedQuota) {
-        quota = updatedQuota;
+      if (updErr) {
+        logger.error("[QuotaService] ai_quota update limit error", { userId, updErr });
+        throw new Error("ai_quota_update_limit_error");
       }
+
+      // cache UI
+      void (async () => {
+        try {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ monthly_quota_limit: planLimit })
+            .eq("id", userId);
+        } catch {
+          /* ignore */
+        }
+      })();
     }
 
-    /**
-     * 5️⃣ Reset mensuel automatique
-     */
-    const now = new Date();
-    const resetAt = new Date(quota.reset_at);
+    return {
+      monthly_limit: planLimit,
+      used: Number(quota.used ?? 0),
+      reset_at: quota.reset_at as string,
+    };
+  },
 
-    if (now > resetAt) {
-      const nextReset = nextResetDate(now).toISOString();
+  /**
+   * Vérification lecture seule (pré-call IA)
+   */
+  async checkQuota(userId: string, feature: string) {
+    const weight = FEATURE_WEIGHTS[feature] ?? 1;
+    const quota = await this.ensureQuotaRow(userId);
 
-      const { data: resetQuota } = await supabaseAdmin
-        .from("ai_quota")
-        .update({
-          used: 0,
-          reset_at: nextReset,
-        })
-        .eq("user_id", userId)
-        .select()
-        .single();
+    const limit = Number(quota.monthly_limit);
+    const used = Number(quota.used);
 
-      if (resetQuota) {
-        quota = resetQuota;
-      }
-    }
-
-    const periodStart = new Date(
-      new Date(quota.reset_at).getTime() - 30 * 24 * 60 * 60 * 1000
-    ).toISOString();
-
-    /**
-     * 6️⃣ Vérification CAP feature
-     */
+    // Cap feature
     const cap = FEATURE_CAPS[feature];
-
     if (cap) {
-      const { count } = await supabaseAdmin
+      const periodStart = new Date(
+        new Date(quota.reset_at).getFullYear(),
+        new Date(quota.reset_at).getMonth() - 1,
+        1
+      ).toISOString();
+
+      const { count, error } = await supabaseAdmin
         .from("ai_usage")
         .select("*", { count: "exact", head: true })
         .eq("user_id", userId)
         .eq("feature", feature)
         .gte("created_at", periodStart);
 
-      if ((count ?? 0) >= cap) {
-        return {
-          allowed: false,
-          reason: `Limite mensuelle atteinte pour '${feature}' (${cap}).`,
-        };
+      if (error || (count ?? 0) >= cap) {
+        return { allowed: false as const, reason: "Cap feature atteint" };
       }
     }
 
-    /**
-     * 7️⃣ Vérification quota global
-     */
-    if (quota.used + weight > quota.monthly_limit) {
-      return {
-        allowed: false,
-        reason: `Crédits IA insuffisants (${quota.used}/${quota.monthly_limit}).`,
-      };
+    if (limit > 0 && used + weight > limit) {
+      return { allowed: false as const, reason: "Quota insuffisant" };
     }
 
-    return { allowed: true };
+    return { allowed: true as const };
   },
 
-  async recordUsage(
-    userId: string,
-    feature: string,
-    input?: string,
-    output?: string
-  ) {
+  /**
+   * Consommation réelle (POST IA)
+   */
+  async recordUsage(userId: string, feature: string, input?: string, output?: string) {
     try {
-      if (!userId) return;
+      await this.ensureQuotaRow(userId);
 
       const weight = FEATURE_WEIGHTS[feature] ?? 1;
-      const costMultiplier = feature === "vision" ? 3 : 1;
-
       const tokens =
-        (estimateTokens(input) + estimateTokens(output)) * costMultiplier;
+        estimateTokens(input) + estimateTokens(output);
 
-      await supabaseAdmin.rpc("increment_quota", {
-        row_id: userId,
-        val: weight,
-      });
+      // 🔒 Incrément atomique
+      const result = await consumeAiQuotaOrThrow(userId, weight);
 
+      // Log append-only
       await supabaseAdmin.from("ai_usage").insert({
         user_id: userId,
         feature,
         tokens_estimated: tokens > 0 ? tokens : weight * 100,
       });
 
-    } catch (err) {
-      console.error("[QuotaService] Record fatal error:", err);
+      // cache UI
+      void (async () => {
+        try {
+          await supabaseAdmin
+            .from("profiles")
+            .update({
+              monthly_quota_used: result.used,
+              monthly_quota_limit: result.limit,
+            })
+            .eq("id", userId);
+        } catch {
+          /* ignore */
+        }
+      })();
+    } catch (err: unknown) {
+      logger.error("[QuotaService] recordUsage error", { userId, feature, err });
     }
   },
 
   async getUserQuota(userId: string) {
-    const { data: quota } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("ai_quota")
       .select("used, monthly_limit, reset_at")
       .eq("user_id", userId)
       .single();
 
-    return quota ?? null;
+    if (error) return null;
+    return data;
   },
 };

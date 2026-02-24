@@ -1,62 +1,45 @@
-import { Request, Response, NextFunction } from "express";
-import { createClient } from "@supabase/supabase-js";
-import { ENV } from "../config/env";
+import type { Request, Response, NextFunction } from "express";
+import { supabaseAdmin } from "../lib/supabaseAdmin";
 
-const supabase = createClient(
-  ENV.SUPABASE_URL,
-  ENV.SUPABASE_SERVICE_ROLE_KEY
-);
+export const checkQuota = async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
 
-export const checkQuota = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  const user = (req as any).user;
+  // 1) Source de vérité: subscriptions
+  const { data: sub, error: subErr } = await supabaseAdmin
+    .from("subscriptions")
+    .select("plan,status")
+    .eq("user_id", userId)
+    .maybeSingle();
 
-  if (!user?.id) {
-    return res.status(401).json({ message: "Unauthorized" });
+  // Si pas de ligne => FREE par défaut
+  const plan = (sub?.plan ?? "free").toLowerCase();
+  const status = (sub?.status ?? "inactive").toLowerCase();
+
+  // Si PRO + actif => unlimited (ou quota élevé)
+  if (plan === "pro" && (status === "active" || status === "trialing")) {
+    return next();
   }
 
-  // 1️⃣ Get user plan
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("plan")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || !profile) {
-    return res.status(403).json({ message: "User not found" });
-  }
-
-  if (profile.plan === "PRO") {
-    return next(); // unlimited
-  }
-
-  // 2️⃣ Calculate current month range
+  // 2) Fenêtre mois courant
   const now = new Date();
-  const firstDayOfMonth = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1
-  ).toISOString();
+  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  // 3️⃣ Count analyses
-  const { count, error: countError } = await supabase
-    .from("analyses")
+  // 3) Compte des analyses vision (FREE: 3/mois)
+  const { count, error: countErr } = await supabaseAdmin
+    .from("vision_analyses")
     .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .gte("created_at", firstDayOfMonth);
 
-  if (countError) {
-    return res.status(500).json({ message: "Quota check failed" });
-  }
+  if (countErr) return res.status(500).json({ success: false, error: "Quota check failed" });
 
   if ((count ?? 0) >= 3) {
     return res.status(403).json({
-      message: "Free plan quota exceeded. Upgrade to Pro."
+      success: false,
+      error: "Free plan quota exceeded. Upgrade to Pro.",
     });
   }
 
-  next();
+  return next();
 };

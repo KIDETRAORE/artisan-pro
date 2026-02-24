@@ -1,111 +1,119 @@
-import { Router, Request, Response } from "express";
+// apps/backend/src/routes/ai.routes.ts
+import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { aiQueue } from "../queues/ai.queue";
 import { logger } from "../utils/logger";
 
+import { authMiddleware } from "@middlewares/auth.middleware";
+import { requirePermission } from "@middlewares/requirePermission.middleware";
+import { PERMISSIONS } from "@auth/permissions";
+
 const router = Router();
 
-// Configuration Multer pour la mémoire
-const upload = multer({ 
+/**
+ * Multer memory storage
+ */
+const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 } 
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
 });
 
 /**
- * 1. LANCER UNE TÂCHE IA (POST /ai/run)
+ * POST /ai/run
+ * Lance une tâche IA via BullMQ
  */
-router.post("/run", upload.single('file'), async (req: any, res: Response) => {
-  logger.info("📩 [AI-ROUTE] Requête reçue sur /run");
+router.post(
+  "/run",
+  authMiddleware,
+  requirePermission(PERMISSIONS.AI_USE),
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    logger.info("📩 [AI-ROUTE] Requête reçue sur /run");
 
-  try {
-    const { type } = req.body; 
-    const file = req.file;
+    try {
+      const { type } = req.body as { type?: string };
+      const file = req.file;
 
-    if (!req.user || !req.user.id) {
-      logger.error("❌ [AI-ROUTE] Utilisateur non authentifié");
-      return res.status(401).json({ success: false, error: "Non authentifié" });
-    }
-
-    if (!file) {
-      logger.warn("⚠️ [AI-ROUTE] Aucun fichier dans la requête");
-      return res.status(400).json({ success: false, error: "Aucun fichier reçu" });
-    }
-
-    logger.info(`📄 [AI-ROUTE] Fichier reçu: ${file.originalname}`);
-
-    const fileBase64 = file.buffer.toString('base64');
-    
-    // MODIFICATION ICI : On ajoute des options de conservation (Opts)
-    const job = await aiQueue.add(
-      "ai-task", 
-      {
-        type: type || 'vision',
-        userId: req.user.id,
-        fileBase64,
-        mimeType: file.mimetype,
-        fileName: file.originalname
-      },
-      {
-        // On garde le job en mémoire pour que le frontend ait le temps de lire le résultat
-        removeOnComplete: {
-          age: 600, // Garder 10 minutes (600 secondes)
-          count: 50 // Ou garder les 50 derniers jobs
-        },
-        removeOnFail: {
-          age: 3600 // Garder les erreurs 1 heure
-        }
+      if (!req.user?.id) {
+        logger.warn("❌ [AI-ROUTE] Utilisateur non authentifié");
+        return res.status(401).json({ success: false, error: "Non authentifié" });
       }
-    );
 
-    logger.info(`✅ [AI-ROUTE] Job créé: ${job.id}`);
-    
-    return res.status(200).json({ 
-      success: true, 
-      jobId: job.id 
-    });
+      if (!file) {
+        logger.warn("⚠️ [AI-ROUTE] Aucun fichier dans la requête");
+        return res.status(400).json({ success: false, error: "Aucun fichier reçu" });
+      }
 
-  } catch (error: any) {
-    logger.error(`💥 [AI-ROUTE] Erreur /run: ${error.message}`);
-    return res.status(500).json({ success: false, error: error.message });
+      const fileBase64 = file.buffer.toString("base64");
+
+      const job = await aiQueue.add(
+        "ai-task",
+        {
+          type: type || "vision",
+          userId: req.user.id,
+          fileBase64,
+          mimeType: file.mimetype,
+          fileName: file.originalname,
+        },
+        {
+          removeOnComplete: { age: 600, count: 50 }, // 10 min / 50 jobs
+          removeOnFail: { age: 3600 }, // 1h
+        }
+      );
+
+      logger.info("✅ [AI-ROUTE] Job créé", { jobId: job.id, userId: req.user.id });
+
+      return res.status(200).json({
+        success: true,
+        jobId: job.id,
+      });
+    } catch (error: unknown) {
+      logger.error("💥 [AI-ROUTE] Erreur /run", { error });
+      return res.status(500).json({ success: false, error: "Internal Server Error" });
+    }
   }
-});
+);
 
 /**
- * 2. RÉCUPÉRER LE STATUT (GET /ai/status/:jobId)
+ * GET /ai/status/:jobId
+ * Récupère le statut et le résultat du job
  */
-router.get("/status/:jobId", async (req: Request, res: Response) => {
-  try {
-    const jobId = String(req.params.jobId);
+router.get(
+  "/status/:jobId",
+  authMiddleware,
+  requirePermission(PERMISSIONS.AI_USE),
+  async (req: Request, res: Response) => {
+    try {
+      const jobId = String(req.params.jobId);
 
-    logger.info(`🔍 [AI-ROUTE] Vérification du statut pour le Job: ${jobId}`);
+      if (!jobId || jobId === "undefined") {
+        return res.status(400).json({ success: false, error: "ID de job invalide" });
+      }
 
-    if (!jobId || jobId === "undefined") {
-      return res.status(400).json({ success: false, error: "ID de job invalide" });
+      const job = await aiQueue.getJob(jobId);
+
+      if (!job) {
+        return res.status(404).json({ success: false, error: "Analyse introuvable" });
+      }
+
+      // ⚠️ Option sécurité (recommandée) :
+      // vérifier que le job appartient au user courant (si tu stockes userId dans job.data)
+      // const ownerId = (job.data as any)?.userId;
+      // if (ownerId && req.user?.id && ownerId !== req.user.id) return res.status(403).json({ success:false, error:"Forbidden" });
+
+      const state = await job.getState();
+
+      return res.status(200).json({
+        success: true,
+        status: state,
+        result: state === "completed" ? job.returnvalue : null,
+        error: state === "failed" ? job.failedReason : null,
+      });
+    } catch (error: unknown) {
+      logger.error("💥 [AI-ROUTE] Erreur /status", { error });
+      return res.status(500).json({ success: false, error: "Internal Server Error" });
     }
-
-    const job = await aiQueue.getJob(jobId);
-
-    if (!job) {
-      logger.warn(`❓ [AI-ROUTE] Job ${jobId} non trouvé dans Redis (peut-être déjà nettoyé)`);
-      return res.status(404).json({ success: false, message: "Analyse introuvable" });
-    }
-
-    const state = await job.getState(); 
-    const result = job.returnvalue;
-
-    logger.info(`📊 [AI-ROUTE] Job ${jobId} est actuellement : ${state}`);
-
-    return res.json({
-      success: true,
-      status: state, 
-      result: state === "completed" ? result : null,
-      error: state === "failed" ? job.failedReason : null
-    });
-
-  } catch (error: any) {
-    logger.error(`💥 [AI-ROUTE] Erreur /status: ${error.message}`);
-    return res.status(500).json({ success: false, error: error.message });
   }
-});
+);
 
 export default router;

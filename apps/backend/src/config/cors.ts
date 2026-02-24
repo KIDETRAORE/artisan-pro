@@ -1,18 +1,34 @@
 import cors, { CorsOptions } from "cors";
+import { ENV } from "../config/env";
 
 /**
- * Origines autorisées
- * ⚠️ En prod, TOUJOURS via variables d'environnement
+ * ======================
+ * Allowed origins
+ * ======================
+ * En production :
+ * FRONTEND_URL peut contenir plusieurs domaines séparés par virgule
  */
-const allowedOrigins = (
-  process.env.CORS_ORIGIN || "http://localhost:5173"
-)
+
+const allowedOrigins = ENV.FRONTEND_URL
   .split(",")
-  .map(origin => origin.trim());
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+/**
+ * ======================
+ * CORS Options
+ * ======================
+ */
 
 const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
-    // Autorise les appels sans origin (Postman, curl, mobile app)
+    /**
+     * Autorise :
+     * - appels serveur à serveur
+     * - Postman
+     * - curl
+     * - mobile app native
+     */
     if (!origin) {
       return callback(null, true);
     }
@@ -22,19 +38,28 @@ const corsOptions: CorsOptions = {
     }
 
     return callback(
-      new Error(`CORS blocked for origin: ${origin}`)
+      new Error(`❌ CORS blocked for origin: ${origin}`)
     );
   },
 
-  credentials: true, // ⬅️ OBLIGATOIRE pour cookies httpOnly
+  credentials: true, // obligatoire pour cookies httpOnly
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
   allowedHeaders: [
     "Content-Type",
     "Authorization",
     "X-Requested-With",
   ],
+
   exposedHeaders: ["Authorization"],
+
   maxAge: 86400, // cache preflight 24h
 };
 
-export default cors(corsOptions);
+/**
+ * ======================
+ * Export middleware
+ * ======================
+ */
+
+export const corsMiddleware = cors(corsOptions);
