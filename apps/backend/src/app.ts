@@ -6,19 +6,15 @@ import cookieParser from "cookie-parser";
 
 import { ENV } from "./config/env";
 import { errorHandler } from "./middlewares/error.middleware";
-import { globalRateLimit, aiRateLimit } from "./middlewares/rateLimit.middleware";
-import { quotaMiddleware } from "./middlewares/quota.middleware";
-import { authMiddleware } from "./middlewares/auth.middleware";
+import { globalRateLimit } from "./middlewares/rateLimit.middleware";
 import { logger } from "./utils/logger";
 import { applySecurity } from "./middlewares/security.middleware";
 
-// Routes
-import dashboardRoutes from "./routes/dashboard.routes";
-import stripeRoutes from "./routes/stripe.routes";
+// ✅ Central router (toutes les routes business)
+import router from "./routes";
+
+// ✅ Stripe webhook (raw body)
 import stripeWebhookRoutes from "./routes/stripe.webhook";
-import automationRoutes from "./routes/automation.routes";
-import aiRoutes from "./routes/ai.routes";
-import { devisRouter } from "./routes/devis.routes";
 
 // ✅ Scheduler (leader election Redis)
 import { startScheduler } from "./automation/scheduler";
@@ -42,6 +38,7 @@ applySecurity(app);
 /**
  * ======================
  * STRIPE WEBHOOK (RAW BODY)
+ * ⚠️ Doit être AVANT express.json()
  * ======================
  */
 app.use(
@@ -101,28 +98,11 @@ if (ENV.NODE_ENV !== "production") {
 
 /**
  * ======================
- * HEALTH CHECK
+ * ROUTES (SOURCE UNIQUE)
+ * ✅ /health est déjà géré dans routes/index.ts via healthRoutes
  * ======================
  */
-app.get("/health", (_req, res) => {
-  res.status(200).json({
-    status: "ok",
-    service: "ArtisanPro Backend",
-    env: ENV.NODE_ENV,
-  });
-});
-
-/**
- * ======================
- * API ROUTES
- * ======================
- */
-app.use("/dashboard", authMiddleware, dashboardRoutes);
-app.use("/stripe", authMiddleware, stripeRoutes);
-app.use("/devis", authMiddleware, devisRouter);
-
-app.use("/ai", authMiddleware, aiRateLimit, quotaMiddleware, aiRoutes);
-app.use("/automation", authMiddleware, quotaMiddleware, automationRoutes);
+app.use("/", router);
 
 /**
  * ======================
@@ -143,8 +123,8 @@ app.use(errorHandler);
 /**
  * ======================
  * SCHEDULER (leader election via Redis)
- * ======================
  * ✅ OK en multi-instances: une seule instance exécute réellement les jobs grâce au lock.
+ * ======================
  */
 try {
   startScheduler();

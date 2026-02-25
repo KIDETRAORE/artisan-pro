@@ -1,10 +1,12 @@
 // apps/backend/src/routes/vision.routes.ts
 import { Router } from "express";
 import { z } from "zod";
+
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { validate } from "@middlewares/validate.middleware";
 import { checkQuota } from "@middlewares/checkQuota.middleware";
 import { asyncHandler } from "@utils/asyncHandler";
+
 import {
   analyzeVisionController,
   getVisionHistoryController,
@@ -18,35 +20,32 @@ const visionSchema = z.object({
 });
 
 /**
- * POST /api/vision/analyze
- * FREE → 3 analyses / mois
- * PRO → illimité
+ * POST /vision/analyze
+ * ✅ Pré-check quota AVANT appel IA (évite coût)
+ * - Source de vérité plan/status: subscriptions
+ * - Source de vérité quota: ai_quota
+ *
+ * ⚠️ La consommation réelle du quota doit se faire APRÈS succès dans le controller
+ * (via quotaService.recordUsage → RPC consume_ai_quota)
  */
 router.post(
   "/analyze",
   authMiddleware,
-  checkQuota,
+  checkQuota, // doit checker ai_quota (P1), pas compter vision_analyses
   validate(visionSchema),
   asyncHandler(analyzeVisionController)
 );
 
 /**
- * GET /api/vision/history
- * Accessible aux utilisateurs authentifiés
+ * GET /vision/history
+ * - Lecture uniquement (pas de quota)
  */
-router.get(
-  "/history",
-  authMiddleware,
-  asyncHandler(getVisionHistoryController)
-);
+router.get("/history", authMiddleware, asyncHandler(getVisionHistoryController));
 
 /**
- * GET /api/vision/:id
+ * GET /vision/:id
+ * - Lecture uniquement (pas de quota)
  */
-router.get(
-  "/:id",
-  authMiddleware,
-  asyncHandler(getVisionByIdController)
-);
+router.get("/:id", authMiddleware, asyncHandler(getVisionByIdController));
 
 export default router;

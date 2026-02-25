@@ -12,12 +12,17 @@ import { validate } from "@middlewares/validate.middleware";
 import { runAI } from "@services/ai/gemini.service";
 import { quotaService } from "@services/quota.service";
 import { comptaSchema } from "@validators/compta.schema";
+import { logger } from "@utils/logger";
 
 const router = Router();
 
 /**
  * POST /compta/analyze
  * ➜ Analyse comptable IA (cashflow, relances, bilans)
+ *
+ * P1:
+ * - pré-check quota avant coût IA (quotaMiddleware)
+ * - consommation quota après succès (await quotaService.recordUsage)
  */
 router.post(
   "/analyze",
@@ -37,7 +42,6 @@ router.post(
     }
 
     try {
-      // comptaSchema garantit que prompt existe et est valide
       const { prompt } = req.body as { prompt: string };
 
       const response = await runAI("compta", {
@@ -45,20 +49,38 @@ router.post(
         userId,
       });
 
-      // Enregistrement usage (non bloquant)
-      quotaService
-        .recordUsage(userId, "compta", prompt, response)
-        .catch((err: unknown) => {
-          // Ne jamais throw ici
-          console.error("[Compta Usage Log Error]", err);
+      // ✅ Consommation quota APRÈS succès (bloquant)
+      try {
+        await quotaService.recordUsage(userId, "compta", prompt, response);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+
+        logger.warn("Compta: quota recordUsage failed", { userId, message: msg });
+
+        // Race condition / quota dépassé au moment de consommer
+        if (msg.includes("quota_exceeded") || msg.includes("Quota")) {
+          return res.status(403).json({
+            success: false,
+            error: "Quota mensuel IA dépassé. Passez au plan PRO.",
+          });
+        }
+
+        // RPC down / erreur interne quota
+        return res.status(500).json({
+          success: false,
+          error: "Erreur interne (quota)",
         });
+      }
 
       return res.status(200).json({
         success: true,
         response,
       });
     } catch (err: unknown) {
-      console.error("[Compta Error]", err);
+      logger.error("Compta: erreur analyse", {
+        userId,
+        message: err instanceof Error ? err.message : String(err),
+      });
 
       return res.status(500).json({
         success: false,

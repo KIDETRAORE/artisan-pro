@@ -1,104 +1,83 @@
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
+import { quotaService } from "../services/quota.service";
 
-const FREE_LIMIT = 5;
-
+/**
+ * SubscriptionService (P1)
+ * ✅ Source de vérité plan/status : subscriptions
+ * ✅ Source de vérité usage/quota : ai_quota
+ *
+ * ⚠️ Legacy:
+ * - profiles.plan ❌
+ * - user_usage ❌
+ * - rpc increment_monthly_usage ❌
+ *
+ * Ce service est conservé pour compatibilité si d'autres fichiers l'importent encore,
+ * mais la consommation réelle du quota doit être faite via quotaService.recordUsage().
+ */
 export class SubscriptionService {
-  /* ================================
-     PLAN
-  ================================== */
-
   static async getUserPlan(userId: string): Promise<"FREE" | "PRO"> {
     const { data, error } = await supabaseAdmin
-      .from("profiles")
-      .select("plan")
-      .eq("id", userId)
-      .single();
-
-    if (error) {
-      console.error("getUserPlan error:", error);
-      throw new HttpError(500, "Failed to fetch user plan");
-    }
-
-    if (!data) {
-      throw new HttpError(404, "User profile not found");
-    }
-
-    return data.plan as "FREE" | "PRO";
-  }
-
-  /* ================================
-     MONTH KEY
-  ================================== */
-
-  static getCurrentMonthKey(): string {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(
-      now.getMonth() + 1
-    ).padStart(2, "0")}`;
-  }
-
-  /* ================================
-     USAGE
-  ================================== */
-
-  static async getMonthlyUsage(userId: string): Promise<number> {
-    const month = this.getCurrentMonthKey();
-
-    const { data, error } = await supabaseAdmin
-      .from("user_usage")
-      .select("analyses_count")
+      .from("subscriptions")
+      .select("plan,status")
       .eq("user_id", userId)
-      .eq("month", month)
       .maybeSingle();
 
     if (error) {
-      console.error("getMonthlyUsage error:", error);
-      throw new HttpError(500, "Failed to fetch usage");
+      throw new HttpError(500, "Failed to fetch subscription");
     }
 
-    return data?.analyses_count ?? 0;
+    const plan = String(data?.plan ?? "free").toLowerCase();
+    const status = String(data?.status ?? "inactive").toLowerCase();
+
+    const isProActive = plan === "pro" && (status === "active" || status === "trialing");
+    return isProActive ? "PRO" : "FREE";
   }
 
-  /* ================================
-     INCREMENT (ATOMIC SAFE)
-  ================================== */
-
-  static async incrementUsage(userId: string): Promise<void> {
-    const month = this.getCurrentMonthKey();
-
-    const { error } = await supabaseAdmin.rpc(
-      "increment_monthly_usage",
-      {
-        uid: userId,
-        m: month,
-      }
-    );
+  /**
+   * Renvoie l'usage courant depuis ai_quota.used
+   */
+  static async getMonthlyUsage(userId: string): Promise<number> {
+    const { data, error } = await supabaseAdmin
+      .from("ai_quota")
+      .select("used")
+      .eq("user_id", userId)
+      .maybeSingle();
 
     if (error) {
-      console.error("incrementUsage rpc error:", error);
-      throw new HttpError(500, "Failed to increment usage");
+      throw new HttpError(500, "Failed to fetch quota usage");
     }
+
+    return Number(data?.used ?? 0);
   }
 
-  /* ================================
-     ACCESS CHECK
-  ================================== */
+  /**
+   * Legacy: incrementUsage n'est plus supporté en P1.
+   * La consommation doit être faite via quotaService.recordUsage()
+   * (qui consomme via RPC consume_ai_quota après succès IA).
+   */
+  static async incrementUsage(_userId: string): Promise<void> {
+    throw new HttpError(
+      410,
+      "incrementUsage is deprecated. Use quotaService.recordUsage() after successful AI calls."
+    );
+  }
 
-  static async checkAccess(userId: string): Promise<void> {
+  /**
+   * Check access générique (P1):
+   * - PRO actif => OK
+   * - FREE => pré-check quota via quotaService.checkQuota
+   *
+   * ⚠️ feature par défaut = "ai" (si tu as une clé globale),
+   * sinon tu dois passer la feature ("vision", "vocal", "assistant"...)
+   */
+  static async checkAccess(userId: string, feature: string = "ai"): Promise<void> {
     const plan = await this.getUserPlan(userId);
-
-    // PRO → accès illimité
     if (plan === "PRO") return;
 
-    // FREE → vérifier quota
-    const usage = await this.getMonthlyUsage(userId);
-
-    if (usage >= FREE_LIMIT) {
-      throw new HttpError(
-        403,
-        "Free plan limit reached. Upgrade to PRO."
-      );
+    const q = await quotaService.checkQuota(userId, feature);
+    if (!q.allowed) {
+      throw new HttpError(403, q.reason || "Quota insuffisant. Upgrade to PRO.");
     }
   }
 }

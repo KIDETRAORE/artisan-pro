@@ -4,6 +4,7 @@ import { Router } from "express";
 import healthRoutes from "./health.routes";
 import dashboardRoutes from "./dashboard.routes";
 import { devisRouter } from "./devis.routes";
+import stripeRoutes from "./stripe.routes";
 
 import aiRoutes from "./ai.routes";
 import assistantRoutes from "./assistant.routes";
@@ -17,6 +18,10 @@ import { requireRole } from "@middlewares/requireRole.middleware";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
 import { PERMISSIONS } from "@auth/permissions";
 
+// ✅ (recommandé) conserver les protections qui étaient dans app.ts
+import { aiRateLimit } from "@middlewares/rateLimit.middleware";
+import { quotaMiddleware } from "@middlewares/quota.middleware";
+
 const router = Router();
 
 /**
@@ -28,7 +33,15 @@ router.use("/health", healthRoutes);
 
 /**
  * ============================
- * ROUTES BUSINESS & DASHBOARD (AUTH)
+ * STRIPE (AUTH)
+ * ⚠️ /stripe/webhook reste dans app.ts (raw body)
+ * ============================
+ */
+router.use("/stripe", authMiddleware, stripeRoutes);
+
+/**
+ * ============================
+ * ROUTES BUSINESS (AUTH)
  * ============================
  */
 router.use(
@@ -42,13 +55,15 @@ router.use("/devis", authMiddleware, devisRouter);
 
 /**
  * ============================
- * MODULES IA (AUTH + PERMS)
+ * MODULES IA (AUTH + PERMS + RATE LIMIT + QUOTA)
  * ============================
  */
 router.use(
   "/ai",
   authMiddleware,
   requirePermission(PERMISSIONS.AI_USE),
+  aiRateLimit,
+  quotaMiddleware,
   aiRoutes
 );
 
@@ -56,6 +71,8 @@ router.use(
   "/assistant",
   authMiddleware,
   requirePermission(PERMISSIONS.AI_USE),
+  aiRateLimit,
+  quotaMiddleware,
   assistantRoutes
 );
 
@@ -63,6 +80,8 @@ router.use(
   "/compta",
   authMiddleware,
   requirePermission(PERMISSIONS.AI_USE),
+  aiRateLimit,
+  quotaMiddleware,
   comptaRoutes
 );
 
@@ -70,6 +89,8 @@ router.use(
   "/vision",
   authMiddleware,
   requirePermission(PERMISSIONS.AI_USE),
+  aiRateLimit,
+  quotaMiddleware,
   visionRoutes
 );
 
@@ -77,6 +98,8 @@ router.use(
   "/vocal",
   authMiddleware,
   requirePermission(PERMISSIONS.AI_USE),
+  aiRateLimit,
+  quotaMiddleware,
   vocalRoutes
 );
 
@@ -90,6 +113,7 @@ router.use(
   authMiddleware,
   requireRole("admin"),
   requirePermission(PERMISSIONS.AUTOMATION_USE),
+  quotaMiddleware,
   automationRoutes
 );
 

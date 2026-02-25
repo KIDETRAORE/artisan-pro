@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import multer from "multer";
+
 import { validateAudio } from "../utils/fileValidation";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
@@ -23,7 +24,6 @@ export async function handleAudioUpload(req: Request, res: Response) {
 
   const userId = r.user?.id;
   if (!userId) {
-    // ✅ pas de fallback hardcodé
     throw new HttpError(401, "Unauthorized");
   }
 
@@ -33,23 +33,32 @@ export async function handleAudioUpload(req: Request, res: Response) {
 
   await validateAudio(req.file.buffer);
 
-  // --- ÉTAPE A : QUOTA (API réelle dispo dans quotaService) ---
-  const quota = await quotaService.checkQuota(userId, "vocal");
+  /**
+   * ======================
+   * ÉTAPE A : PRÉ-CHECK QUOTA (évite coût IA)
+   * ======================
+   */
+  const quotaCheck = await quotaService.checkQuota(userId, "vocal");
 
-  if (!quota.allowed) {
-    // ✅ log minimal, pas de payload
-    logger.warn("Quota bloqué (vocal)", { userId, reason: quota.reason ?? "unknown" });
+  if (!quotaCheck.allowed) {
+    logger.warn("Quota bloqué (vocal)", {
+      userId,
+      reason: quotaCheck.reason ?? "unknown",
+    });
 
-    return res.status(429).json({
+    return res.status(403).json({
       success: false,
-      message: quota.reason || "Quota insuffisant.",
+      message: quotaCheck.reason || "Quota insuffisant. Passez au plan PRO.",
     });
   }
 
   logger.info("Analyse vocale demandée", { userId });
 
-  // --- ÉTAPE B : IA ---
-  // ✅ runAI attend fileBase64, pas audioBuffer
+  /**
+   * ======================
+   * ÉTAPE B : IA
+   * ======================
+   */
   const fileBase64 = req.file.buffer.toString("base64");
 
   const aiRawResponse = await runAI("vocal", {
@@ -63,19 +72,36 @@ export async function handleAudioUpload(req: Request, res: Response) {
   try {
     aiParsed = JSON.parse(aiRawResponse);
   } catch {
-    // ✅ ne pas exposer de détails internes
     throw new HttpError(502, "Réponse IA invalide.");
   }
 
-  // --- ÉTAPE C : EXÉCUTION ACTION ---
+  /**
+   * ======================
+   * ÉTAPE C : EXÉCUTION ACTION
+   * ======================
+   */
   let actionResult: any = null;
   if (aiParsed?.action && aiParsed.action !== "NONE") {
     actionResult = await executeAIAction(userId, aiParsed);
   }
 
-  // --- ÉTAPE D : ENREGISTREMENT USAGE ---
-  // recordUsage(userId, feature, input?, output?)
-  await quotaService.recordUsage(userId, "vocal", "Audio input", aiRawResponse);
+  /**
+   * ======================
+   * ÉTAPE D : CONSOMMATION QUOTA (APRÈS SUCCÈS)
+   * - Doit être BLOQUANT (sinon IA consommée sans être comptée)
+   * ======================
+   */
+  try {
+    await quotaService.recordUsage(userId, "vocal", "Audio input", aiRawResponse);
+  } catch (err: unknown) {
+    logger.error("❌ Quota recordUsage failed (vocal)", {
+      userId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+
+    // Cas possible: race condition (2 requêtes en parallèle) → quota dépassé au moment de consommer
+    throw new HttpError(403, "Quota mensuel IA dépassé. Passez au plan PRO.");
+  }
 
   const currentQuota = await quotaService.getUserQuota(userId);
 

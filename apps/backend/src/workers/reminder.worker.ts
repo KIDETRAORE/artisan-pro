@@ -8,6 +8,7 @@ import { sendReminderEmail } from "../services/email.service";
 import { emitEvent } from "../events/event.bus";
 import { EventType } from "../events/event.types";
 import { runAI } from "../services/ai/gemini.service";
+import { quotaService } from "../services/quota.service";
 
 const PayloadSchema = z.object({
   invoiceId: z.string().min(1),
@@ -132,8 +133,19 @@ export const reminderWorker = new Worker(
     }
 
     // ===============================
-    // 2️⃣ PHASE EXTERNE — IA + EMAIL
+    // 2️⃣ PHASE EXTERNE — QUOTA (pré-check) + IA + EMAIL
     // ===============================
+    // ✅ Pré-check quota AVANT coût IA
+    const quotaCheck = await quotaService.checkQuota(userId, "relance");
+    if (!quotaCheck.allowed) {
+      logger.warn("🚫 Relance bloquée (quota)", {
+        invoiceId,
+        userId,
+        reason: quotaCheck.reason ?? "unknown",
+      });
+      return;
+    }
+
     const prompt = buildSafeReminderPrompt({
       clientName: invoice.client_name ?? "",
       invoiceId: invoice.id,
@@ -147,7 +159,24 @@ export const reminderWorker = new Worker(
       "runAI"
     );
 
-    let body = String(aiText).slice(0, 8000);
+    // ✅ Consommation quota APRÈS succès IA (bloquant)
+    try {
+      await withTimeout(
+        quotaService.recordUsage(userId, "relance", prompt, String(aiText)),
+        8_000,
+        "recordUsage"
+      );
+    } catch (err: unknown) {
+      logger.warn("🚫 Relance bloquée (quota consume)", {
+        invoiceId,
+        userId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      // On n'envoie pas l'email si on n'arrive pas à consommer le quota
+      return;
+    }
+
+    const body = String(aiText).slice(0, 8000);
     const subject = `Relance facture - ${clampString(invoice.client_name ?? "Client", 80)}`;
 
     await withTimeout(
@@ -172,7 +201,7 @@ export const reminderWorker = new Worker(
 
     await emitEvent(EventType.REMINDER_SENT, { invoiceId, userId });
 
-    logger.info("✅ Relance envoyée", { invoiceId });
+    logger.info("✅ Relance envoyée", { invoiceId, userId });
   },
   {
     connection: redisOptions,

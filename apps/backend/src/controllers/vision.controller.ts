@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { Buffer } from "node:buffer";
+
 import { PROMPTS } from "../services/ai/prompts";
 import { sanitizeImage } from "../services/ai/imageSanitizer";
 import { runAI } from "../services/ai/gemini.service";
@@ -7,7 +8,6 @@ import { quotaService } from "../services/quota.service";
 import { extractJSON, validateAnalysis } from "../utils/aiParser";
 import { createVisionAnalysis } from "../services/ai/visionAnalysis.service";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
-import { SubscriptionService } from "../services/subscription.service";
 import { requireUser } from "../utils/requireUser";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
@@ -55,14 +55,14 @@ export async function analyzeVisionController(
   const user = requireUser(req);
   const userId = user.id;
 
-  // 🔒 Contrôle abonnement / accès
-  await SubscriptionService.checkAccess(userId);
+  // ⚠️ Le pré-check quota est idéalement fait dans la route via middleware.
+  // Si tu veux un pré-check "defense-in-depth", décommente :
+  // const check = await quotaService.checkQuota(userId, "vision");
+  // if (!check.allowed) throw new HttpError(403, check.reason || "Quota insuffisant");
 
   const { mimeType, buffer } = parseDataUriImage(req.body.image);
-
   const sanitizedBuffer = await sanitizeImage(buffer);
 
-  // ✅ runAI attend fileBase64 (pas image: Buffer)
   const fileBase64 = sanitizedBuffer.toString("base64");
 
   const aiText = await runAI("vision", {
@@ -94,17 +94,26 @@ export async function analyzeVisionController(
     sanitizedSize: sanitizedBuffer.length,
   });
 
-  // 🔹 Incrémentation usage (après succès uniquement)
-  await SubscriptionService.incrementUsage(userId);
-
-  // 🔹 Quota legacy (non bloquant)
+  /**
+   * ✅ Consommation quota APRÈS succès (source de vérité = ai_quota via quotaService)
+   * IMPORTANT: ce call doit être BLOQUANT (sinon IA consommée sans être comptée)
+   */
   try {
-    await quotaService.recordUsage(userId, "vision", "image-analysis", JSON.stringify(analysis));
-  } catch (err) {
-    logger.warn("Quota usage non enregistré (vision)", {
+    await quotaService.recordUsage(
+      userId,
+      "vision",
+      "image-analysis",
+      JSON.stringify(analysis)
+    );
+  } catch (err: unknown) {
+    logger.error("❌ Quota recordUsage failed (vision)", {
       userId,
       message: err instanceof Error ? err.message : String(err),
     });
+
+    // Si le quota est dépassé au moment de consommer (race condition),
+    // on renvoie une erreur claire.
+    throw new HttpError(403, "Quota mensuel IA dépassé. Passez au plan PRO.");
   }
 
   return res.status(200).json({
@@ -130,7 +139,9 @@ export async function getVisionHistoryController(req: Request, res: Response) {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    throw new HttpError(500, "Erreur lors du chargement de l'historique");
+  }
 
   return res.status(200).json(data);
 }
