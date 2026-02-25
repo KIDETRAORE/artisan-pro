@@ -5,7 +5,6 @@ import { redisOptions } from "../config/redis";
 import { runAI, type AIType } from "../services/ai/gemini.service";
 import { logger } from "../utils/logger";
 
-// ✅ Canonical compta schema (source of truth)
 import { ComptaReportSchema } from "../utils/comptaReport.schema";
 
 logger.info("👷 [WORKER-AI] Chargement du worker IA...");
@@ -61,11 +60,6 @@ function maxBase64CharsFor(type: JobPayload["type"]): number {
   return 4_000_000;
 }
 
-/**
- * Best-effort JSON parsing:
- * - strips code fences
- * - extracts first JSON object/array candidate
- */
 function safeParseJson(text: string): unknown {
   const cleaned = text.replace(/```json|```/gi, "").trim();
   const match = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
@@ -74,32 +68,56 @@ function safeParseJson(text: string): unknown {
 }
 
 /**
- * Enforce compta output strictly matches our Zod schema.
- * If invalid -> throw a clean error.
+ * Normalise les sorties LLM "courantes" avant validation stricte
  */
+function normalizeComptaForZod(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+
+  const r: any = input;
+
+  if (r.summary && typeof r.summary === "object") {
+    if (r.summary.actions === null) r.summary.actions = [];
+    if (r.summary.questions === null) r.summary.questions = [];
+  }
+
+  if (r.tva && typeof r.tva === "object") {
+    if (r.tva.parTaux === null) r.tva.parTaux = [];
+  }
+
+  if (r.breakdown && typeof r.breakdown === "object") {
+    if (r.breakdown.parMois === null) r.breakdown.parMois = [];
+    if (r.breakdown.topRecettes === null) r.breakdown.topRecettes = [];
+    if (r.breakdown.topDepenses === null) r.breakdown.topDepenses = [];
+  }
+
+  if (r.anomalies === null) r.anomalies = [];
+
+  if (r.data && typeof r.data === "object") {
+    if (r.data.sheets === null) r.data.sheets = {};
+  }
+
+  if (r.meta === null) r.meta = {};
+
+  return r;
+}
+
 function validateComptaOrThrow(maybe: unknown) {
   const parsed = ComptaReportSchema.safeParse(maybe);
+
   if (!parsed.success) {
     logger.warn("⚠️ [WORKER-AI] Compta JSON invalide (schema)", {
       issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
     });
     throw new Error("AI_SCHEMA_INVALID_COMPTA");
   }
+
   return parsed.data;
 }
 
-/**
- * Guarantee preview size server-side:
- * - truncate rows to MAX_PREVIEW_ROWS
- * - set truncated: true if trimmed
- */
 function truncateComptaPreview(report: any): any {
   if (!report?.data?.sheets || typeof report.data.sheets !== "object") return report;
 
-  const sheets = report.data.sheets as Record<
-    string,
-    { columns?: unknown; rows?: unknown; truncated?: unknown }
-  >;
+  const sheets = report.data.sheets as Record<string, { rows?: unknown; truncated?: unknown }>;
 
   for (const [name, table] of Object.entries(sheets)) {
     if (!table || typeof table !== "object") continue;
@@ -119,6 +137,26 @@ function truncateComptaPreview(report: any): any {
   }
 
   return report;
+}
+
+function debugLogRawCompta(result: unknown, jobId: string) {
+  if (process.env.NODE_ENV !== "development") return;
+
+  let preview = "";
+  try {
+    preview =
+      typeof result === "string"
+        ? result.slice(0, 800)
+        : JSON.stringify(result).slice(0, 800);
+  } catch {
+    preview = "[unserializable]";
+  }
+
+  logger.info("🧪 [WORKER-AI] RAW COMPTA RESULT (preview)", {
+    jobId,
+    type: typeof result,
+    preview,
+  });
 }
 
 export const aiWorker = new Worker(
@@ -154,6 +192,8 @@ export const aiWorker = new Worker(
 
     const type = payload.type as AIType;
 
+    const timeoutMs = payload.type === "compta" ? 120_000 : 60_000;
+
     const textResult = await withTimeout(
       runAI(type, {
         userId: payload.userId,
@@ -161,7 +201,7 @@ export const aiWorker = new Worker(
         fileBase64: payload.fileBase64,
         mimeType: payload.mimeType,
       }),
-      60_000,
+      timeoutMs,
       "runAI"
     );
 
@@ -175,21 +215,21 @@ export const aiWorker = new Worker(
       }
     }
 
-    // ✅ enforce compta schema strictly
     if (payload.type === "compta") {
       if (typeof result === "string") {
         logger.warn("⚠️ [WORKER-AI] Compta: résultat non JSON");
         throw new Error("AI_SCHEMA_INVALID_COMPTA");
       }
 
-      // validate schema
-      result = validateComptaOrThrow(result);
+      result = normalizeComptaForZod(result);
 
-      // guarantee preview size
+      // ✅ DEBUG TEMP: log raw output preview before Zod validation
+      debugLogRawCompta(result, String(job.id));
+
+      result = validateComptaOrThrow(result);
       result = truncateComptaPreview(result);
     }
 
-    // ✅ meta minimale côté backend (utile UI + export)
     if (result && typeof result === "object" && payload.fileName) {
       const obj = result as any;
       obj.meta = {

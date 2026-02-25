@@ -16,6 +16,28 @@ const shouldSkipRateLimit = (req: Request): boolean => {
 };
 
 /**
+ * Skip IA rate-limit for "cheap" endpoints:
+ * - /ai/status/:jobId (polling)
+ * - /ai/export/:jobId (download result)
+ *
+ * Keep rate-limit for the expensive endpoint:
+ * - /ai/run
+ */
+const shouldSkipAiRateLimit = (req: Request): boolean => {
+  if (shouldSkipRateLimit(req)) return true;
+
+  // NOTE: req.path is path-only (no query string)
+  // if your ai routes are mounted under "/ai", req.path will be "/run", "/status/:jobId", ...
+  const p = req.path;
+
+  // skip polling + export to avoid 429 spam
+  if (p.startsWith("/status")) return true;
+  if (p.startsWith("/export")) return true;
+
+  return false;
+};
+
+/**
  * ===============================
  * 1️⃣ Limite Globale
  * ===============================
@@ -42,6 +64,9 @@ export const globalRateLimit = rateLimit({
  * 2️⃣ Limite IA
  * ===============================
  * Protection budget / tokens
+ * ⚠️ On ne limite PAS le polling /status (sinon 429)
+ * On limite uniquement les appels coûteux (/run)
+ *
  * 20 requêtes / minute / IP
  */
 export const aiRateLimit = rateLimit({
@@ -51,7 +76,8 @@ export const aiRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 
-  skip: shouldSkipRateLimit,
+  // ✅ Skip /status + /export (+ stripe webhook)
+  skip: shouldSkipAiRateLimit,
 
   handler: (_req, res) => {
     return res.status(429).json({

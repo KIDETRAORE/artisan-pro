@@ -3,10 +3,9 @@ import { z } from "zod";
 /**
  * Helpers formats
  */
-const IsoDateTime = z.string().refine(
-  (v) => !Number.isNaN(Date.parse(v)),
-  "generatedAt must be a valid ISO datetime string"
-);
+const IsoDateTime = z
+  .string()
+  .refine((v: string) => !Number.isNaN(Date.parse(v)), "generatedAt must be a valid ISO datetime string");
 
 const YearMonth = z.string().regex(/^\d{4}-\d{2}$/, "month must be YYYY-MM");
 
@@ -15,10 +14,28 @@ const YearMonth = z.string().regex(/^\d{4}-\d{2}$/, "month must be YYYY-MM");
  */
 const AnomalySeverity = z.enum(["info", "warn", "critical"]);
 
+/**
+ * Helper: allow null from LLM and normalize to undefined
+ */
+const NullToUndefinedString = z
+  .string()
+  .nullable()
+  .optional()
+  .transform((v) => (v == null ? undefined : v));
+
+const NullToUndefinedNumber = z
+  .number()
+  .nullable()
+  .optional()
+  .transform((v) => (v == null ? undefined : v));
+
 export const ComptaReportSchema = z.object({
   meta: z.object({
     currency: z.string().default("EUR"),
-    sourceFileName: z.string().optional(),
+
+    // ✅ LLM can output null -> accept and normalize to undefined
+    sourceFileName: NullToUndefinedString,
+
     generatedAt: IsoDateTime,
     sheets: z.array(z.string()),
     rowsTotal: z.number(),
@@ -88,8 +105,11 @@ export const ComptaReportSchema = z.object({
       z.object({
         severity: AnomalySeverity,
         message: z.string(),
-        sheet: z.string().optional(),
-        rowIndex: z.number().optional(),
+
+        // ✅ same issue: LLM can output null
+        sheet: NullToUndefinedString,
+
+        rowIndex: NullToUndefinedNumber,
       })
     )
     .default([]),
@@ -104,7 +124,6 @@ export const ComptaReportSchema = z.object({
       z.object({
         columns: z.array(z.string()),
         rows: z.array(z.array(z.unknown())),
-        // optionnel si tu veux signaler "preview only"
         truncated: z.boolean().optional(),
       })
     ),
