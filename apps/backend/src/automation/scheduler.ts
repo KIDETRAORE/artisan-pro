@@ -13,8 +13,16 @@ import { runReminderAutomation } from "./automation.engine";
  * =========================================================
  */
 
-// Active/désactive facilement le scheduler (utile en prod multi-services)
-const SCHEDULER_ENABLED = process.env.SCHEDULER_ENABLED !== "false";
+/**
+ * ✅ Idempotency: évite double démarrage (tsx watch / import / appels multiples)
+ */
+let schedulerStarted = false;
+let shutdownHooksRegistered = false;
+
+// Active/désactive facilement le scheduler (supporte les 2 noms d'ENV)
+const SCHEDULER_ENABLED =
+  process.env.ENABLE_SCHEDULER !== "false" &&
+  process.env.SCHEDULER_ENABLED !== "false";
 
 // Cron: toutes les 5 minutes (à ajuster)
 const REMINDER_CRON = process.env.REMINDER_CRON ?? "*/5 * * * *";
@@ -26,8 +34,7 @@ const LOCK_RENEW_EVERY_MS = Math.floor(LOCK_TTL_MS / 2); // renew à mi-ttl
 
 // Identité unique d’instance (token lock)
 const INSTANCE_ID =
-  process.env.INSTANCE_ID ??
-  `${process.pid}:${Math.random().toString(16).slice(2)}`;
+  process.env.INSTANCE_ID ?? `${process.pid}:${Math.random().toString(16).slice(2)}`;
 
 // Redis client dédié scheduler (ne pas réutiliser BullMQ connection)
 const redis = new Redis(redisOptions as any);
@@ -125,7 +132,6 @@ async function safeRunReminderTick(): Promise<void> {
   try {
     // Si on n'a pas de renewal timer, on n'est pas leader
     if (!renewTimer) {
-      // essayer de devenir leader
       const leader = await ensureLeader();
       if (!leader) {
         logger.debug("Scheduler: follower instance, skipping tick", { instanceId: INSTANCE_ID });
@@ -144,16 +150,39 @@ async function safeRunReminderTick(): Promise<void> {
   }
 }
 
+async function shutdownScheduler(): Promise<void> {
+  logger.info("Scheduler: shutting down", { instanceId: INSTANCE_ID });
+
+  if (renewTimer) {
+    clearInterval(renewTimer);
+    renewTimer = null;
+  }
+
+  await releaseLock();
+
+  try {
+    await redis.quit();
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Start scheduler
  */
 export function startScheduler(): void {
+  if (schedulerStarted) {
+    logger.warn("Scheduler: already started (skipping)", { instanceId: INSTANCE_ID });
+    return;
+  }
+
   if (!SCHEDULER_ENABLED) {
     logger.info("Scheduler: disabled via env", { instanceId: INSTANCE_ID });
     return;
   }
 
-  // ✅ IMPORTANT : on ne “bloque” pas le boot; on laisse le cron gérer
+  schedulerStarted = true;
+
   logger.info("Scheduler: starting", {
     instanceId: INSTANCE_ID,
     cron: REMINDER_CRON,
@@ -166,24 +195,10 @@ export function startScheduler(): void {
     void safeRunReminderTick();
   });
 
-  // Shutdown clean
-  const shutdown = async () => {
-    logger.info("Scheduler: shutting down", { instanceId: INSTANCE_ID });
-
-    if (renewTimer) {
-      clearInterval(renewTimer);
-      renewTimer = null;
-    }
-
-    await releaseLock();
-
-    try {
-      await redis.quit();
-    } catch {
-      // ignore
-    }
-  };
-
-  process.on("SIGTERM", () => void shutdown());
-  process.on("SIGINT", () => void shutdown());
+  // Shutdown clean (register once)
+  if (!shutdownHooksRegistered) {
+    shutdownHooksRegistered = true;
+    process.on("SIGTERM", () => void shutdownScheduler());
+    process.on("SIGINT", () => void shutdownScheduler());
+  }
 }

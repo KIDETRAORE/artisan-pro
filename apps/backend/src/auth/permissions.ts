@@ -14,10 +14,53 @@ export const PERMISSIONS = {
   AUTOMATION_USE: "automation:use",
   MANAGE_USERS: "users:manage",
 
-  // ✅ Ajout pour correspondre à planPermission.mapper.ts
   USE_VISION: "vision:use",
-  // (optionnel) si tu veux aussi une permission vocal
   USE_VOCAL: "vocal:use",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
+
+/**
+ * Type guard
+ */
+export function isUserRole(value: unknown): value is UserRole {
+  return value === "user" || value === "admin" || value === "free" || value === "pro";
+}
+
+/**
+ * Normalisation DB -> UserRole (fallback safe)
+ */
+export function normalizeRole(value: unknown): UserRole {
+  return isUserRole(value) ? value : "user";
+}
+
+/**
+ * Permissions par rôle
+ * (utilisé par auth.middleware + requirePermission)
+ */
+export function getPermissionsByRole(role: UserRole): Permission[] {
+  switch (role) {
+    case "admin":
+      return Object.values(PERMISSIONS);
+
+    case "pro":
+      return [
+        PERMISSIONS.ACCESS_DASHBOARD,
+        PERMISSIONS.AI_USE,
+        PERMISSIONS.AUTOMATION_USE,
+        PERMISSIONS.DEVIS_READ,
+        PERMISSIONS.DEVIS_WRITE,
+        PERMISSIONS.USE_VISION,
+        PERMISSIONS.USE_VOCAL,
+      ];
+
+    case "free":
+    case "user":
+    default:
+      return [
+        PERMISSIONS.ACCESS_DASHBOARD,
+        PERMISSIONS.AI_USE,
+        PERMISSIONS.DEVIS_READ,
+      ];
+  }
+}

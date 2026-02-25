@@ -46,9 +46,7 @@ function optionalBoolean(name: string, defaultValue: boolean): boolean {
   if (value === undefined) return defaultValue;
 
   if (value !== "true" && value !== "false") {
-    throw new Error(
-      `❌ Environment variable ${name} must be "true" or "false"`
-    );
+    throw new Error(`❌ Environment variable ${name} must be "true" or "false"`);
   }
 
   return value === "true";
@@ -63,9 +61,7 @@ function optionalBoolean(name: string, defaultValue: boolean): boolean {
 const NODE_ENV = optional("NODE_ENV", "development");
 
 if (!["development", "production", "test"].includes(NODE_ENV)) {
-  throw new Error(
-    `❌ NODE_ENV must be "development", "production" or "test"`
-  );
+  throw new Error(`❌ NODE_ENV must be "development", "production" or "test"`);
 }
 
 /**
@@ -132,6 +128,8 @@ export const ENV = {
    * =========================
    */
   GEMINI_API_KEY: optional("GEMINI_API_KEY"),
+  // ✅ Nouveau: modèle configurable
+  GEMINI_MODEL: optional("GEMINI_MODEL", "gemini-2.5-flash"),
 
   /**
    * =========================
@@ -172,6 +170,9 @@ if (ENV.NODE_ENV === "production") {
   if (!ENV.FRONTEND_URL.startsWith("https://")) {
     throw new Error("❌ FRONTEND_URL must use HTTPS in production");
   }
+
+  // (optionnel) Si tu veux forcer Gemini en prod:
+  // if (!ENV.GEMINI_API_KEY) throw new Error("❌ GEMINI_API_KEY missing in production");
 }
 
 /**
@@ -190,5 +191,11 @@ if (ENV.NODE_ENV === "development") {
     REDIS_CONFIGURED: !!(ENV.REDIS_URL || ENV.REDIS_HOST),
     QUOTA_ENABLED: ENV.QUOTA_ENABLED,
     ENABLE_SCHEDULER: ENV.ENABLE_SCHEDULER,
+    GEMINI_CONFIGURED: !!ENV.GEMINI_API_KEY,
+    GEMINI_MODEL: ENV.GEMINI_MODEL,
   });
+
+  if (!ENV.GEMINI_API_KEY) {
+    console.warn("⚠️ GEMINI_API_KEY manquante: les endpoints IA échoueront.");
+  }
 }

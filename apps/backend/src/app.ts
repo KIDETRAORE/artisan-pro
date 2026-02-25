@@ -20,29 +20,20 @@ import automationRoutes from "./routes/automation.routes";
 import aiRoutes from "./routes/ai.routes";
 import { devisRouter } from "./routes/devis.routes";
 
-// ✅ Scheduler (leader election Redis)
-import { startScheduler } from "./automation/scheduler";
-
 const app = express();
 
 /**
- * ======================
  * TRUST PROXY
- * ======================
  */
 app.set("trust proxy", 1);
 
 /**
- * ======================
  * SECURITY HEADERS
- * ======================
  */
 applySecurity(app);
 
 /**
- * ======================
  * STRIPE WEBHOOK (RAW BODY)
- * ======================
  */
 app.use(
   "/stripe/webhook",
@@ -51,16 +42,12 @@ app.use(
 );
 
 /**
- * ======================
  * GLOBAL RATE LIMIT
- * ======================
  */
 app.use(globalRateLimit);
 
 /**
- * ======================
  * CORS
- * ======================
  */
 const allowedOrigins =
   ENV.NODE_ENV === "production"
@@ -82,27 +69,21 @@ app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 
 /**
- * ======================
- * BODY PARSERS (LIMIT PROTECTION)
- * ======================
+ * BODY PARSERS
  */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
 
 /**
- * ======================
  * DEV LOGGER
- * ======================
  */
 if (ENV.NODE_ENV !== "production") {
   app.use(morgan("dev"));
 }
 
 /**
- * ======================
  * HEALTH CHECK
- * ======================
  */
 app.get("/health", (_req, res) => {
   res.status(200).json({
@@ -113,9 +94,7 @@ app.get("/health", (_req, res) => {
 });
 
 /**
- * ======================
  * API ROUTES
- * ======================
  */
 app.use("/dashboard", authMiddleware, dashboardRoutes);
 app.use("/stripe", authMiddleware, stripeRoutes);
@@ -125,34 +104,16 @@ app.use("/ai", authMiddleware, aiRateLimit, quotaMiddleware, aiRoutes);
 app.use("/automation", authMiddleware, quotaMiddleware, automationRoutes);
 
 /**
- * ======================
  * 404
- * ======================
  */
 app.use((_req, res) => {
   res.status(404).json({ success: false, error: "Route not found" });
 });
 
 /**
- * ======================
  * ERROR HANDLER
- * ======================
  */
 app.use(errorHandler);
-
-/**
- * ======================
- * SCHEDULER (leader election via Redis)
- * ======================
- * ✅ OK en multi-instances: une seule instance exécute réellement les jobs grâce au lock.
- */
-try {
-  startScheduler();
-} catch (err) {
-  logger.error("Scheduler start failed", {
-    message: err instanceof Error ? err.message : String(err),
-  });
-}
 
 logger.info(`✅ App initialized in ${ENV.NODE_ENV} mode`);
 

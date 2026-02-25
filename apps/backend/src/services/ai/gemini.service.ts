@@ -15,14 +15,33 @@ export interface AIParams {
   prompt?: string;
 
   /**
-   * ✅ Support fichiers (vision/vocal/pdf/csv…)
-   * - image: mimeType="image/jpeg|image/png"
-   * - audio: mimeType="audio/webm|audio/mpeg|audio/wav" etc.
+   * Fichier en base64 + mimeType
+   * (csv/pdf/image/audio…)
    */
   fileBase64?: string;
   mimeType?: string;
 
   userId: string;
+}
+
+/**
+ * Extraction JSON "robuste":
+ * - enlève fences markdown
+ * - récupère soit un objet {...} soit un array [...]
+ */
+function extractJsonPayload(text: string): string {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  const match = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+  return (match ? match[0] : cleaned).trim();
+}
+
+/**
+ * Optionnel: normaliser certains mimetypes
+ * (Gemini accepte souvent text/plain pour csv inlineData)
+ */
+function normalizeMimeType(mimeType: string): string {
+  if (mimeType === "text/csv") return "text/plain";
+  return mimeType;
 }
 
 export async function runAI(type: AIType, payload: AIParams): Promise<string> {
@@ -37,17 +56,18 @@ export async function runAI(type: AIType, payload: AIParams): Promise<string> {
   const userPrompt =
     payload.prompt ||
     (type === "compta"
-      ? "Analyse ce document comptable, calcule les totaux Recettes, Dépenses et TVA."
+      ? "Analyse ce document comptable (CSV). Calcule les totaux Recettes, Dépenses et TVA, et signale les anomalies."
       : "Analyse de document");
 
+  // (si tu veux des structures strictes pour certains types)
   const jsonStructureDevis = `
-Structure JSON impérative pour DEVIS/VISION :
+Structure JSON impérative pour DEVIS/VISION/VOCAL (si pertinent) :
 {
   "clientName": "string ou null",
   "totalHT": number,
   "totalTTC": number,
   "items": [{ "description": "string", "price": number }]
-}`;
+}`.trim();
 
   const fullPrompt = `
 ${baseInstruction}
@@ -60,13 +80,21 @@ ${artisanContext}
 DEMANDE :
 ${userPrompt}
 
-IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte avant ou après le JSON.
+IMPORTANT :
+- Réponds UNIQUEMENT avec un JSON valide (objet ou tableau).
+- Pas de texte avant/après le JSON.
   `.trim();
 
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  /**
+   * ✅ Modèle:
+   * - Stable: gemini-2.5-flash (recommandé)
+   * - Alias: gemini-flash-latest (bouge avec le temps)
+   */
+  const modelName = ENV.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = genAI.getGenerativeModel({ model: modelName });
 
   try {
-    logger.info(`🤖 Tentative IA [${type}] pour user: ${payload.userId}`);
+    logger.info("🤖 Tentative IA", { type, userId: payload.userId, model: modelName });
 
     const generationConfig = {
       temperature: 0.1,
@@ -77,8 +105,7 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte a
     let result;
 
     if (payload.fileBase64 && payload.mimeType) {
-      let finalMimeType = payload.mimeType;
-      if (finalMimeType === "text/csv") finalMimeType = "text/plain";
+      const finalMimeType = normalizeMimeType(payload.mimeType);
 
       result = await model.generateContent({
         contents: [
@@ -100,28 +127,35 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte a
     }
 
     const response = await result.response;
-    let text = response.text();
+    const rawText = response.text();
 
-    text = text.replace(/```json|```/g, "").trim();
+    // ✅ Nettoyage + extraction JSON
+    const jsonText = extractJsonPayload(rawText);
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) text = jsonMatch[0];
-
+    // ✅ Logging DB (best-effort)
     try {
       await supabaseAdmin.from("ai_logs").insert({
         id: uuidv4(),
         user_id: payload.userId,
-        prompt: userPrompt,
-        response: text,
+        prompt: userPrompt,  // OK, pas de secrets ici
+        response: jsonText,
         status: "SUCCESS",
       });
     } catch (dbErr) {
-      logger.error("DB Log Error:", dbErr);
+      logger.error("DB Log Error", {
+        message: dbErr instanceof Error ? dbErr.message : String(dbErr),
+      });
     }
 
-    return text;
+    return jsonText;
   } catch (error: any) {
-    logger.error(`❌ Échec Gemini: ${error.message}`);
-    throw new HttpError(500, `Erreur IA: ${error.message}`);
+    // ⚠️ On évite de renvoyer un message trop verbeux côté client
+    logger.error("❌ Gemini generateContent failed", {
+      type,
+      model: modelName,
+      message: error?.message ?? String(error),
+    });
+
+    throw new HttpError(500, "Erreur IA (Gemini)");
   }
 }
