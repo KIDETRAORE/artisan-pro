@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "./supabaseAdmin";
+import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { randomUUID } from "crypto";
 import path from "path";
 import { HttpError } from "../utils/httpError";

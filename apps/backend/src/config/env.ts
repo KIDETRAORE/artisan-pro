@@ -132,6 +132,13 @@ export const ENV = {
 
   /**
    * =========================
+   * EMAIL / RESEND
+   * =========================
+   */
+  RESEND_API_KEY: optional("RESEND_API_KEY"),
+
+  /**
+   * =========================
    * RATE LIMIT
    * =========================
    */
@@ -140,12 +147,36 @@ export const ENV = {
 
   /**
    * =========================
-   * FEATURE FLAGS
+   * FEATURE FLAGS (app)
    * =========================
    */
   QUOTA_ENABLED: optionalBoolean("QUOTA_ENABLED", false),
   ENABLE_SCHEDULER: optionalBoolean("ENABLE_SCHEDULER", false),
+
+  /**
+   * =========================
+   * SCHEDULER / AUTOMATION (infra)
+   * =========================
+   * ENABLE_SCHEDULER : feature flag applicatif
+   * SCHEDULER_ENABLED : kill-switch infra
+   */
+  SCHEDULER_ENABLED: optionalBoolean("SCHEDULER_ENABLED", true),
+  REMINDER_CRON: optional("REMINDER_CRON", "*/5 * * * *"),
+  SCHEDULER_LOCK_KEY: optional(
+    "SCHEDULER_LOCK_KEY",
+    "artisanpro:scheduler:leader"
+  ),
+  SCHEDULER_LOCK_TTL_MS: optionalNumber("SCHEDULER_LOCK_TTL_MS", 60_000),
+  INSTANCE_ID: optional("INSTANCE_ID"),
 } as const;
+
+/**
+ * =========================
+ * LOGGER BRIDGE (no circular deps)
+ * =========================
+ * Permet au logger d'avoir NODE_ENV sans process.env et sans importer ENV.
+ */
+(globalThis as any).__AP_NODE_ENV = ENV.NODE_ENV;
 
 /**
  * =========================
@@ -169,6 +200,12 @@ if (ENV.NODE_ENV === "production") {
   if (!ENV.FRONTEND_URL.startsWith("https://")) {
     throw new Error("❌ FRONTEND_URL must use HTTPS in production");
   }
+
+  // Si l'envoi d'emails est requis en prod, force la clé.
+  // Si tu veux rendre l'email optionnel en prod, retire ce bloc.
+  if (!ENV.RESEND_API_KEY) {
+    throw new Error("❌ RESEND_API_KEY missing in production");
+  }
 }
 
 /**
@@ -185,7 +222,10 @@ if (ENV.NODE_ENV === "development") {
     DATABASE_CONFIGURED: Boolean(ENV.DATABASE_URL),
     STRIPE_CONFIGURED: Boolean(ENV.STRIPE_SECRET_KEY),
     REDIS_CONFIGURED: Boolean(ENV.REDIS_URL || ENV.REDIS_HOST),
+    RESEND_CONFIGURED: Boolean(ENV.RESEND_API_KEY),
     QUOTA_ENABLED: ENV.QUOTA_ENABLED,
     ENABLE_SCHEDULER: ENV.ENABLE_SCHEDULER,
+    SCHEDULER_ENABLED: ENV.SCHEDULER_ENABLED,
+    REMINDER_CRON: ENV.REMINDER_CRON,
   });
 }

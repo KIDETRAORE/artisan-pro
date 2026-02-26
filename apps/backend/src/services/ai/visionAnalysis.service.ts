@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "../../lib/supabaseAdmin";
-
+import { logger } from "../../utils/logger";
 
 export async function createVisionAnalysis(params: {
   userId: string;
@@ -23,7 +23,11 @@ export async function createVisionAnalysis(params: {
     .single();
 
   if (error) {
-    console.error("❌ Supabase insert error:", error);
+    logger.error("Supabase insert error (vision_analyses)", {
+      message: error.message,
+      code: (error as any).code,
+      userId: params.userId,
+    });
     throw error;
   }
 

@@ -1,8 +1,13 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import pool from "../config/db";
 import { runAI } from "../services/ai/gemini.service";
 import { logger } from "../utils/logger";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
+
+function getUserId(req: Request): string | null {
+  const userId = (req as any).user?.id as string | undefined;
+  return userId && typeof userId === "string" ? userId : null;
+}
 
 async function consumeAiQuotaOrThrow(userId: string, amt = 1) {
   const { data, error } = await supabaseAdmin.rpc("consume_ai_quota", {
@@ -33,8 +38,7 @@ async function consumeAiQuotaOrThrow(userId: string, amt = 1) {
 
 export const getAiStrategy = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-
+    const userId = getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: "Utilisateur non identifié" });
     }
@@ -47,7 +51,7 @@ export const getAiStrategy = async (req: Request, res: Response) => {
       [userId]
     );
 
-    const invoices = result.rows;
+    const invoices = result.rows ?? [];
 
     if (invoices.length === 0) {
       return res.json({
@@ -59,7 +63,7 @@ export const getAiStrategy = async (req: Request, res: Response) => {
     const prompt = `Analyse ma situation de trésorerie avec ces factures impayées : ${JSON.stringify(
       invoices
     )}.
-    Donne-moi 2-3 conseils stratégiques très courts pour un artisan.`;
+Donne-moi 2-3 conseils stratégiques très courts pour un artisan.`;
 
     const aiResponse = await runAI("relance", { prompt, userId });
 
@@ -67,43 +71,66 @@ export const getAiStrategy = async (req: Request, res: Response) => {
     await consumeAiQuotaOrThrow(userId, 1);
 
     let advice = aiResponse;
+
+    // Parse best-effort sans casser la réponse
     try {
-      if (aiResponse.includes("{")) {
-        const parsed = JSON.parse(aiResponse);
-        advice = parsed.answer || aiResponse;
+      const cleaned = aiResponse.replace(/```json|```/g, "").trim();
+      if (cleaned.startsWith("{") || cleaned.startsWith("[")) {
+        const parsed = JSON.parse(cleaned);
+        advice =
+          (parsed && typeof parsed === "object" && (parsed as any).answer) ||
+          aiResponse;
+      } else {
+        advice = cleaned;
       }
-    } catch (_e) {
+    } catch {
       advice = aiResponse.replace(/```json|```/g, "").trim();
     }
 
     return res.json({ advice });
-  } catch (error: any) {
-    if (error?.statusCode === 403 && error?.payload) {
-      return res.status(403).json(error.payload);
+  } catch (error: unknown) {
+    // Quota exceeded (payload safe)
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as any).statusCode === 403 &&
+      (error as any).payload
+    ) {
+      return res.status(403).json((error as any).payload);
     }
 
-    logger.error("❌ Erreur AI Strategy:", error?.message ?? String(error));
-    return res.status(500).json({ error: "Erreur lors de l'analyse stratégique" });
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("[AI] Strategy failed", { message });
+
+    return res
+      .status(500)
+      .json({ error: "Erreur lors de l'analyse stratégique" });
   }
 };
 
 export const getAiForecast = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: "Utilisateur non identifié" });
+    }
 
     const result = await pool.query(
-      `SELECT SUM(total_amount) as total
+      `SELECT COALESCE(SUM(total_amount), 0) as total
        FROM invoices
        WHERE user_id = $1
-       AND status = 'UNPAID'
-       AND due_date <= NOW() + INTERVAL '30 days'`,
+         AND status = 'UNPAID'
+         AND due_date <= NOW() + INTERVAL '30 days'`,
       [userId]
     );
 
-    const expectedNext30Days = parseFloat(result.rows[0].total || "0");
+    const expectedNext30Days = Number(result.rows?.[0]?.total ?? 0);
+
     return res.json({ expectedNext30Days });
-  } catch (error: any) {
-    logger.error("❌ Erreur AI Forecast:", error?.message ?? String(error));
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("[AI] Forecast failed", { message });
+
     return res.status(500).json({ error: "Erreur de calcul prévisionnel" });
   }
 };

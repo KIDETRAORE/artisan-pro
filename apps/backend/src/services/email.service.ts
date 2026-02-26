@@ -1,39 +1,57 @@
-import { Resend } from 'resend';
+import { Resend } from "resend";
 import { logger } from "../utils/logger";
+import { ENV } from "../config/env";
 
-// Initialisation de Resend avec la clé de ton .env
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Initialisation Resend via ENV (centralisé + validé en prod)
+const resend = new Resend(ENV.RESEND_API_KEY);
+
+type SendReminderResult = { success: true; id?: string };
 
 /**
  * Envoie un email de relance via l'API Resend
  */
-export async function sendReminderEmail(to: string, subject: string, content: string) {
+export async function sendReminderEmail(
+  to: string,
+  subject: string,
+  content: string
+): Promise<SendReminderResult> {
   try {
-    logger.info(`📨 [RESEND] Tentative d'envoi à : ${to}`);
+    if (!ENV.RESEND_API_KEY) {
+      // En dev/test, si la clé est absente, on évite un crash incompréhensible
+      // (en prod elle est déjà forcée par env.ts)
+      throw new Error("RESEND_API_KEY is not configured");
+    }
 
-    // Configuration de l'envoi
+    logger.info("[RESEND] Sending email", { to });
+
     const { data, error } = await resend.emails.send({
-      // ⚠️ IMPORTANT : En mode test/gratuit, utilise 'onboarding@resend.dev'
-      from: 'ArtisanPro <onboarding@resend.dev>', 
-      to: to,
-      subject: subject,
+      // ⚠️ IMPORTANT : en mode test/gratuit, utilise onboarding@resend.dev
+      from: "ArtisanPro <onboarding@resend.dev>",
+      to,
+      subject,
       html: `
         <div style="font-family: sans-serif; line-height: 1.5; color: #333;">
-          ${content.replace(/\n/g, '<br>')}
+          ${content.replace(/\n/g, "<br>")}
         </div>
       `,
     });
 
     if (error) {
-      logger.error("❌ [RESEND ERROR] Détails :", error);
-      throw new Error(error.message);
+      // Ne pas logger l'objet brut (peut contenir détails internes)
+      const message =
+        typeof (error as any)?.message === "string"
+          ? (error as any).message
+          : "Unknown Resend error";
+
+      logger.error("[RESEND] API error", { to, message });
+      throw new Error(message);
     }
 
-    logger.info(`📧 [EMAIL SENT] ID Resend: ${data?.id} | Vers: ${to}`);
+    logger.info("[RESEND] Email sent", { to, id: data?.id });
     return { success: true, id: data?.id };
-
-  } catch (error: any) {
-    logger.error("❌ [EMAIL SERVICE EXCEPTION]", error.message);
-    throw error;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[RESEND] Email send failed", { to, message });
+    throw err instanceof Error ? err : new Error(message);
   }
 }

@@ -18,7 +18,6 @@ import { requireRole } from "@middlewares/requireRole.middleware";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
 import { PERMISSIONS } from "@auth/permissions";
 
-// ✅ (recommandé) conserver les protections qui étaient dans app.ts
 import { aiRateLimit } from "@middlewares/rateLimit.middleware";
 import { quotaMiddleware } from "@middlewares/quota.middleware";
 
@@ -58,50 +57,18 @@ router.use("/devis", authMiddleware, devisRouter);
  * MODULES IA (AUTH + PERMS + RATE LIMIT + QUOTA)
  * ============================
  */
-router.use(
-  "/ai",
+const aiGuards = [
   authMiddleware,
   requirePermission(PERMISSIONS.AI_USE),
   aiRateLimit,
   quotaMiddleware,
-  aiRoutes
-);
+] as const;
 
-router.use(
-  "/assistant",
-  authMiddleware,
-  requirePermission(PERMISSIONS.AI_USE),
-  aiRateLimit,
-  quotaMiddleware,
-  assistantRoutes
-);
-
-router.use(
-  "/compta",
-  authMiddleware,
-  requirePermission(PERMISSIONS.AI_USE),
-  aiRateLimit,
-  quotaMiddleware,
-  comptaRoutes
-);
-
-router.use(
-  "/vision",
-  authMiddleware,
-  requirePermission(PERMISSIONS.AI_USE),
-  aiRateLimit,
-  quotaMiddleware,
-  visionRoutes
-);
-
-router.use(
-  "/vocal",
-  authMiddleware,
-  requirePermission(PERMISSIONS.AI_USE),
-  aiRateLimit,
-  quotaMiddleware,
-  vocalRoutes
-);
+router.use("/ai", ...aiGuards, aiRoutes);
+router.use("/assistant", ...aiGuards, assistantRoutes);
+router.use("/compta", ...aiGuards, comptaRoutes);
+router.use("/vision", ...aiGuards, visionRoutes);
+router.use("/vocal", ...aiGuards, vocalRoutes);
 
 /**
  * ============================

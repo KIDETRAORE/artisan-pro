@@ -12,10 +12,16 @@ interface LogEntry {
 
 /**
  * =========================
- * CONFIG
+ * CONFIG (no process.env)
  * =========================
  */
-const ENV = process.env.NODE_ENV ?? "development";
+function getNodeEnv(): "development" | "production" | "test" {
+  const v = (globalThis as any).__AP_NODE_ENV as string | undefined;
+  if (v === "development" || v === "production" || v === "test") return v;
+  return "development";
+}
+
+const ENV = getNodeEnv();
 const ENABLE_DEBUG = ENV !== "production";
 
 /**
@@ -36,7 +42,6 @@ function safeStringify(value: unknown): string {
 /**
  * =========================
  * SERIALIZE META
- * (Amélioré pour Google Cloud)
  * =========================
  */
 function serializeMeta(meta: unknown): unknown {
@@ -47,7 +52,6 @@ function serializeMeta(meta: unknown): unknown {
       stack: meta.stack,
     };
   }
-  // Si c'est déjà un objet, on le retourne tel quel
   return meta;
 }
 
@@ -56,11 +60,7 @@ function serializeMeta(meta: unknown): unknown {
  * FORMAT LOG
  * =========================
  */
-function formatLog(
-  level: LogLevel,
-  message: string,
-  meta?: unknown
-): string {
+function formatLog(level: LogLevel, message: string, meta?: unknown): string {
   const entry: LogEntry = {
     timestamp: new Date().toISOString(),
     environment: ENV,
@@ -72,13 +72,12 @@ function formatLog(
     entry.meta = serializeMeta(meta);
   }
 
-  // Pour Google Cloud Run, le JSON sur une seule ligne est le standard
   return safeStringify(entry);
 }
 
 /**
  * =========================
- * LOGGER (Version Phase 1 - Robuste)
+ * LOGGER
  * =========================
  */
 export const logger = {
@@ -95,7 +94,6 @@ export const logger = {
     console.warn(formatLog("warn", message, meta));
   },
 
-  // On s'assure que la signature accepte (string, unknown)
   error(message: string, meta?: unknown) {
     console.error(formatLog("error", message, meta));
   },

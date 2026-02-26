@@ -1,63 +1,44 @@
 import sharp from "sharp";
 import { Buffer } from "node:buffer";
-
-/**
- * ==============================
- * IMAGE SANITIZER (STABLE)
- * ==============================
- */
+import { logger } from "../../utils/logger";
 
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 Mo
 const MAX_WIDTH = 2048;
 const MAX_HEIGHT = 2048;
 
-export async function sanitizeImage(
-  buffer: Buffer
-): Promise<Buffer> {
-  console.log("🧼 sanitizeImage START");
-  console.log("➡️ buffer size:", buffer?.length);
+export async function sanitizeImage(buffer: Buffer): Promise<Buffer> {
+  logger.debug("sanitizeImage START", { size: buffer?.length });
 
   try {
-    if (!buffer || buffer.length === 0) {
-      throw new Error("EMPTY_IMAGE");
-    }
+    if (!buffer || buffer.length === 0) throw new Error("EMPTY_IMAGE");
+    if (buffer.length > MAX_IMAGE_SIZE_BYTES) throw new Error("IMAGE_TOO_LARGE");
 
-    if (buffer.length > MAX_IMAGE_SIZE_BYTES) {
-      throw new Error("IMAGE_TOO_LARGE");
-    }
+    const image = sharp(buffer, { limitInputPixels: MAX_WIDTH * MAX_HEIGHT });
+    const metadata = await image.metadata();
 
-    // ⚠️ IMPORTANT : on enlève failOnError
-    const image = sharp(buffer, {
-      limitInputPixels: MAX_WIDTH * MAX_HEIGHT,
+    logger.debug("sanitizeImage metadata", {
+      format: metadata.format,
+      width: metadata.width,
+      height: metadata.height,
     });
 
-    const metadata = await image.metadata();
-    console.log("🧾 metadata:", metadata.format, metadata.width, metadata.height);
-
-    if (!metadata.format) {
-      throw new Error("INVALID_IMAGE");
-    }
+    if (!metadata.format) throw new Error("INVALID_IMAGE");
 
     const output = await image
-      .rotate() // corrige orientation EXIF
+      .rotate()
       .resize({
         width: MAX_WIDTH,
         height: MAX_HEIGHT,
         fit: "inside",
         withoutEnlargement: true,
       })
-      .jpeg({
-        quality: 85,
-        progressive: true,
-        chromaSubsampling: "4:4:4",
-      })
+      .jpeg({ quality: 85, progressive: true, chromaSubsampling: "4:4:4" })
       .toBuffer();
 
-    console.log("🧼 sanitizeImage SUCCESS →", output.length);
+    logger.debug("sanitizeImage SUCCESS", { outputSize: output.length });
     return output;
-
   } catch (error: unknown) {
-    console.error("❌ [ImageSanitizer Error RAW]", error);
+    logger.error("ImageSanitizer error", { error });
 
     if (error instanceof Error) {
       switch (error.message) {
@@ -68,8 +49,6 @@ export async function sanitizeImage(
         case "EMPTY_IMAGE":
           throw new Error("Aucune image fournie.");
       }
-
-      // 🔎 on garde le vrai message sharp
       throw new Error(`sanitizeImage failed: ${error.message}`);
     }
 
