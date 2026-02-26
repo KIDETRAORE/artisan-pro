@@ -37,10 +37,18 @@ applySecurity(app);
  * STRIPE WEBHOOK (RAW BODY)
  * ⚠️ Doit être AVANT express.json()
  * ======================
+ *
+ * Stripe envoie parfois "application/json; charset=utf-8"
+ * donc on accepte application/json* via type function.
  */
 app.use(
   "/stripe/webhook",
-  express.raw({ type: "application/json" }),
+  express.raw({
+    type: (req) => {
+      const ct = req.headers["content-type"] ?? "";
+      return typeof ct === "string" && ct.startsWith("application/json");
+    },
+  }),
   stripeWebhookRoutes
 );
 
@@ -76,7 +84,8 @@ const corsOptions: CorsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions));
+// Preflight
+app.options("*", cors(corsOptions));
 
 /**
  * ✅ Handler explicite pour erreurs CORS

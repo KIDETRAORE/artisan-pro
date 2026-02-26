@@ -54,7 +54,6 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (lock === "processing_elsewhere") {
-      // autre instance en train de traiter -> Stripe retry
       logger.warn("Stripe event is being processed elsewhere (retry later)", { eventId, eventType });
       return res.status(500).send("Processing in progress, retry later");
     }
@@ -81,7 +80,12 @@ router.post("/", async (req: Request, res: Response) => {
 
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
-        const userId = subscription.metadata?.userId || session.metadata?.userId;
+        // userId depuis metadata subscription OU session OU client_reference_id
+        const userId =
+          subscription.metadata?.userId ||
+          session.metadata?.userId ||
+          (typeof session.client_reference_id === "string" ? session.client_reference_id : undefined);
+
         if (!userId) {
           logger.warn("No userId found in subscription/session metadata", {
             eventId,
@@ -93,7 +97,7 @@ router.post("/", async (req: Request, res: Response) => {
         const customerId =
           typeof session.customer === "string" ? session.customer : session.customer?.id;
 
-        await syncSubscriptionTruth(userId, subscription, customerId ?? undefined);
+        await upsertSubscriptionTruth(userId, subscription, customerId ?? undefined);
         break;
       }
 
@@ -120,7 +124,9 @@ router.post("/", async (req: Request, res: Response) => {
           break;
         }
 
-        await syncSubscriptionTruth(userId, subscription);
+        const customerId = getInvoiceCustomerId(invoice) ?? undefined;
+
+        await upsertSubscriptionTruth(userId, subscription, customerId);
         break;
       }
 
@@ -136,7 +142,7 @@ router.post("/", async (req: Request, res: Response) => {
           break;
         }
 
-        await syncSubscriptionTruth(userId, subscription);
+        await upsertSubscriptionTruth(userId, subscription);
         break;
       }
 
@@ -146,47 +152,30 @@ router.post("/", async (req: Request, res: Response) => {
 
         if (!userId) break;
 
-        const { error: subErr } = await supabaseAdmin
+        const { error } = await supabaseAdmin
           .from("subscriptions")
           .upsert(
             {
               user_id: userId,
-              plan: "FREE",
+              plan: "free",
               status: "canceled",
               stripe_customer_id: null,
               stripe_subscription_id: null,
               current_period_end: null,
+              updated_at: new Date().toISOString(),
             },
             { onConflict: "user_id" }
           );
 
-        if (subErr) {
+        if (error) {
           logger.error("Failed to upsert subscriptions (deleted)", {
             userId,
-            message: subErr.message,
+            message: error.message,
           });
+        } else {
+          logger.info("Subscription cancelled for user (subscriptions truth)", { userId });
         }
 
-        const { error: profileErr } = await supabaseAdmin
-          .from("profiles")
-          .update({
-            plan: "FREE",
-            subscription_status: "canceled",
-            stripe_subscription_id: null,
-            current_period_end: null,
-            monthly_quota_limit: 10,
-            quota_reset_at: null,
-          })
-          .eq("id", userId);
-
-        if (profileErr) {
-          logger.error("Failed to update profiles cache (deleted)", {
-            userId,
-            message: profileErr.message,
-          });
-        }
-
-        logger.info("Subscription cancelled for user", { userId });
         break;
       }
 
@@ -210,17 +199,13 @@ router.post("/", async (req: Request, res: Response) => {
 
 /**
  * Idempotence persistante (multi-instances)
- * Utilise ton schéma stripe_events (id + event_id + processed_at).
- *
- * Requis DB (recommandé) :
- * - UNIQUE(event_id) ou alors id=event_id en PK (comme ci-dessous)
+ * Utilise stripe_events (id + event_id + processed_at).
  */
 async function acquireStripeEventLock(args: {
   eventId: string;
   type: string;
   createdAt: string;
 }): Promise<"acquired" | "already_processed" | "processing_elsewhere"> {
-  // On utilise id = eventId (simple) et on renseigne event_id aussi (cohérent avec ton schéma)
   const { error: insErr } = await supabaseAdmin.from("stripe_events").insert({
     id: args.eventId,
     event_id: args.eventId,
@@ -236,7 +221,6 @@ async function acquireStripeEventLock(args: {
     throw new Error(`stripe_events_insert_failed:${insErr.message}`);
   }
 
-  // Duplicate : on regarde processed_at
   const { data, error: selErr } = await supabaseAdmin
     .from("stripe_events")
     .select("processed_at")
@@ -260,6 +244,9 @@ async function markStripeEventProcessed(eventId: string): Promise<void> {
   }
 }
 
+/**
+ * Stripe v20: invoice.subscription est union type -> runtime access
+ */
 function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   const sub = (invoice as any).subscription;
   if (typeof sub === "string") return sub;
@@ -267,12 +254,26 @@ function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   return null;
 }
 
+function getInvoiceCustomerId(invoice: Stripe.Invoice): string | null {
+  const c = (invoice as any).customer;
+  if (typeof c === "string") return c;
+  if (c && typeof c === "object" && typeof c.id === "string") return c.id;
+  return null;
+}
+
+/**
+ * Stripe v20: current_period_end runtime
+ */
 function getCurrentPeriodEnd(subscription: Stripe.Subscription): number | null {
   const v = (subscription as any).current_period_end;
   return typeof v === "number" ? v : null;
 }
 
-async function syncSubscriptionTruth(
+/**
+ * ✅ Source de vérité: subscriptions (1 row / user_id)
+ * ⚠️ Ne met plus à jour profiles (on enlève la duplication Stripe/quota)
+ */
+async function upsertSubscriptionTruth(
   userId: string,
   subscription: Stripe.Subscription,
   customerId?: string
@@ -281,9 +282,9 @@ async function syncSubscriptionTruth(
   const isActive = status === "active" || status === "trialing";
   const periodEnd = getCurrentPeriodEnd(subscription);
 
-  const plan = isActive ? "PRO" : "FREE";
+  const plan = isActive ? "pro" : "free";
 
-  const { error: subErr } = await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("subscriptions")
     .upsert(
       {
@@ -293,40 +294,18 @@ async function syncSubscriptionTruth(
         stripe_customer_id: customerId ?? null,
         stripe_subscription_id: subscription.id,
         current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
+        updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" }
     );
 
-  if (subErr) {
+  if (error) {
     logger.error("Failed to upsert subscriptions (truth)", {
       userId,
-      message: subErr.message,
-    });
-  }
-
-  const profileUpdate: Record<string, unknown> = {
-    plan,
-    subscription_status: status,
-    stripe_subscription_id: subscription.id,
-    current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
-    monthly_quota_limit: isActive ? 500 : 10,
-    quota_reset_at: periodEnd ?? null,
-  };
-
-  if (customerId) profileUpdate.stripe_customer_id = customerId;
-
-  const { error: profileErr } = await supabaseAdmin
-    .from("profiles")
-    .update(profileUpdate)
-    .eq("id", userId);
-
-  if (profileErr) {
-    logger.error("Failed to update profiles cache", {
-      userId,
-      message: profileErr.message,
+      message: error.message,
     });
   } else {
-    logger.info("Stripe sync success (truth+cache)", { userId, plan, status });
+    logger.info("Stripe sync success (subscriptions truth)", { userId, plan, status });
   }
 }
 
