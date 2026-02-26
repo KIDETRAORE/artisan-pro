@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { logger } from "../utils/logger";
 
 /**
  * ⚠️ Must run before accessing process.env
@@ -46,9 +47,7 @@ function optionalBoolean(name: string, defaultValue: boolean): boolean {
   if (value === undefined) return defaultValue;
 
   if (value !== "true" && value !== "false") {
-    throw new Error(
-      `❌ Environment variable ${name} must be "true" or "false"`
-    );
+    throw new Error(`❌ Environment variable ${name} must be "true" or "false"`);
   }
 
   return value === "true";
@@ -63,9 +62,7 @@ function optionalBoolean(name: string, defaultValue: boolean): boolean {
 const NODE_ENV = optional("NODE_ENV", "development");
 
 if (!["development", "production", "test"].includes(NODE_ENV)) {
-  throw new Error(
-    `❌ NODE_ENV must be "development", "production" or "test"`
-  );
+  throw new Error(`❌ NODE_ENV must be "development", "production" or "test"`);
 }
 
 /**
@@ -178,16 +175,16 @@ if (ENV.NODE_ENV === "production") {
  * =========================
  * DEV DEBUG (SAFE)
  * =========================
+ * Aucun secret n'est loggé.
  */
-
 if (ENV.NODE_ENV === "development") {
-  console.log("✅ Environment loaded", {
+  logger.info("Environment loaded", {
     NODE_ENV: ENV.NODE_ENV,
     PORT: ENV.PORT,
     FRONTEND_URL: ENV.FRONTEND_URL,
-    DATABASE_CONFIGURED: !!ENV.DATABASE_URL,
-    STRIPE_CONFIGURED: !!ENV.STRIPE_SECRET_KEY,
-    REDIS_CONFIGURED: !!(ENV.REDIS_URL || ENV.REDIS_HOST),
+    DATABASE_CONFIGURED: Boolean(ENV.DATABASE_URL),
+    STRIPE_CONFIGURED: Boolean(ENV.STRIPE_SECRET_KEY),
+    REDIS_CONFIGURED: Boolean(ENV.REDIS_URL || ENV.REDIS_HOST),
     QUOTA_ENABLED: ENV.QUOTA_ENABLED,
     ENABLE_SCHEDULER: ENV.ENABLE_SCHEDULER,
   });

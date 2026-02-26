@@ -1,5 +1,6 @@
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV } from "../config/env";
+import { logger } from "../utils/logger";
 
 /**
  * ======================
@@ -50,5 +51,5 @@ export const supabaseAdmin: SupabaseClient = createClient(
  * ======================
  */
 if (ENV.NODE_ENV !== "production") {
-  console.log("🟢 Supabase Admin client initialisé");
+  logger.info("Supabase Admin client initialized");
 }

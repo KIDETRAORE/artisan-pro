@@ -2,6 +2,7 @@ import { supabaseAdmin } from "./supabaseAdmin";
 import { randomUUID } from "crypto";
 import path from "path";
 import { HttpError } from "../utils/httpError";
+import { logger } from "../utils/logger";
 
 /**
  * ======================
@@ -13,8 +14,7 @@ export const STORAGE_BUCKETS = {
   DOCUMENTS: "documents",
 } as const;
 
-type StorageBucket =
-  (typeof STORAGE_BUCKETS)[keyof typeof STORAGE_BUCKETS];
+type StorageBucket = (typeof STORAGE_BUCKETS)[keyof typeof STORAGE_BUCKETS];
 
 /**
  * ======================
@@ -60,18 +60,13 @@ export async function uploadFile(
   }
 
   const safeUserId = sanitizePathSegment(options.userId);
-  const safeFolder = options.folder
-    ? sanitizePathSegment(options.folder)
-    : undefined;
+  const safeFolder = options.folder ? sanitizePathSegment(options.folder) : undefined;
 
   const safeOriginalName = sanitizeFileName(originalName);
   const extension = path.extname(safeOriginalName) || ".bin";
   const fileName = `${randomUUID()}${extension}`;
 
-  const basePath = safeFolder
-    ? `${safeUserId}/${safeFolder}`
-    : `${safeUserId}`;
-
+  const basePath = safeFolder ? `${safeUserId}/${safeFolder}` : `${safeUserId}`;
   const filePath = `${basePath}/${fileName}`;
 
   const { error } = await supabaseAdmin.storage
@@ -82,26 +77,21 @@ export async function uploadFile(
     });
 
   if (error) {
-    console.error("[StorageService] Upload error:", {
+    logger.error("Storage upload failed", {
       bucket: options.bucket,
       filePath,
-      error,
+      message: error.message,
     });
     throw new HttpError(500, "File upload failed");
   }
 
-  const { data } = supabaseAdmin.storage
-    .from(options.bucket)
-    .getPublicUrl(filePath);
+  const { data } = supabaseAdmin.storage.from(options.bucket).getPublicUrl(filePath);
 
   if (!data?.publicUrl) {
     throw new HttpError(500, "Failed to retrieve public file URL");
   }
 
-  return {
-    path: filePath,
-    publicUrl: data.publicUrl,
-  };
+  return { path: filePath, publicUrl: data.publicUrl };
 }
 
 /**
@@ -132,21 +122,16 @@ export async function storeSanitizedImage(
  * SUPPRESSION DE FICHIER
  * =========================
  */
-export async function deleteFile(
-  bucket: StorageBucket,
-  filePath: string
-): Promise<void> {
+export async function deleteFile(bucket: StorageBucket, filePath: string): Promise<void> {
   if (!filePath) return;
 
-  const { error } = await supabaseAdmin.storage
-    .from(bucket)
-    .remove([filePath]);
+  const { error } = await supabaseAdmin.storage.from(bucket).remove([filePath]);
 
   if (error) {
-    console.error("[StorageService] Delete error:", {
+    logger.error("Storage delete failed", {
       bucket,
       filePath,
-      error,
+      message: error.message,
     });
     throw new HttpError(500, "File deletion failed");
   }
@@ -157,12 +142,8 @@ export async function deleteFile(
  * URL PUBLIQUE
  * =========================
  */
-export function getPublicUrl(
-  bucket: StorageBucket,
-  filePath: string): string {
-  const { data } = supabaseAdmin.storage
-    .from(bucket)
-    .getPublicUrl(filePath);
+export function getPublicUrl(bucket: StorageBucket, filePath: string): string {
+  const { data } = supabaseAdmin.storage.from(bucket).getPublicUrl(filePath);
 
   if (!data?.publicUrl) {
     throw new HttpError(404, "Public URL not found");

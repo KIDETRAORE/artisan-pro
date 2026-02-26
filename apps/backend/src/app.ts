@@ -66,9 +66,13 @@ const allowedOrigins =
 
 const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
+    // requêtes server-to-server / curl / health probes
     if (!origin) return callback(null, true);
+
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error("CORS not allowed"));
+
+    // on renvoie une erreur (sera traitée par notre handler CORS juste après)
+    return callback(new Error("CORS_NOT_ALLOWED"));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -77,6 +81,17 @@ const corsOptions: CorsOptions = {
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
+
+/**
+ * ✅ Handler explicite pour erreurs CORS
+ * (sinon ça peut partir en 500 opaque)
+ */
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof Error && err.message === "CORS_NOT_ALLOWED") {
+    return res.status(403).json({ success: false, error: "CORS not allowed" });
+  }
+  return next(err);
+});
 
 /**
  * ======================
@@ -99,10 +114,17 @@ if (ENV.NODE_ENV !== "production") {
 /**
  * ======================
  * ROUTES (SOURCE UNIQUE)
- * ✅ /health est déjà géré dans routes/index.ts via healthRoutes
  * ======================
  */
 app.use("/", router);
+
+/**
+ * (Optionnel) Health fallback si tu veux un endpoint toujours dispo,
+ * même si le router change.
+ */
+// app.get("/health", (_req, res) => {
+//   res.status(200).json({ status: "ok", service: "ArtisanPro Backend", env: ENV.NODE_ENV });
+// });
 
 /**
  * ======================
@@ -125,9 +147,14 @@ app.use(errorHandler);
  * SCHEDULER (leader election via Redis)
  * ✅ OK en multi-instances: une seule instance exécute réellement les jobs grâce au lock.
  * ======================
+ *
+ * Reco: éviter de lancer en dev/watch si tu ne veux pas spammer des jobs.
+ * Si tu veux l’activer en dev aussi, supprime le if.
  */
 try {
-  startScheduler();
+  if (ENV.NODE_ENV === "production") {
+    startScheduler();
+  }
 } catch (err) {
   logger.error("Scheduler start failed", {
     message: err instanceof Error ? err.message : String(err),
