@@ -108,9 +108,11 @@ app.use(
  * ======================
  * BODY PARSERS (LIMIT PROTECTION)
  * ======================
+ * 🔒 Réduction des tailles pour éviter DoS / payloads abusifs
+ * ⚠️ N'impacte PAS Stripe (raw body déjà traité plus haut)
  */
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(cookieParser());
 
 /**

@@ -25,6 +25,26 @@ export interface AIParams {
   userId: string;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function isRetryableGeminiError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  // Heuristiques sûres (sans parser des structures internes)
+  return (
+    /429/.test(msg) ||
+    /Too Many Requests/i.test(msg) ||
+    /quota/i.test(msg) ||
+    /rate/i.test(msg) ||
+    /timed? out/i.test(msg) ||
+    /timeout/i.test(msg) ||
+    /5\d\d/.test(msg) ||
+    /internal/i.test(msg) ||
+    /unavailable/i.test(msg)
+  );
+}
+
 export async function runAI(type: AIType, payload: AIParams): Promise<string> {
   if (!ENV.GEMINI_API_KEY) {
     logger.error("GEMINI_API_KEY missing");
@@ -65,63 +85,107 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte a
 
   const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-  try {
-    logger.info(`🤖 Tentative IA [${type}] pour user: ${payload.userId}`);
+  const generationConfig = {
+    temperature: 0.1,
+    topP: 1,
+    topK: 32,
+  };
 
-    const generationConfig = {
-      temperature: 0.1,
-      topP: 1,
-      topK: 32,
-    };
+  const MAX_ATTEMPTS = 3; // 1 + 2 retries
+  const TIMEOUT_MS = 25_000;
 
-    let result;
-
-    if (payload.fileBase64 && payload.mimeType) {
-      let finalMimeType = payload.mimeType;
-      if (finalMimeType === "text/csv") finalMimeType = "text/plain";
-
-      result = await model.generateContent({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: fullPrompt },
-              { inlineData: { mimeType: finalMimeType, data: payload.fileBase64 } },
-            ],
-          },
-        ],
-        generationConfig,
-      });
-    } else {
-      result = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
-        generationConfig,
-      });
-    }
-
-    const response = await result.response;
-    let text = response.text();
-
-    text = text.replace(/```json|```/g, "").trim();
-
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) text = jsonMatch[0];
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
     try {
-      await supabaseAdmin.from("ai_logs").insert({
-        id: uuidv4(),
-        user_id: payload.userId,
-        prompt: userPrompt,
-        response: text,
-        status: "SUCCESS",
+      // ✅ Logs non sensibles
+      logger.info("🤖 runAI attempt", {
+        type,
+        userId: payload.userId,
+        attempt,
+        hasFile: Boolean(payload.fileBase64 && payload.mimeType),
+        mimeType: payload.mimeType ?? null,
       });
-    } catch (dbErr) {
-      logger.error("DB Log Error:", dbErr);
-    }
 
-    return text;
-  } catch (error: any) {
-    logger.error(`❌ Échec Gemini: ${error.message}`);
-    throw new HttpError(500, `Erreur IA: ${error.message}`);
+      let result;
+
+      if (payload.fileBase64 && payload.mimeType) {
+        let finalMimeType = payload.mimeType;
+        if (finalMimeType === "text/csv") finalMimeType = "text/plain";
+
+        result = await model.generateContent(
+          {
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { text: fullPrompt },
+                  { inlineData: { mimeType: finalMimeType, data: payload.fileBase64 } },
+                ],
+              },
+            ],
+            generationConfig,
+          },
+          { signal: controller.signal as any }
+        );
+      } else {
+        result = await model.generateContent(
+          {
+            contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
+            generationConfig,
+          },
+          { signal: controller.signal as any }
+        );
+      }
+
+      const response = await result.response;
+      let text = response.text();
+
+      text = text.replace(/```json|```/g, "").trim();
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) text = jsonMatch[0];
+
+      try {
+        await supabaseAdmin.from("ai_logs").insert({
+          id: uuidv4(),
+          user_id: payload.userId,
+          prompt: userPrompt,
+          response: text,
+          status: "SUCCESS",
+        });
+      } catch (dbErr) {
+        logger.error("DB Log Error:", dbErr);
+      }
+
+      clearTimeout(timeout);
+      return text;
+    } catch (error: unknown) {
+      clearTimeout(timeout);
+
+      const message = error instanceof Error ? error.message : String(error);
+
+      // ✅ Logs non sensibles (pas de prompt complet, pas de base64)
+      logger.error("❌ Gemini generateContent failed", {
+        type,
+        userId: payload.userId,
+        attempt,
+        message,
+      });
+
+      const retryable = isRetryableGeminiError(error);
+
+      if (attempt < MAX_ATTEMPTS && retryable) {
+        const backoffMs = 300 * attempt; // backoff court (300ms, 600ms)
+        await sleep(backoffMs);
+        continue;
+      }
+
+      throw new HttpError(500, `Erreur IA: ${message}`);
+    }
   }
+
+  // ne devrait jamais arriver
+  throw new HttpError(500, "Erreur IA: échec après retries");
 }

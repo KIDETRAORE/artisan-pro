@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { Buffer } from "node:buffer";
+import { fileTypeFromBuffer } from "file-type";
 
 import { PROMPTS } from "../services/ai/prompts";
 import { sanitizeImage } from "../services/ai/imageSanitizer";
@@ -61,6 +62,27 @@ export async function analyzeVisionController(
   // if (!check.allowed) throw new HttpError(403, check.reason || "Quota insuffisant");
 
   const { mimeType, buffer } = parseDataUriImage(req.body.image);
+
+  // ✅ limite max buffer (après décodage base64)
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+  if (buffer.length > MAX_IMAGE_BYTES) {
+    return res.status(413).json({
+      success: false,
+      error: "Image trop volumineuse (max 5MB).",
+    });
+  }
+
+  // ✅ check MIME réel via file-type (ne pas faire confiance au data URI)
+  const detected = await fileTypeFromBuffer(buffer);
+  const allowedMimes = ["image/jpeg", "image/png", "image/webp"];
+
+  if (!detected || !allowedMimes.includes(detected.mime)) {
+    return res.status(415).json({
+      success: false,
+      error: "Type d'image non supporté.",
+    });
+  }
+
   const sanitizedBuffer = await sanitizeImage(buffer);
 
   const fileBase64 = sanitizedBuffer.toString("base64");

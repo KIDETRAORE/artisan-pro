@@ -17,30 +17,50 @@ const stripe = new Stripe(ENV.STRIPE_SECRET_KEY, {
  */
 router.post("/", async (req: Request, res: Response) => {
   const signatureHeader = req.headers["stripe-signature"];
-  const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
+  const signature = Array.isArray(signatureHeader)
+    ? signatureHeader[0]
+    : signatureHeader;
 
-  if (!signature) return res.status(400).send("Missing stripe-signature header");
+  if (!signature) {
+    return res.status(400).json({
+      received: false,
+      error: "missing_stripe_signature",
+      message: "Missing stripe-signature header",
+    });
+  }
 
   if (!Buffer.isBuffer(req.body)) {
     logger.error("Stripe webhook requires raw body (Buffer)");
-    return res.status(400).send("Webhook Error: raw body required");
+    return res.status(400).json({
+      received: false,
+      error: "raw_body_required",
+      message: "Webhook raw body required",
+    });
   }
 
   let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(req.body, signature, ENV.STRIPE_WEBHOOK_SECRET);
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      signature,
+      ENV.STRIPE_WEBHOOK_SECRET
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     logger.error("Stripe signature verification failed", { message });
-    return res.status(400).send(`Webhook Error: ${message}`);
+    return res.status(400).json({
+      received: false,
+      error: "invalid_signature",
+      message: "Stripe webhook signature verification failed",
+    });
   }
 
   const eventId = event.id;
   const eventType = event.type;
   const createdAtIso = new Date(event.created * 1000).toISOString();
 
-  // ✅ Idempotence "vraie prod" multi-instances
+  // ✅ Idempotence persistée (multi-instances) via stripe_events.id = event.id
   try {
     const lock = await acquireStripeEventLock({
       eventId,
@@ -50,12 +70,19 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (lock === "already_processed") {
       logger.info("Stripe event already processed (skip)", { eventId, eventType });
-      return res.status(200).json({ received: true, duplicate: true });
+      return res.status(200).json({
+        received: true,
+        status: "already_processed",
+      });
     }
 
     if (lock === "processing_elsewhere") {
-      logger.warn("Stripe event is being processed elsewhere (retry later)", { eventId, eventType });
-      return res.status(500).send("Processing in progress, retry later");
+      // ✅ Réponse 200 (pas de retry Stripe demandé)
+      logger.warn("Stripe event is being processed elsewhere (skip)", { eventId, eventType });
+      return res.status(200).json({
+        received: true,
+        status: "processing_elsewhere",
+      });
     }
   } catch (err: unknown) {
     logger.error("Stripe idempotency storage error", {
@@ -63,7 +90,11 @@ router.post("/", async (req: Request, res: Response) => {
       eventType,
       message: err instanceof Error ? err.message : String(err),
     });
-    return res.status(500).send("Internal Server Error");
+    return res.status(500).json({
+      received: false,
+      error: "idempotency_storage_error",
+      message: "Internal Server Error",
+    });
   }
 
   logger.info("Stripe event received", { eventType, eventId });
@@ -74,18 +105,15 @@ router.post("/", async (req: Request, res: Response) => {
         const session = event.data.object as Stripe.Checkout.Session;
 
         const subscriptionId =
-          typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+          typeof session.subscription === "string"
+            ? session.subscription
+            : session.subscription?.id;
 
         if (!subscriptionId) break;
 
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
-        // userId depuis metadata subscription OU session OU client_reference_id
-        const userId =
-          subscription.metadata?.userId ||
-          session.metadata?.userId ||
-          (typeof session.client_reference_id === "string" ? session.client_reference_id : undefined);
-
+        const userId = subscription.metadata?.userId || session.metadata?.userId;
         if (!userId) {
           logger.warn("No userId found in subscription/session metadata", {
             eventId,
@@ -97,7 +125,7 @@ router.post("/", async (req: Request, res: Response) => {
         const customerId =
           typeof session.customer === "string" ? session.customer : session.customer?.id;
 
-        await upsertSubscriptionTruth(userId, subscription, customerId ?? undefined);
+        await syncSubscriptionTruth(userId, subscription, customerId ?? undefined);
         break;
       }
 
@@ -124,9 +152,7 @@ router.post("/", async (req: Request, res: Response) => {
           break;
         }
 
-        const customerId = getInvoiceCustomerId(invoice) ?? undefined;
-
-        await upsertSubscriptionTruth(userId, subscription, customerId);
+        await syncSubscriptionTruth(userId, subscription);
         break;
       }
 
@@ -142,7 +168,7 @@ router.post("/", async (req: Request, res: Response) => {
           break;
         }
 
-        await upsertSubscriptionTruth(userId, subscription);
+        await syncSubscriptionTruth(userId, subscription);
         break;
       }
 
@@ -152,30 +178,28 @@ router.post("/", async (req: Request, res: Response) => {
 
         if (!userId) break;
 
-        const { error } = await supabaseAdmin
+        const { error: subErr } = await supabaseAdmin
           .from("subscriptions")
           .upsert(
             {
               user_id: userId,
-              plan: "free",
+              plan: "FREE",
               status: "canceled",
               stripe_customer_id: null,
               stripe_subscription_id: null,
               current_period_end: null,
-              updated_at: new Date().toISOString(),
             },
             { onConflict: "user_id" }
           );
 
-        if (error) {
+        if (subErr) {
           logger.error("Failed to upsert subscriptions (deleted)", {
             userId,
-            message: error.message,
+            message: subErr.message,
           });
-        } else {
-          logger.info("Subscription cancelled for user (subscriptions truth)", { userId });
         }
 
+        logger.info("Subscription cancelled for user", { userId });
         break;
       }
 
@@ -186,20 +210,27 @@ router.post("/", async (req: Request, res: Response) => {
     // ✅ Mark processed uniquement si traitement OK
     await markStripeEventProcessed(eventId);
 
-    return res.status(200).json({ received: true });
+    return res.status(200).json({
+      received: true,
+      status: "processed",
+    });
   } catch (err: unknown) {
     logger.error("Webhook processing error", {
       eventId,
       eventType,
       message: err instanceof Error ? err.message : String(err),
     });
-    return res.status(500).send("Internal Server Error");
+    return res.status(500).json({
+      received: false,
+      error: "processing_error",
+      message: "Internal Server Error",
+    });
   }
 });
 
 /**
  * Idempotence persistante (multi-instances)
- * Utilise stripe_events (id + event_id + processed_at).
+ * Utilise stripe_events (id = event.id Stripe, type, created_at, processed_at)
  */
 async function acquireStripeEventLock(args: {
   eventId: string;
@@ -208,7 +239,6 @@ async function acquireStripeEventLock(args: {
 }): Promise<"acquired" | "already_processed" | "processing_elsewhere"> {
   const { error: insErr } = await supabaseAdmin.from("stripe_events").insert({
     id: args.eventId,
-    event_id: args.eventId,
     type: args.type,
     created_at: args.createdAt,
     processed_at: null,
@@ -221,6 +251,7 @@ async function acquireStripeEventLock(args: {
     throw new Error(`stripe_events_insert_failed:${insErr.message}`);
   }
 
+  // Duplicate : on regarde processed_at
   const { data, error: selErr } = await supabaseAdmin
     .from("stripe_events")
     .select("processed_at")
@@ -244,9 +275,6 @@ async function markStripeEventProcessed(eventId: string): Promise<void> {
   }
 }
 
-/**
- * Stripe v20: invoice.subscription est union type -> runtime access
- */
 function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   const sub = (invoice as any).subscription;
   if (typeof sub === "string") return sub;
@@ -254,26 +282,12 @@ function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   return null;
 }
 
-function getInvoiceCustomerId(invoice: Stripe.Invoice): string | null {
-  const c = (invoice as any).customer;
-  if (typeof c === "string") return c;
-  if (c && typeof c === "object" && typeof c.id === "string") return c.id;
-  return null;
-}
-
-/**
- * Stripe v20: current_period_end runtime
- */
 function getCurrentPeriodEnd(subscription: Stripe.Subscription): number | null {
   const v = (subscription as any).current_period_end;
   return typeof v === "number" ? v : null;
 }
 
-/**
- * ✅ Source de vérité: subscriptions (1 row / user_id)
- * ⚠️ Ne met plus à jour profiles (on enlève la duplication Stripe/quota)
- */
-async function upsertSubscriptionTruth(
+async function syncSubscriptionTruth(
   userId: string,
   subscription: Stripe.Subscription,
   customerId?: string
@@ -282,9 +296,9 @@ async function upsertSubscriptionTruth(
   const isActive = status === "active" || status === "trialing";
   const periodEnd = getCurrentPeriodEnd(subscription);
 
-  const plan = isActive ? "pro" : "free";
+  const plan = isActive ? "PRO" : "FREE";
 
-  const { error } = await supabaseAdmin
+  const { error: subErr } = await supabaseAdmin
     .from("subscriptions")
     .upsert(
       {
@@ -294,18 +308,17 @@ async function upsertSubscriptionTruth(
         stripe_customer_id: customerId ?? null,
         stripe_subscription_id: subscription.id,
         current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
-        updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" }
     );
 
-  if (error) {
+  if (subErr) {
     logger.error("Failed to upsert subscriptions (truth)", {
       userId,
-      message: error.message,
+      message: subErr.message,
     });
   } else {
-    logger.info("Stripe sync success (subscriptions truth)", { userId, plan, status });
+    logger.info("Stripe sync success (truth)", { userId, plan, status });
   }
 }
 

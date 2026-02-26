@@ -179,18 +179,7 @@ export const quotaService = {
       }
 
       // cache UI (best effort)
-      void (async () => {
-        try {
-          if (updates.monthly_limit) {
-            await supabaseAdmin
-              .from("profiles")
-              .update({ monthly_quota_limit: planLimit })
-              .eq("id", userId);
-          }
-        } catch {
-          /* ignore */
-        }
-      })();
+      
     }
 
     return {
@@ -218,15 +207,17 @@ export const quotaService = {
     let used = Number(q.used);
     const resetAt = q.reset_at ? new Date(q.reset_at) : null;
 
-    // reset si nécessaire
+    // reset si nécessaire (safe en parallèle)
     const now = new Date();
     if (resetAt && now > resetAt) {
       const nextReset = nextResetDate(now).toISOString();
 
+      // ✅ Reset conditionnel: ne s'applique que si reset_at est vraiment passé
       const { error: resetErr } = await supabaseAdmin
         .from("ai_quota")
         .update({ used: 0, reset_at: nextReset })
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .lt("reset_at", now.toISOString());
 
       if (resetErr) {
         logger.error("[QuotaService] ai_quota reset error", {
@@ -236,7 +227,22 @@ export const quotaService = {
         throw new Error("ai_quota_reset_error");
       }
 
-      used = 0;
+      // ✅ Re-read pour éviter tout état local incohérent (parallélisme / multi-instances)
+      const { data: refreshed, error: refErr } = await supabaseAdmin
+        .from("ai_quota")
+        .select("used, reset_at")
+        .eq("user_id", userId)
+        .single();
+
+      if (refErr) {
+        logger.error("[QuotaService] ai_quota refresh after reset error", {
+          userId,
+          message: refErr.message,
+        });
+        throw new Error("ai_quota_refresh_error");
+      }
+
+      used = Number(refreshed.used ?? 0);
     }
 
     // Cap feature (mensuel)
@@ -317,19 +323,7 @@ export const quotaService = {
     })();
 
     // cache UI (best effort) — ATTENTION champs corrects
-    void (async () => {
-      try {
-        await supabaseAdmin
-          .from("profiles")
-          .update({
-            monthly_quota_used: result.used,
-            monthly_quota_limit: result.monthly_limit,
-          })
-          .eq("id", userId);
-      } catch {
-        /* ignore */
-      }
-    })();
+   
   },
 
   async getUserQuota(userId: string) {

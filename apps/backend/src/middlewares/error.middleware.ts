@@ -3,12 +3,24 @@ import type { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
+import { ENV } from "../config/env";
+import { QuotaError } from "../services/quota/consumeQuota";
+
+type ErrorBody = {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+  };
+  requestId?: string;
+  details?: unknown;
+};
 
 /**
  * Middleware global de gestion des erreurs (TS strict)
  * ✅ pas de stack exposée au client
  * ✅ pas de logs sensibles (pas de body/headers/cookies/tokens)
- * ✅ gère HttpError (métier) + ZodError (validation) + erreurs inconnues
+ * ✅ gère HttpError + ZodError + Multer + QuotaError + erreurs inconnues
  */
 export function errorHandler(
   err: unknown,
@@ -16,19 +28,25 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ) {
-  // Optionnel si tu as un middleware qui met un id de corrélation (sinon undefined)
   const requestId =
     (req.headers["x-request-id"] as string | undefined) ??
     (req as any).requestId ??
     undefined;
 
+  const baseLog = {
+    requestId,
+    path: req.path,
+    method: req.method,
+  };
+
+  const send = (status: number, body: ErrorBody) => res.status(status).json(body);
+
   /* ================================
-     1) ERREURS ZOD (VALIDATION)
+     1) ZOD (VALIDATION)
   ================================== */
   if (err instanceof ZodError) {
-    // Log minimal (pas de payload)
     logger.warn("Validation error", {
-      requestId,
+      ...baseLog,
       issues: err.issues.map((i) => ({
         path: i.path.join("."),
         code: i.code,
@@ -36,65 +54,146 @@ export function errorHandler(
       })),
     });
 
-    return res.status(400).json({
+    return send(400, {
       success: false,
-      message: "Erreur de validation",
-      errors: err.issues.map((e) => ({
+      error: {
+        code: "validation_error",
+        message: "Erreur de validation",
+      },
+      requestId,
+      details: err.issues.map((e) => ({
         field: e.path.length ? e.path.join(".") : "body",
         message: e.message,
       })),
-      requestId,
     });
   }
 
   /* ================================
-     2) ERREURS MÉTIER CONTRÔLÉES
+     2) MULTER (UPLOAD)
+  ================================== */
+  // Sans importer multer: on détecte via shape standard
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    (err as any).name === "MulterError"
+  ) {
+    const code = String((err as any).code ?? "multer_error");
+
+    // LIMIT_FILE_SIZE => 413
+    const status = code === "LIMIT_FILE_SIZE" ? 413 : 400;
+
+    logger.warn("Upload error", { ...baseLog, code });
+
+    return send(status, {
+      success: false,
+      error: {
+        code: "upload_error",
+        message:
+          code === "LIMIT_FILE_SIZE"
+            ? "Fichier trop volumineux."
+            : "Erreur lors de l'upload.",
+      },
+      requestId,
+      details: { code },
+    });
+  }
+
+  /* ================================
+     3) QUOTA (ATOMIC RPC)
+  ================================== */
+  if (err instanceof QuotaError) {
+    const status = err.code === "quota_exceeded" ? 403 : 500;
+
+    logger.warn("Quota error", {
+      ...baseLog,
+      code: err.code,
+    });
+
+    return send(status, {
+      success: false,
+      error: {
+        code: err.code,
+        message:
+          err.code === "quota_exceeded"
+            ? "Quota insuffisant. Passez au plan PRO."
+            : "Erreur quota.",
+      },
+      requestId,
+      // pas de données sensibles; meta ne contient que used/limit/reset_at
+      details: err.meta ?? undefined,
+    });
+  }
+
+  /* ================================
+     4) HTTP ERROR (MÉTIER)
   ================================== */
   if (err instanceof HttpError) {
-    // Log safe (ne pas inclure req.body, cookies, headers…)
-    logger.error(err.message, {
-      requestId,
+    logger.error("HttpError", {
+      ...baseLog,
       status: err.statusCode,
-      code: (err as any).code, // si tu as un code interne optionnel
-      path: req.path,
-      method: req.method,
+      code: (err as any).code ?? "http_error",
+      message: err.message,
     });
 
-    return res.status(err.statusCode).json({
+    return send(err.statusCode, {
       success: false,
-      message: err.message,
+      error: {
+        code: (err as any).code ?? "http_error",
+        message: err.message,
+      },
       requestId,
     });
   }
 
   /* ================================
-     3) ERREURS INCONNUES / NATIVES
+     5) STRIPE SIGNATURE (si remonte ici)
   ================================== */
   if (err instanceof Error) {
-    // En prod, OK de log stack côté serveur (pas côté client)
+    const msg = err.message ?? "";
+    const looksLikeStripeSig =
+      /stripe/i.test(msg) && (/signature/i.test(msg) || /Webhook Error/i.test(msg));
+
+    if (looksLikeStripeSig) {
+      logger.warn("Stripe webhook signature error", {
+        ...baseLog,
+        message: msg,
+      });
+
+      return send(400, {
+        success: false,
+        error: {
+          code: "stripe_webhook_invalid_signature",
+          message: "Signature Stripe invalide.",
+        },
+        requestId,
+      });
+    }
+  }
+
+  /* ================================
+     6) ERREURS INCONNUES
+  ================================== */
+  if (err instanceof Error) {
     logger.error("Unhandled error", {
-      requestId,
+      ...baseLog,
       name: err.name,
       message: err.message,
-      stack: err.stack,
-      path: req.path,
-      method: req.method,
+      // stack uniquement côté serveur, jamais dans la réponse
+      stack: ENV.NODE_ENV !== "production" ? err.stack : undefined,
     });
   } else {
     logger.error("Unhandled non-Error thrown", {
-      requestId,
+      ...baseLog,
       detail: err,
-      path: req.path,
-      method: req.method,
     });
   }
 
-  /* ================================
-     4) RÉPONSE CLIENT (GENÉRIQUE)
-  ================================== */
-  return res.status(500).json({
+  return send(500, {
     success: false,
-    message: "Erreur interne du serveur",
+    error: {
+      code: "internal_error",
+      message: "Erreur interne du serveur",
+    },
     requestId,
   });
 }

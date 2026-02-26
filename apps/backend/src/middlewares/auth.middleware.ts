@@ -31,7 +31,10 @@ export const authMiddleware = async (
     // 3. 🔥 Injection du user dans la requête pour les middlewares suivants (ex: quotaMiddleware)
     (req as any).user = data.user;
 
-    logger.info(`✅ Utilisateur authentifié : ${data.user.email}`);
+    // ✅ Log conforme (pas de donnée sensible)
+    logger.info("✅ Utilisateur authentifié", {
+      userId: data.user.id,
+    });
 
     next();
   } catch (error: any) {

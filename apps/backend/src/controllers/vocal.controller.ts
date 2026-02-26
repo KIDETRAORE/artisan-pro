@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import multer from "multer";
+import { fileTypeFromBuffer } from "file-type";
 
 import { validateAudio } from "../utils/fileValidation";
 import { HttpError } from "../utils/httpError";
@@ -8,12 +9,61 @@ import { runAI } from "../services/ai/gemini.service";
 import { executeAIAction } from "../services/ai/action.executor";
 import { quotaService } from "../services/quota.service";
 
+/**
+ * ======================
+ * MULTER CONFIG (AUDIO)
+ * ======================
+ */
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
 });
 
-export const uploadMiddleware = upload.single("file");
+/**
+ * ======================
+ * UPLOAD MIDDLEWARE
+ * - Validation MIME réelle (file-type)
+ * - Erreurs HTTP claires
+ * ======================
+ */
+export const uploadMiddleware = (
+  req: Request,
+  res: Response,
+  next: (err?: unknown) => void
+) => {
+  upload.single("file")(req, res, async (err: unknown) => {
+    if (err) {
+      return res.status(413).json({
+        success: false,
+        message: "Fichier trop volumineux (max 10MB).",
+      });
+    }
+
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    if (!file) {
+      return next();
+    }
+
+    const detected = await fileTypeFromBuffer(file.buffer);
+    const allowedMimes = [
+      "audio/mpeg", // mp3
+      "audio/wav",
+      "audio/x-wav",
+      "audio/webm",
+      "audio/ogg",
+      "audio/mp4",
+    ];
+
+    if (!detected || !allowedMimes.includes(detected.mime)) {
+      return res.status(415).json({
+        success: false,
+        message: "Format audio non supporté.",
+      });
+    }
+
+    return next();
+  });
+};
 
 type AuthedRequest = Request & {
   user?: { id?: string };
@@ -88,18 +138,21 @@ export async function handleAudioUpload(req: Request, res: Response) {
   /**
    * ======================
    * ÉTAPE D : CONSOMMATION QUOTA (APRÈS SUCCÈS)
-   * - Doit être BLOQUANT (sinon IA consommée sans être comptée)
    * ======================
    */
   try {
-    await quotaService.recordUsage(userId, "vocal", "Audio input", aiRawResponse);
+    await quotaService.recordUsage(
+      userId,
+      "vocal",
+      "Audio input",
+      aiRawResponse
+    );
   } catch (err: unknown) {
     logger.error("❌ Quota recordUsage failed (vocal)", {
       userId,
       message: err instanceof Error ? err.message : String(err),
     });
 
-    // Cas possible: race condition (2 requêtes en parallèle) → quota dépassé au moment de consommer
     throw new HttpError(403, "Quota mensuel IA dépassé. Passez au plan PRO.");
   }
 

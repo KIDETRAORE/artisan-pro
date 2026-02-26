@@ -1,6 +1,7 @@
 // apps/backend/src/routes/ai.routes.ts
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
+import { fileTypeFromBuffer } from "file-type";
 import { aiQueue } from "../queues/ai.queue";
 import { logger } from "../utils/logger";
 
@@ -15,12 +16,61 @@ const upload = multer({
 });
 
 /**
+ * Upload middleware with:
+ * - size limit error => 413
+ * - real mime detection (file-type) => 415
+ */
+const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => void) => {
+  upload.single("file")(req, res, async (err: unknown) => {
+    if (err) {
+      return res.status(413).json({
+        success: false,
+        error: "Fichier trop volumineux (max 15MB).",
+      });
+    }
+
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    if (!file) {
+      return next();
+    }
+
+    const detected = await fileTypeFromBuffer(file.buffer);
+
+    // IA / Vision / Vocal peuvent utiliser images + audio + PDF selon ton pipeline
+    const allowedMimes = [
+      // images
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      // audio
+      "audio/mpeg",
+      "audio/wav",
+      "audio/x-wav",
+      "audio/webm",
+      "audio/ogg",
+      "audio/mp4",
+      // documents
+      "application/pdf",
+    ];
+
+    if (!detected || !allowedMimes.includes(detected.mime)) {
+      return res.status(415).json({
+        success: false,
+        error: "Type de fichier non supporté.",
+      });
+    }
+
+    return next();
+  });
+};
+
+/**
  * POST /ai/run
  * Lance une tâche IA via BullMQ
  *
  * ✅ Auth/Perm/RateLimit/Quota sont déjà appliqués dans routes/index.ts sur "/ai"
  */
-router.post("/run", upload.single("file"), async (req: Request, res: Response) => {
+router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
   logger.info("[AI-ROUTE] /run request received");
 
   try {

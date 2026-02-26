@@ -6,7 +6,9 @@ import { ENV } from "../config/env";
  * Allowed origins
  * ======================
  * En production :
- * FRONTEND_URL peut contenir plusieurs domaines séparés par virgule
+ * - uniquement ENV.FRONTEND_URL
+ * En développement :
+ * - autoriser tout (ou apps locales)
  */
 
 const allowedOrigins = ENV.FRONTEND_URL
@@ -22,36 +24,37 @@ const allowedOrigins = ENV.FRONTEND_URL
 
 const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
-    /**
-     * Autorise :
-     * - appels serveur à serveur
-     * - Postman
-     * - curl
-     * - mobile app native
-     */
-    if (!origin) {
+    // 🔧 DEV : autorise tout (Postman, curl, localhost, mobile, etc.)
+    if (ENV.NODE_ENV !== "production") {
       return callback(null, true);
+    }
+
+    // 🔒 PROD : autorise uniquement FRONTEND_URL
+    if (!origin) {
+      return callback(null, false);
     }
 
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
-    return callback(
-      new Error(`❌ CORS blocked for origin: ${origin}`)
-    );
+    return callback(new Error(`❌ CORS blocked for origin: ${origin}`));
   },
 
-  credentials: true, // obligatoire pour cookies httpOnly
+  // ✅ nécessaire (refresh token httpOnly)
+  credentials: true,
+
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 
+  // ✅ headers strictement nécessaires
   allowedHeaders: [
     "Content-Type",
     "Authorization",
-    "X-Requested-With",
+    "X-Request-Id",
   ],
 
-  exposedHeaders: ["Authorization"],
+  // ❌ ne pas exposer Authorization
+  exposedHeaders: [],
 
   maxAge: 86400, // cache preflight 24h
 };
