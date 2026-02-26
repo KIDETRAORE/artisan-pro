@@ -1,16 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom'; // 1. Import pour la redirection
 import { FileBarChart, CloudUpload, Loader2, TrendingUp, TrendingDown, ReceiptEuro, CheckCircle2, Sparkles } from 'lucide-react';
-import { useAuth } from '../store/auth.store';
-
-const API_URL = "http://localhost:8080/ai";
+import { fetchWithAuth } from '../auth/fetchWithAuth';
 
 export default function Compta() {
   const navigate = useNavigate(); // 2. Initialisation du hook de navigation
   const [isProcessing, setIsProcessing] = useState(false);
   const [report, setReport] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { accessToken } = useAuth();
 
   // --- 1. FONCTION MODE EXPERT (Redirection + Event) ---
   const handleExpertChat = () => {
@@ -35,10 +32,7 @@ export default function Compta() {
   const startPolling = (jobId: string) => {
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`${API_URL}/status/${jobId}`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-        const data = await response.json();
+        const data = await fetchWithAuth<any>(`/ai/status/${jobId}`);
 
         if (data.status === 'completed') {
           clearInterval(pollInterval);
@@ -73,12 +67,10 @@ export default function Compta() {
     formData.append('type', 'compta');
 
     try {
-      const response = await fetch(`${API_URL}/run`, {
+      const data = await fetchWithAuth<{ jobId?: string }>(`/ai/run`, {
         method: 'POST',
         body: formData,
-        headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-      const data = await response.json();
       if (data.jobId) startPolling(data.jobId);
     } catch (err) {
       alert("Erreur de connexion au serveur.");

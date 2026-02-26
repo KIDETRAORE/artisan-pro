@@ -24,8 +24,10 @@ export async function fetchWithAuth<T = unknown>(
     }
 
     // 3️⃣ Content-Type automatique si body JSON
+    // ⚠️ Ne jamais forcer le Content-Type pour FormData (le navigateur gère le boundary).
     if (init.body && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
+      const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
+      if (!isFormData) headers.set("Content-Type", "application/json");
     }
 
     const url = `${API_URL}${input}`;

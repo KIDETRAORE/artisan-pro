@@ -1,9 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Bot, User, Paperclip, Loader2, Sparkles, Trash2 } from 'lucide-react';
 import { useUser } from '../context/user.context';
-import { useAuth } from '../store/auth.store';
-
-const API_URL = "http://localhost:8080/ai";
+import { fetchWithAuth } from '../auth/fetchWithAuth';
 
 interface Message {
   id: string;
@@ -14,7 +12,6 @@ interface Message {
 
 export default function Assistant() {
   const { userData } = useUser();
-  const { accessToken } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -82,19 +79,13 @@ export default function Assistant() {
         finalPrompt = `CONTEXTE COMPTABLE: ${JSON.stringify(analysisContext)}. QUESTION: ${input}`;
       }
 
-      const response = await fetch(`${API_URL}/run`, {
+      const data = await fetchWithAuth<{ jobId?: string }>(`/ai/run`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
         body: JSON.stringify({
-          type: 'expert', // On utilise le type expert défini dans le backend
-          prompt: finalPrompt
-        })
+          type: 'expert',
+          prompt: finalPrompt,
+        }),
       });
-
-      const data = await response.json();
       
       // Ici, on attend le jobId si c'est asynchrone, 
       // mais pour un chat simple, votre backend pourrait répondre directement.
@@ -124,10 +115,7 @@ export default function Assistant() {
   const startPolling = (jobId: string) => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${API_URL}/status/${jobId}`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-        const data = await res.json();
+        const data = await fetchWithAuth<any>(`/ai/status/${jobId}`);
 
         if (data.status === 'completed') {
           clearInterval(interval);

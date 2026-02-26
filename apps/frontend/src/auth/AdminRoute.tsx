@@ -14,14 +14,19 @@ export default function AdminRoute({ children }: AdminRouteProps) {
     accessToken,
     isLoading,
     restoreSession,
-  } = useAuth();
+  } = useAuth() as {
+    user: any;
+    accessToken?: string | null;
+    isLoading: boolean;
+    restoreSession?: () => void | Promise<void>;
+  };
 
   /**
    * 🔁 Tentative de restauration de session
-   * (refresh token via cookie httpOnly)
+   * (refresh via cookie httpOnly Supabase)
    */
   useEffect(() => {
-    if (!user && !accessToken) {
+    if (!user && !accessToken && restoreSession) {
       restoreSession();
     }
   }, [user, accessToken, restoreSession]);
@@ -43,7 +48,7 @@ export default function AdminRoute({ children }: AdminRouteProps) {
   /**
    * ⛔ Authentifié mais pas admin
    */
-  if (user.role !== "admin") {
+  if ((user.role ?? "user") !== "admin") {
     return <Navigate to="/dashboard" replace />;
   }
 

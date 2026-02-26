@@ -1,9 +1,7 @@
 import React, { useState, useRef } from 'react';
 // Ajout de FileText dans les imports ci-dessous
 import { Mic, CloudUpload, Loader2, CheckCircle2, User, Square, Trash2, FileText } from 'lucide-react';
-import { useAuth } from '../store/auth.store';
-
-const API_URL = "http://localhost:8080/ai";
+import { fetchWithAuth } from '../auth/fetchWithAuth';
 
 export default function Devis() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -15,17 +13,11 @@ export default function Devis() {
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   
-  const { accessToken } = useAuth();
-
   // --- 1. POLLING DU STATUT ---
   const startPolling = (jobId: string) => {
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`${API_URL}/status/${jobId}`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-        
-        const data = await response.json();
+        const data = await fetchWithAuth<any>(`/ai/status/${jobId}`);
 
         if (data.status === 'completed') {
           clearInterval(pollInterval);
@@ -92,15 +84,10 @@ export default function Devis() {
       const finalType = typeOverride || (file.type.startsWith('audio') ? 'vocal' : 'vision');
       formData.append('type', finalType);
 
-      const response = await fetch(`${API_URL}/run`, {
+      const data = await fetchWithAuth<{ jobId?: string }>(`/ai/run`, {
         method: 'POST',
         body: formData,
-        headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-
-      if (!response.ok) throw new Error("Serveur injoignable");
-
-      const data = await response.json();
       if (data.jobId) startPolling(data.jobId);
       
     } catch (err: any) {
