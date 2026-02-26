@@ -16,9 +16,6 @@ import router from "./routes";
 // ✅ Stripe webhook (raw body)
 import stripeWebhookRoutes from "./routes/stripe.webhook";
 
-// ✅ Scheduler (leader election Redis)
-import { startScheduler } from "./automation/scheduler";
-
 const app = express();
 
 /**
@@ -71,7 +68,6 @@ const corsOptions: CorsOptions = {
 
     if (allowedOrigins.includes(origin)) return callback(null, true);
 
-    // on renvoie une erreur (sera traitée par notre handler CORS juste après)
     return callback(new Error("CORS_NOT_ALLOWED"));
   },
   credentials: true,
@@ -84,14 +80,20 @@ app.options(/.*/, cors(corsOptions));
 
 /**
  * ✅ Handler explicite pour erreurs CORS
- * (sinon ça peut partir en 500 opaque)
  */
-app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (err instanceof Error && err.message === "CORS_NOT_ALLOWED") {
-    return res.status(403).json({ success: false, error: "CORS not allowed" });
+app.use(
+  (
+    err: unknown,
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    if (err instanceof Error && err.message === "CORS_NOT_ALLOWED") {
+      return res.status(403).json({ success: false, error: "CORS not allowed" });
+    }
+    return next(err);
   }
-  return next(err);
-});
+);
 
 /**
  * ======================
@@ -119,14 +121,6 @@ if (ENV.NODE_ENV !== "production") {
 app.use("/", router);
 
 /**
- * (Optionnel) Health fallback si tu veux un endpoint toujours dispo,
- * même si le router change.
- */
-// app.get("/health", (_req, res) => {
-//   res.status(200).json({ status: "ok", service: "ArtisanPro Backend", env: ENV.NODE_ENV });
-// });
-
-/**
  * ======================
  * 404
  * ======================
@@ -142,25 +136,6 @@ app.use((_req, res) => {
  */
 app.use(errorHandler);
 
-/**
- * ======================
- * SCHEDULER (leader election via Redis)
- * ✅ OK en multi-instances: une seule instance exécute réellement les jobs grâce au lock.
- * ======================
- *
- * Reco: éviter de lancer en dev/watch si tu ne veux pas spammer des jobs.
- * Si tu veux l’activer en dev aussi, supprime le if.
- */
-try {
-  if (ENV.NODE_ENV === "production") {
-    startScheduler();
-  }
-} catch (err) {
-  logger.error("Scheduler start failed", {
-    message: err instanceof Error ? err.message : String(err),
-  });
-}
-
-logger.info(`✅ App initialized in ${ENV.NODE_ENV} mode`);
+logger.info("App initialized", { env: ENV.NODE_ENV });
 
 export default app;

@@ -4,8 +4,6 @@ import multer from "multer";
 import { aiQueue } from "../queues/ai.queue";
 import { logger } from "../utils/logger";
 
-import { getAiForecast, getAiStrategy } from "../controllers/ai.controller";
-
 const router = Router();
 
 /**
@@ -37,7 +35,9 @@ router.post("/run", upload.single("file"), async (req: Request, res: Response) =
 
     if (!file) {
       logger.warn("[AI-ROUTE] /run missing file");
-      return res.status(400).json({ success: false, error: "Aucun fichier reçu" });
+      return res
+        .status(400)
+        .json({ success: false, error: "Aucun fichier reçu" });
     }
 
     const fileBase64 = file.buffer.toString("base64");
@@ -67,7 +67,9 @@ router.post("/run", upload.single("file"), async (req: Request, res: Response) =
     logger.error("[AI-ROUTE] /run failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-    return res.status(500).json({ success: false, error: "Internal Server Error" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal Server Error" });
   }
 });
 
@@ -80,13 +82,17 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
     const jobId = String(req.params.jobId);
 
     if (!jobId || jobId === "undefined") {
-      return res.status(400).json({ success: false, error: "ID de job invalide" });
+      return res
+        .status(400)
+        .json({ success: false, error: "ID de job invalide" });
     }
 
     const job = await aiQueue.getJob(jobId);
 
     if (!job) {
-      return res.status(404).json({ success: false, error: "Analyse introuvable" });
+      return res
+        .status(404)
+        .json({ success: false, error: "Analyse introuvable" });
     }
 
     // ✅ Sécurité : vérifier ownership
@@ -107,18 +113,10 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
     logger.error("[AI-ROUTE] /status failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-    return res.status(500).json({ success: false, error: "Internal Server Error" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal Server Error" });
   }
 });
-
-/**
- * GET /ai/strategy
- */
-router.get("/strategy", (req: Request, res: Response) => getAiStrategy(req, res));
-
-/**
- * GET /ai/forecast
- */
-router.get("/forecast", (req: Request, res: Response) => getAiForecast(req, res));
 
 export default router;

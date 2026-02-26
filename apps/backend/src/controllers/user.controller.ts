@@ -3,22 +3,29 @@ import type { Request, Response } from "express";
 import { requireUser } from "../utils/requireUser";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { quotaService } from "../services/quota.service";
+import { logger } from "../utils/logger";
 
 export const getUserInfo = async (req: Request, res: Response) => {
   const user = requireUser(req);
 
   // ✅ Source de vérité: subscriptions
-  const { data: sub } = await supabaseAdmin
+  const { data: sub, error } = await supabaseAdmin
     .from("subscriptions")
     .select("plan,status,current_period_end")
     .eq("user_id", user.id)
     .maybeSingle();
 
+  if (error) {
+    logger.error("User subscription fetch failed", { message: error.message });
+    throw new Error("Subscription fetch failed");
+  }
+
   const planRaw = String(sub?.plan ?? "free").toLowerCase();
   const statusRaw = String(sub?.status ?? "inactive").toLowerCase();
 
   const plan = planRaw === "pro" ? "PRO" : "FREE";
-  const isProActive = plan === "PRO" && (statusRaw === "active" || statusRaw === "trialing");
+  const isProActive =
+    plan === "PRO" && (statusRaw === "active" || statusRaw === "trialing");
 
   // ✅ Source de vérité quota: ai_quota
   const quota = await quotaService.getUserQuota(user.id);
