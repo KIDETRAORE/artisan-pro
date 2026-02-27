@@ -35,7 +35,10 @@ export const uploadMiddleware = (
     if (err) {
       return res.status(413).json({
         success: false,
-        message: "Fichier trop volumineux (max 10MB).",
+        error: {
+          code: "payload_too_large",
+          message: "Fichier trop volumineux (max 10MB).",
+        },
       });
     }
 
@@ -57,7 +60,10 @@ export const uploadMiddleware = (
     if (!detected || !allowedMimes.includes(detected.mime)) {
       return res.status(415).json({
         success: false,
-        message: "Format audio non supporté.",
+        error: {
+          code: "unsupported_media_type",
+          message: "Format audio non supporté.",
+        },
       });
     }
 
@@ -98,7 +104,14 @@ export async function handleAudioUpload(req: Request, res: Response) {
 
     return res.status(403).json({
       success: false,
-      message: quotaCheck.reason || "Quota insuffisant. Passez au plan PRO.",
+      error: {
+        code: "quota_exceeded",
+        message:
+          quotaCheck.reason || "Quota insuffisant. Passez au plan PRO.",
+      },
+      details: {
+        reason: quotaCheck.reason ?? null,
+      },
     });
   }
 
@@ -153,7 +166,10 @@ export async function handleAudioUpload(req: Request, res: Response) {
       message: err instanceof Error ? err.message : String(err),
     });
 
-    throw new HttpError(403, "Quota mensuel IA dépassé. Passez au plan PRO.");
+    throw new HttpError(
+      403,
+      "Quota mensuel IA dépassé. Passez au plan PRO."
+    );
   }
 
   const currentQuota = await quotaService.getUserQuota(userId);

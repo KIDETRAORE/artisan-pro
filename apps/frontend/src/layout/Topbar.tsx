@@ -10,7 +10,6 @@ export function Topbar() {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // --- Logique du Plan & Quota ---
   const plan = userData?.plan ?? "FREE";
   const quota = userData?.quota;
   const percentage = quota && quota.limit > 0
@@ -23,7 +22,6 @@ export function Topbar() {
     return "bg-red-500";
   };
 
-  // --- Logique de Déconnexion ---
   const handleLogout = async () => {
     await logout();
     clearUserData();
@@ -35,8 +33,17 @@ export function Topbar() {
   return (
     <header className="h-20 bg-white border-b border-slate-100 flex items-center justify-between px-8 sticky top-0 z-40">
       
-      {/* LEFT SIDE: PLAN & QUOTA */}
+      {/* LEFT SIDE: LOGO + PLAN & QUOTA */}
       <div className="flex items-center gap-8">
+        {/* ✅ Logo cliquable -> Dashboard */}
+        <button
+          type="button"
+          onClick={() => navigate("/dashboard")}
+          className="text-lg font-extrabold text-indigo-600 hover:opacity-90 transition-opacity"
+        >
+          ArtisanPro
+        </button>
+
         <div className="flex flex-col">
           <div className="flex items-center gap-2 text-sm">
             <span className="text-slate-500 font-medium">Plan</span>
@@ -67,15 +74,13 @@ export function Topbar() {
         </div>
       </div>
 
-      {/* RIGHT SIDE: NOTIFS & PROFILE */}
+      {/* RIGHT SIDE */}
       <div className="flex items-center gap-6">
-        {/* Notifications */}
         <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all relative">
           <Bell size={20} />
           <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
         </button>
 
-        {/* User Menu */}
         <div className="relative">
           <button 
             onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -85,27 +90,48 @@ export function Topbar() {
               {initial}
             </div>
             <div className="hidden md:block text-left">
-              <p className="text-sm font-bold text-slate-900 leading-none">{userData?.name || 'Artisan'}</p>
-              <p className="text-[10px] font-medium text-slate-400 mt-1 uppercase tracking-tighter">Éditer le profil</p>
+              <p className="text-sm font-bold text-slate-900 leading-none">
+                {userData?.name || 'Artisan'}
+              </p>
+              <p className="text-[10px] font-medium text-slate-400 mt-1 uppercase tracking-tighter">
+                Éditer le profil
+              </p>
             </div>
-            <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${isMenuOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              size={14}
+              className={`text-slate-400 transition-transform duration-200 ${
+                isMenuOpen ? 'rotate-180' : ''
+              }`}
+            />
           </button>
 
           {/* Dropdown Menu */}
           {isMenuOpen && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setIsMenuOpen(false)}></div>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setIsMenuOpen(false)}
+              ></div>
+
               <div className="absolute right-0 mt-3 w-52 bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 py-2 z-20 animate-in fade-in zoom-in-95 duration-200">
-                <button className="w-full flex items-center gap-3 px-4 py-2.5 text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors">
-                  <User size={16} />
-                  <span className="text-sm font-semibold">Mon Profil</span>
+                
+                <button
+                  onClick={() => navigate("/upgrade")}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                >
+                  <span className="text-sm font-semibold">🚀 Upgrade</span>
                 </button>
-                <button className="w-full flex items-center gap-3 px-4 py-2.5 text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors">
-                  <Settings size={16} />
-                  <span className="text-sm font-semibold">Paramètres</span>
+
+                <button
+                  onClick={() => navigate("/billing")}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                >
+                  <span className="text-sm font-semibold">💳 Billing</span>
                 </button>
+
                 <div className="h-px bg-slate-50 my-1 mx-2"></div>
-                <button 
+
+                <button
                   onClick={handleLogout}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-red-500 hover:bg-red-50 transition-colors"
                 >

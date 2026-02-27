@@ -1,10 +1,56 @@
 import React, { useState, useRef } from 'react';
 import { Camera, ShieldCheck, Loader2, CheckCircle2, AlertTriangle, Lightbulb, Eye } from 'lucide-react';
+import { Link } from "react-router-dom";
 import { fetchWithAuth } from '../auth/fetchWithAuth';
+import { ApiError } from "../auth/ApiError";
+
+type UiError =
+  | { kind: "quota"; message: string }
+  | { kind: "rate"; message: string }
+  | { kind: "timeout"; message: string }
+  | { kind: "generic"; message: string };
+
+function toUiError(err: unknown): UiError {
+  if (err instanceof ApiError) {
+    // ✅ Quota atteint
+    if (err.status === 403 && err.code === "quota_exceeded") {
+      return {
+        kind: "quota",
+        message: err.message || "Quota atteint. Passe au plan PRO pour continuer.",
+      };
+    }
+
+    // ✅ Trop de requêtes
+    if (err.status === 429 || err.code === "rate_limited") {
+      return {
+        kind: "rate",
+        message: "Trop de requêtes. Réessaie dans quelques secondes.",
+      };
+    }
+
+    return { kind: "generic", message: err.message || "Erreur serveur." };
+  }
+
+  // ✅ Timeout / réseau
+  if (err instanceof Error) {
+    const msg = err.message || "";
+    if (/timeout/i.test(msg) || /Failed to fetch/i.test(msg)) {
+      return {
+        kind: "timeout",
+        message:
+          "Connexion instable ou délai dépassé. Vérifie ton réseau et réessaie.",
+      };
+    }
+    return { kind: "generic", message: msg };
+  }
+
+  return { kind: "generic", message: "Une erreur est survenue." };
+}
 
 export default function Vision() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [analysis, setAnalysis] = useState<any>(null);
+  const [uiError, setUiError] = useState<UiError | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- POLLING DU STATUT ---
@@ -23,13 +69,20 @@ export default function Vision() {
           }
           setAnalysis(result);
           setIsProcessing(false);
+          setUiError(null);
         } else if (data.status === 'failed') {
           clearInterval(pollInterval);
           setIsProcessing(false);
-          alert("L'analyse a échoué.");
+          // ✅ plus de alert(...)
+          setUiError({
+            kind: "generic",
+            message: "L'analyse a échoué.",
+          });
         }
       } catch (err) {
-        console.error("Erreur polling:", err);
+        clearInterval(pollInterval);
+        setIsProcessing(false);
+        setUiError(toUiError(err));
       }
     }, 2000);
   };
@@ -41,6 +94,7 @@ export default function Vision() {
 
     setIsProcessing(true);
     setAnalysis(null);
+    setUiError(null);
 
     const formData = new FormData();
     formData.append('file', file);
@@ -53,7 +107,8 @@ export default function Vision() {
       });
       if (data.jobId) startPolling(data.jobId);
     } catch (err) {
-      alert("Erreur de connexion au serveur.");
+      // ✅ plus de alert(...)
+      setUiError(toUiError(err));
       setIsProcessing(false);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -62,15 +117,15 @@ export default function Vision() {
 
   return (
     <div className="h-full max-w-md mx-auto flex flex-col gap-3 overflow-hidden animate-in fade-in duration-500">
-      
+
       {/* INPUT CACHÉ */}
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handlePhoto} 
-        accept="image/*" 
-        capture="environment" 
-        className="hidden" 
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handlePhoto}
+        accept="image/*"
+        capture="environment"
+        className="hidden"
       />
 
       {/* CADRE BASE DE CONNAISSANCE */}
@@ -80,9 +135,9 @@ export default function Vision() {
           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Base de connaissance externe</span>
         </div>
         <div className="border-2 border-dashed border-slate-50 rounded-xl py-4 flex flex-col items-center justify-center gap-1 text-slate-400 hover:bg-slate-50 transition-colors cursor-pointer group">
-           <span className="text-[11px] font-medium italic opacity-60 flex items-center gap-2">
-             ☁️ Importer un catalogue (Excel/CSV)
-           </span>
+          <span className="text-[11px] font-medium italic opacity-60 flex items-center gap-2">
+            ☁️ Importer un catalogue (Excel/CSV)
+          </span>
         </div>
       </div>
 
@@ -94,14 +149,57 @@ export default function Vision() {
             <ShieldCheck size={10} /> IA Vision Expert
           </span>
         </div>
-        
+
+        {/* ✅ BANNERS ERREUR (quota / 429 / timeout / generic) */}
+        {uiError && (
+          <div
+            className={[
+              "mb-4 p-3 rounded-2xl border text-[11px] leading-snug",
+              uiError.kind === "quota"
+                ? "bg-amber-50 border-amber-100 text-amber-900"
+                : uiError.kind === "rate"
+                ? "bg-blue-50 border-blue-100 text-blue-900"
+                : uiError.kind === "timeout"
+                ? "bg-slate-50 border-slate-100 text-slate-800"
+                : "bg-red-50 border-red-100 text-red-900",
+            ].join(" ")}
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-black uppercase tracking-widest text-[9px] opacity-70">
+                  {uiError.kind === "quota"
+                    ? "Quota atteint"
+                    : uiError.kind === "rate"
+                    ? "Trop de requêtes"
+                    : uiError.kind === "timeout"
+                    ? "Délai dépassé"
+                    : "Erreur"}
+                </div>
+                <div className="mt-1">{uiError.message}</div>
+
+                {uiError.kind === "quota" && (
+                  <div className="mt-2">
+                    <Link
+                      to="/upgrade"
+                      className="inline-flex items-center justify-center px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Passer PRO
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {!analysis ? (
           <>
             <p className="text-slate-400 text-[12px] leading-snug italic mb-6">
               Prenez une photo. L'IA analyse l'avancement technique et les matériaux sans identifier les personnes.
             </p>
 
-            <div 
+            <div
               onClick={() => !isProcessing && fileInputRef.current?.click()}
               className="flex-1 border-2 border-dashed border-slate-100 rounded-[1.5rem] flex flex-col items-center justify-center group cursor-pointer hover:bg-slate-50 transition-all mb-2 min-h-[200px]"
             >
@@ -165,8 +263,11 @@ export default function Vision() {
               </p>
             </div>
 
-            <button 
-              onClick={() => setAnalysis(null)}
+            <button
+              onClick={() => {
+                setAnalysis(null);
+                setUiError(null);
+              }}
               className="w-full py-3 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest"
             >
               Nouvelle Inspection

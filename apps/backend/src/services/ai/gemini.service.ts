@@ -9,7 +9,13 @@ import { v4 as uuidv4 } from "uuid";
 
 const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY || "");
 
-export type AIType = "assistant" | "devis" | "compta" | "vision" | "relance" | "vocal";
+export type AIType =
+  | "assistant"
+  | "devis"
+  | "compta"
+  | "vision"
+  | "relance"
+  | "vocal";
 
 export interface AIParams {
   prompt?: string;
@@ -23,6 +29,9 @@ export interface AIParams {
   mimeType?: string;
 
   userId: string;
+
+  // ✅ Observabilité (optionnel, non cassant)
+  requestId?: string;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -50,6 +59,8 @@ export async function runAI(type: AIType, payload: AIParams): Promise<string> {
     logger.error("GEMINI_API_KEY missing");
     throw new HttpError(500, "Configuration IA incomplète");
   }
+
+  const totalStart = Date.now();
 
   const artisanContext = await getArtisanContext(payload.userId);
   const baseInstruction = PROMPTS[type] || PROMPTS.assistant;
@@ -121,7 +132,12 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte a
                 role: "user",
                 parts: [
                   { text: fullPrompt },
-                  { inlineData: { mimeType: finalMimeType, data: payload.fileBase64 } },
+                  {
+                    inlineData: {
+                      mimeType: finalMimeType,
+                      data: payload.fileBase64,
+                    },
+                  },
                 ],
               },
             ],
@@ -160,6 +176,26 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte a
       }
 
       clearTimeout(timeout);
+
+      // ✅ Metrics (succès)
+      const durationMs = Date.now() - totalStart;
+
+      logger.info("metric.ai_latency", {
+        requestId: payload.requestId ?? null,
+        userId: payload.userId,
+        type,
+        durationMs,
+        status: "success",
+        attempt,
+      });
+
+      logger.info("metric.ai_usage", {
+        requestId: payload.requestId ?? null,
+        userId: payload.userId,
+        type,
+        count: 1,
+      });
+
       return text;
     } catch (error: unknown) {
       clearTimeout(timeout);
@@ -181,6 +217,26 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte a
         await sleep(backoffMs);
         continue;
       }
+
+      // ✅ Metrics (échec final uniquement)
+      const durationMs = Date.now() - totalStart;
+
+      logger.warn("metric.ai_latency", {
+        requestId: payload.requestId ?? null,
+        userId: payload.userId,
+        type,
+        durationMs,
+        status: "error",
+        attempt,
+      });
+
+      logger.warn("metric.ai_error", {
+        requestId: payload.requestId ?? null,
+        userId: payload.userId,
+        type,
+        count: 1,
+        message,
+      });
 
       throw new HttpError(500, `Erreur IA: ${message}`);
     }

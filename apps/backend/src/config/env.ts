@@ -157,8 +157,6 @@ export const ENV = {
    * =========================
    * SCHEDULER / AUTOMATION (infra)
    * =========================
-   * ENABLE_SCHEDULER : feature flag applicatif
-   * SCHEDULER_ENABLED : kill-switch infra
    */
   SCHEDULER_ENABLED: optionalBoolean("SCHEDULER_ENABLED", true),
   REMINDER_CRON: optional("REMINDER_CRON", "*/5 * * * *"),
@@ -174,7 +172,6 @@ export const ENV = {
  * =========================
  * LOGGER BRIDGE (no circular deps)
  * =========================
- * Permet au logger d'avoir NODE_ENV sans process.env et sans importer ENV.
  */
 (globalThis as any).__AP_NODE_ENV = ENV.NODE_ENV;
 
@@ -201,8 +198,12 @@ if (ENV.NODE_ENV === "production") {
     throw new Error("❌ FRONTEND_URL must use HTTPS in production");
   }
 
+  // 🔐 NOUVEAU : clé Gemini obligatoire en production
+  if (!ENV.GEMINI_API_KEY) {
+    throw new Error("❌ GEMINI_API_KEY missing in production");
+  }
+
   // Si l'envoi d'emails est requis en prod, force la clé.
-  // Si tu veux rendre l'email optionnel en prod, retire ce bloc.
   if (!ENV.RESEND_API_KEY) {
     throw new Error("❌ RESEND_API_KEY missing in production");
   }
@@ -212,7 +213,6 @@ if (ENV.NODE_ENV === "production") {
  * =========================
  * DEV DEBUG (SAFE)
  * =========================
- * Aucun secret n'est loggé.
  */
 if (ENV.NODE_ENV === "development") {
   logger.info("Environment loaded", {

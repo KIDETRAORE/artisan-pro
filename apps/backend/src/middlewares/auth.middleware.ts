@@ -28,12 +28,25 @@ export const authMiddleware = async (
       return;
     }
 
-    // 3. 🔥 Injection du user dans la requête pour les middlewares suivants (ex: quotaMiddleware)
-    (req as any).user = data.user;
+    // 3. 🔥 Injection du user dans la requête (permissions depuis app_metadata)
+    const permissions = Array.isArray((data.user as any)?.app_metadata?.permissions)
+      ? ((data.user as any).app_metadata.permissions as string[])
+      : [];
+
+    (req as any).user = {
+      ...data.user,
+      permissions,
+    };
 
     // ✅ Log conforme (pas de donnée sensible)
     logger.info("✅ Utilisateur authentifié", {
       userId: data.user.id,
+    });
+
+    // ✅ Debug non sensible : vérifier ce que Supabase renvoie vraiment
+    logger.info("DEBUG auth permissions", {
+      userId: data.user.id,
+      permissions,
     });
 
     next();

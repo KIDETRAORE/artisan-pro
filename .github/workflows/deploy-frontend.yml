@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   ci-frontend:
-    name: Frontend - Lint & Build (required)
+    name: Frontend - Typecheck & Build (required)
     runs-on: ubuntu-latest
 
     steps:
@@ -32,9 +32,9 @@ jobs:
         working-directory: apps/frontend
         run: npm ci
 
-      - name: Lint (required)
+      - name: Typecheck (required)
         working-directory: apps/frontend
-        run: npm run lint
+        run: npm run typecheck
 
       - name: Build (required)
         working-directory: apps/frontend

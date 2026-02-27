@@ -10,7 +10,12 @@ export const requirePermission =
       });
     }
 
-    if (!req.user.permissions.includes(permission)) {
+    // ✅ permissions peut être undefined (user Supabase), on sécurise
+    const permissions = Array.isArray((req.user as any).permissions)
+      ? ((req.user as any).permissions as Permission[])
+      : [];
+
+    if (!permissions.includes(permission)) {
       return res.status(403).json({
         message: "Permission insuffisante",
       });

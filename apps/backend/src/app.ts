@@ -9,6 +9,7 @@ import { errorHandler } from "./middlewares/error.middleware";
 import { globalRateLimit } from "./middlewares/rateLimit.middleware";
 import { logger } from "./utils/logger";
 import { applySecurity } from "./middlewares/security.middleware";
+import { observabilityMiddleware } from "./middlewares/observability.middleware";
 
 // ✅ Central router (toutes les routes business)
 import router from "./routes";
@@ -34,12 +35,16 @@ applySecurity(app);
 
 /**
  * ======================
+ * OBSERVABILITY (REQUEST ID + TIMER)
+ * ======================
+ */
+app.use(observabilityMiddleware);
+
+/**
+ * ======================
  * STRIPE WEBHOOK (RAW BODY)
  * ⚠️ Doit être AVANT express.json()
  * ======================
- *
- * Stripe envoie parfois "application/json; charset=utf-8"
- * donc on accepte application/json* via type function.
  */
 app.use(
   "/stripe/webhook",
@@ -71,7 +76,6 @@ const allowedOrigins =
 
 const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
-    // requêtes server-to-server / curl / health probes
     if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) return callback(null, true);
@@ -84,8 +88,6 @@ const corsOptions: CorsOptions = {
 };
 
 app.use(cors(corsOptions));
-// Preflight
-app.options("*", cors(corsOptions));
 
 /**
  * ✅ Handler explicite pour erreurs CORS
@@ -108,8 +110,6 @@ app.use(
  * ======================
  * BODY PARSERS (LIMIT PROTECTION)
  * ======================
- * 🔒 Réduction des tailles pour éviter DoS / payloads abusifs
- * ⚠️ N'impacte PAS Stripe (raw body déjà traité plus haut)
  */
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));

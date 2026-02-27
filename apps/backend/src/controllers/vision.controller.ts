@@ -68,7 +68,10 @@ export async function analyzeVisionController(
   if (buffer.length > MAX_IMAGE_BYTES) {
     return res.status(413).json({
       success: false,
-      error: "Image trop volumineuse (max 5MB).",
+      error: {
+        code: "payload_too_large",
+        message: "Image trop volumineuse (max 5MB).",
+      },
     });
   }
 
@@ -79,7 +82,10 @@ export async function analyzeVisionController(
   if (!detected || !allowedMimes.includes(detected.mime)) {
     return res.status(415).json({
       success: false,
-      error: "Type d'image non supporté.",
+      error: {
+        code: "unsupported_media_type",
+        message: "Type d'image non supporté.",
+      },
     });
   }
 
@@ -189,7 +195,13 @@ export async function getVisionByIdController(req: Request, res: Response) {
     .single();
 
   if (error || !data) {
-    return res.status(404).json({ message: "Analyse non trouvée" });
+    return res.status(404).json({
+      success: false,
+      error: {
+        code: "not_found",
+        message: "Analyse non trouvée",
+      },
+    });
   }
 
   return res.status(200).json(data);

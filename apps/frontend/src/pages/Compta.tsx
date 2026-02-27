@@ -1,13 +1,92 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; // 1. Import pour la redirection
-import { FileBarChart, CloudUpload, Loader2, TrendingUp, TrendingDown, ReceiptEuro, CheckCircle2, Sparkles } from 'lucide-react';
+import { Link } from "react-router-dom";
+import {
+  FileBarChart,
+  CloudUpload,
+  Loader2,
+  TrendingUp,
+  TrendingDown,
+  ReceiptEuro,
+  CheckCircle2,
+  Sparkles,
+  AlertTriangle
+} from 'lucide-react';
 import { fetchWithAuth } from '../auth/fetchWithAuth';
+import { ApiError } from "../auth/ApiError";
+
+type UiError =
+  | { kind: "quota"; message: string }
+  | { kind: "rate"; message: string }
+  | { kind: "timeout"; message: string }
+  | { kind: "generic"; message: string };
+
+function toUiError(err: unknown): UiError {
+  if (err instanceof ApiError) {
+    // ✅ Quota atteint
+    if (err.status === 403 && err.code === "quota_exceeded") {
+      return {
+        kind: "quota",
+        message: err.message || "Quota atteint. Passe au plan PRO pour continuer.",
+      };
+    }
+
+    // ✅ Trop de requêtes
+    if (err.status === 429 || err.code === "rate_limited") {
+      return {
+        kind: "rate",
+        message: "Trop de requêtes. Réessaie dans quelques secondes.",
+      };
+    }
+
+    return { kind: "generic", message: err.message || "Erreur serveur." };
+  }
+
+  // ✅ Timeout / réseau
+  if (err instanceof Error) {
+    const msg = err.message || "";
+    if (/timeout/i.test(msg) || /Failed to fetch/i.test(msg)) {
+      return {
+        kind: "timeout",
+        message:
+          "Connexion instable ou délai dépassé. Vérifie ton réseau et réessaie.",
+      };
+    }
+    return { kind: "generic", message: msg };
+  }
+
+  return { kind: "generic", message: "Une erreur est survenue." };
+}
 
 export default function Compta() {
   const navigate = useNavigate(); // 2. Initialisation du hook de navigation
   const [isProcessing, setIsProcessing] = useState(false);
   const [report, setReport] = useState<any>(null);
+  const [uiError, setUiError] = useState<UiError | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ✅ Polling refs (éviter polling multiples + backoff 429 + cleanup)
+  const pollTimerRef = useRef<number | null>(null);
+  const pollActiveRef = useRef(false);
+  const pollJobIdRef = useRef<string | null>(null);
+  const pollDelayRef = useRef<number>(2000); // base: 2s
+
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    pollActiveRef.current = false;
+    pollJobIdRef.current = null;
+    pollDelayRef.current = 2000;
+  };
+
+  // Cleanup si navigation/unmount
+  useEffect(() => {
+    return () => {
+      stopPolling();
+    };
+  }, []);
 
   // --- 1. FONCTION MODE EXPERT (Redirection + Event) ---
   const handleExpertChat = () => {
@@ -18,11 +97,11 @@ export default function Compta() {
 
     // B. On envoie l'événement après un court délai pour laisser la page Assistant se charger
     setTimeout(() => {
-      const event = new CustomEvent('openExpertChat', { 
-        detail: { 
+      const event = new CustomEvent('openExpertChat', {
+        detail: {
           analysisData: report,
           message: `Analyse expert activée ! Je vois un bénéfice de ${report.resultat_net}€. Comment puis-je t'aider à optimiser ta gestion ou tes prochains chantiers ?`
-        } 
+        }
       });
       window.dispatchEvent(event);
     }, 150); // 150ms est idéal pour le montage du composant
@@ -30,28 +109,64 @@ export default function Compta() {
 
   // --- 2. POLLING (Attente du résultat) ---
   const startPolling = (jobId: string) => {
-    const pollInterval = setInterval(async () => {
+    // ✅ éviter plusieurs polls simultanés (ou redémarrer proprement si nouveau job)
+    if (pollActiveRef.current) {
+      if (pollJobIdRef.current === jobId) return; // déjà en cours pour ce job
+      stopPolling(); // nouveau job -> on stop l'ancien proprement
+    }
+
+    pollActiveRef.current = true;
+    pollJobIdRef.current = jobId;
+    pollDelayRef.current = 2000;
+
+    const tick = async () => {
+      if (!pollActiveRef.current || pollJobIdRef.current !== jobId) return;
+
       try {
         const data = await fetchWithAuth<any>(`/ai/status/${jobId}`);
 
         if (data.status === 'completed') {
-          clearInterval(pollInterval);
+          stopPolling();
+
           let result = data.result;
           if (typeof result === 'string') {
             const match = result.match(/\{[\s\S]*\}/);
             result = match ? JSON.parse(match[0]) : JSON.parse(result);
           }
+
           setReport(result);
           setIsProcessing(false);
-        } else if (data.status === 'failed') {
-          clearInterval(pollInterval);
-          setIsProcessing(false);
-          alert("L'analyse comptable a échoué.");
+          setUiError(null);
+          return;
         }
+
+        if (data.status === 'failed') {
+          stopPolling();
+          setIsProcessing(false);
+          setUiError({ kind: "generic", message: "L'analyse comptable a échoué." });
+          return;
+        }
+
+        // ✅ statut intermédiaire -> continue au rythme courant
+        pollTimerRef.current = window.setTimeout(tick, pollDelayRef.current);
       } catch (err) {
-        console.error("Erreur polling:", err);
+        // ✅ 429 -> backoff au lieu de stopper
+        if (err instanceof ApiError && err.status === 429) {
+          setUiError(toUiError(err)); // message "Trop de requêtes..."
+          pollDelayRef.current = Math.min(pollDelayRef.current * 2, 10000);
+          pollTimerRef.current = window.setTimeout(tick, pollDelayRef.current);
+          return;
+        }
+
+        // ✅ autres erreurs -> stop + UI (comme demandé)
+        stopPolling();
+        setIsProcessing(false);
+        setUiError(toUiError(err));
       }
-    }, 2000);
+    };
+
+    // start
+    pollTimerRef.current = window.setTimeout(tick, pollDelayRef.current);
   };
 
   // --- 3. GESTION DE L'UPLOAD ---
@@ -61,6 +176,7 @@ export default function Compta() {
 
     setIsProcessing(true);
     setReport(null);
+    setUiError(null);
 
     const formData = new FormData();
     formData.append('file', file);
@@ -73,25 +189,33 @@ export default function Compta() {
       });
       if (data.jobId) startPolling(data.jobId);
     } catch (err) {
-      alert("Erreur de connexion au serveur.");
+      setUiError(toUiError(err));
       setIsProcessing(false);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   return (
     <div className="h-full w-full max-w-md mx-auto overflow-y-auto px-4 pt-4 pb-24 scroll-smooth animate-in fade-in duration-500">
-      
+
       {/* CADRE BASE DE CONNAISSANCE */}
       <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm mb-4">
         <div className="flex items-center gap-2 mb-4">
           <span className="text-emerald-500 font-bold">📊</span>
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Base de connaissance externe</span>
         </div>
-        <div 
+        <div
           onClick={() => !isProcessing && fileInputRef.current?.click()}
           className="border-2 border-dashed border-slate-100 rounded-2xl py-6 flex flex-col items-center justify-center gap-2 text-slate-400 hover:bg-slate-50 transition-colors cursor-pointer"
         >
-          <input type="file" ref={fileInputRef} onChange={handleUpload} className="hidden" accept="image/*,.csv,.xlsx,application/pdf" />
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleUpload}
+            className="hidden"
+            accept="image/*,.csv,.xlsx,application/pdf"
+          />
           {isProcessing ? (
             <Loader2 className="animate-spin text-blue-500" size={20} />
           ) : (
@@ -105,7 +229,50 @@ export default function Compta() {
 
       {/* ZONE D'AFFICHAGE DYNAMIQUE */}
       <div className="bg-white rounded-[2.5rem] p-8 shadow-sm flex flex-col min-h-[400px]">
-        
+
+        {/* ✅ BANNERS ERREUR (quota / 429 / timeout / generic) */}
+        {uiError && (
+          <div
+            className={[
+              "mb-4 p-3 rounded-2xl border text-[11px] leading-snug",
+              uiError.kind === "quota"
+                ? "bg-amber-50 border-amber-100 text-amber-900"
+                : uiError.kind === "rate"
+                ? "bg-blue-50 border-blue-100 text-blue-900"
+                : uiError.kind === "timeout"
+                ? "bg-slate-50 border-slate-100 text-slate-800"
+                : "bg-red-50 border-red-100 text-red-900",
+            ].join(" ")}
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-black uppercase tracking-widest text-[9px] opacity-70">
+                  {uiError.kind === "quota"
+                    ? "Quota atteint"
+                    : uiError.kind === "rate"
+                    ? "Trop de requêtes"
+                    : uiError.kind === "timeout"
+                    ? "Délai dépassé"
+                    : "Erreur"}
+                </div>
+                <div className="mt-1">{uiError.message}</div>
+
+                {uiError.kind === "quota" && (
+                  <div className="mt-2">
+                    <Link
+                      to="/upgrade"
+                      className="inline-flex items-center justify-center px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Passer PRO
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {!report ? (
           <div className="flex-1 flex flex-col items-center text-center justify-center py-10">
             <div className="w-20 h-20 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-200 mb-8 border border-slate-100">
@@ -170,15 +337,18 @@ export default function Compta() {
             </div>
 
             {/* BOUTON MODE EXPERT AI */}
-            <button 
+            <button
               onClick={handleExpertChat}
               className="w-full py-4 bg-emerald-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 active:scale-95"
             >
               <Sparkles size={14} /> Mode Expert AI
             </button>
 
-            <button 
-              onClick={() => setReport(null)}
+            <button
+              onClick={() => {
+                setReport(null);
+                setUiError(null);
+              }}
               className="w-full py-2 text-slate-400 text-[10px] font-bold uppercase tracking-widest hover:text-slate-600 transition-all"
             >
               Nouvelle Analyse

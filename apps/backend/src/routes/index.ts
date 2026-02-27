@@ -33,7 +33,6 @@ router.use("/health", healthRoutes);
 /**
  * ============================
  * STRIPE (AUTH)
- * ⚠️ /stripe/webhook reste dans app.ts (raw body)
  * ============================
  */
 router.use("/stripe", authMiddleware, stripeRoutes);
@@ -54,21 +53,35 @@ router.use("/devis", authMiddleware, devisRouter);
 
 /**
  * ============================
- * MODULES IA (AUTH + PERMS + RATE LIMIT + QUOTA)
+ * MODULES IA
  * ============================
  */
-const aiGuards = [
+
+// 🔹 Guards SANS rate limit (status polling OK)
+const aiBaseGuards = [
+  authMiddleware,
+  requirePermission(PERMISSIONS.AI_USE),
+  quotaMiddleware,
+] as const;
+
+// 🔹 /ai/status → pas de rate limit
+router.use("/ai", ...aiBaseGuards, aiRoutes);
+
+// 🔹 /ai/run → rate limit uniquement ici
+router.post(
+  "/ai/run",
   authMiddleware,
   requirePermission(PERMISSIONS.AI_USE),
   aiRateLimit,
   quotaMiddleware,
-] as const;
+  aiRoutes
+);
 
-router.use("/ai", ...aiGuards, aiRoutes);
-router.use("/assistant", ...aiGuards, assistantRoutes);
-router.use("/compta", ...aiGuards, comptaRoutes);
-router.use("/vision", ...aiGuards, visionRoutes);
-router.use("/vocal", ...aiGuards, vocalRoutes);
+// 🔹 Autres modules IA (inchangés, sans aiRateLimit global)
+router.use("/assistant", ...aiBaseGuards, assistantRoutes);
+router.use("/compta", ...aiBaseGuards, comptaRoutes);
+router.use("/vision", ...aiBaseGuards, visionRoutes);
+router.use("/vocal", ...aiBaseGuards, vocalRoutes);
 
 /**
  * ============================

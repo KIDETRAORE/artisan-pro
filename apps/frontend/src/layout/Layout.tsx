@@ -28,16 +28,23 @@ export default function Layout() {
           <div className="w-10 h-10 bg-[#2563eb] rounded-full flex items-center justify-center text-white shadow-lg">
               <span className="text-lg">🛠️</span>
           </div>
-          <div>
-            <h1 className="text-xl font-black text-slate-900 leading-none flex items-center gap-1">
-              Artisan<span className="text-[#2563eb]">Pro</span>
-            </h1>
-            <div className="flex items-center gap-2 mt-1">
-              <div className="w-12 h-1.5 bg-slate-100 rounded-full"></div>
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mode Illimité</span>
+
+          {/* ✅ MODIFICATION : logo cliquable vers /dashboard */}
+          <Link to="/dashboard">
+            <div>
+              <h1 className="text-xl font-black text-slate-900 leading-none flex items-center gap-1 hover:opacity-90 transition-opacity">
+                Artisan<span className="text-[#2563eb]">Pro</span>
+              </h1>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="w-12 h-1.5 bg-slate-100 rounded-full"></div>
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                  Mode Illimité
+                </span>
+              </div>
             </div>
-          </div>
+          </Link>
         </div>
+
         <div className="flex gap-2">
           <button className="w-10 h-10 rounded-full border border-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-50">?</button>
           <button className="w-10 h-10 rounded-full border border-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-50">⏻</button>
@@ -53,7 +60,6 @@ export default function Layout() {
       <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-end gap-4">
         {isChatOpen && (
           <div className="bg-white w-[350px] max-h-[600px] rounded-[2.5rem] shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
-            {/* Header du Panel */}
             <div className="p-5 bg-slate-900 text-white flex justify-between items-center">
               <span className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
                 <Sparkles size={14} className="text-purple-400" /> Mode Expert Stratégique
@@ -66,14 +72,12 @@ export default function Layout() {
               </button>
             </div>
             
-            {/* 🧠 Injection du Mode Expert IA qu'on a codé ensemble */}
             <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
               <AiModePanel />
             </div>
           </div>
         )}
         
-        {/* Bouton de la Bulle */}
         <button 
           onClick={() => setIsChatOpen(!isChatOpen)}
           className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 border-4 border-white ${

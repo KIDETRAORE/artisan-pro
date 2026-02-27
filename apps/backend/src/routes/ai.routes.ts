@@ -51,9 +51,22 @@ const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => 
       "audio/mp4",
       // documents
       "application/pdf",
+      // ✅ spreadsheets
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+      "application/vnd.ms-excel", // .xls
     ];
 
-    if (!detected || !allowedMimes.includes(detected.mime)) {
+    const fileName = file.originalname ?? "";
+    const ext = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() : undefined;
+    const isXlsx = ext === "xlsx";
+
+    // ✅ xlsx est souvent détecté comme application/zip (car format OOXML = zip)
+    const detectedMime = detected?.mime ?? null;
+    const isAllowed =
+      (detectedMime !== null && allowedMimes.includes(detectedMime)) ||
+      (detectedMime === "application/zip" && isXlsx);
+
+    if (!isAllowed) {
       return res.status(415).json({
         success: false,
         error: "Type de fichier non supporté.",
@@ -85,9 +98,7 @@ router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
 
     if (!file) {
       logger.warn("[AI-ROUTE] /run missing file");
-      return res
-        .status(400)
-        .json({ success: false, error: "Aucun fichier reçu" });
+      return res.status(400).json({ success: false, error: "Aucun fichier reçu" });
     }
 
     const fileBase64 = file.buffer.toString("base64");
@@ -117,9 +128,7 @@ router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
     logger.error("[AI-ROUTE] /run failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal Server Error" });
+    return res.status(500).json({ success: false, error: "Internal Server Error" });
   }
 });
 
@@ -132,17 +141,13 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
     const jobId = String(req.params.jobId);
 
     if (!jobId || jobId === "undefined") {
-      return res
-        .status(400)
-        .json({ success: false, error: "ID de job invalide" });
+      return res.status(400).json({ success: false, error: "ID de job invalide" });
     }
 
     const job = await aiQueue.getJob(jobId);
 
     if (!job) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Analyse introuvable" });
+      return res.status(404).json({ success: false, error: "Analyse introuvable" });
     }
 
     // ✅ Sécurité : vérifier ownership
@@ -163,9 +168,7 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
     logger.error("[AI-ROUTE] /status failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal Server Error" });
+    return res.status(500).json({ success: false, error: "Internal Server Error" });
   }
 });
 

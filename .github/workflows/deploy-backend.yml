@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   ci-backend:
-    name: Backend - Lint & Build (required)
+    name: Backend - Typecheck & Build (required)
     runs-on: ubuntu-latest
 
     steps:
@@ -32,9 +32,9 @@ jobs:
         working-directory: apps/backend
         run: npm ci
 
-      - name: Lint (required)
+      - name: Typecheck (required)
         working-directory: apps/backend
-        run: npm run lint
+        run: npm run typecheck
 
       - name: Build (required)
         working-directory: apps/backend

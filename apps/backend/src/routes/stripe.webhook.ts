@@ -4,6 +4,10 @@ import Stripe from "stripe";
 import { ENV } from "../config/env";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
+import {
+  acquireStripeEventLock,
+  markStripeEventProcessed,
+} from "../services/stripe/stripeIdempotency";
 
 const router = Router();
 
@@ -60,7 +64,6 @@ router.post("/", async (req: Request, res: Response) => {
   const eventType = event.type;
   const createdAtIso = new Date(event.created * 1000).toISOString();
 
-  // ✅ Idempotence persistée (multi-instances) via stripe_events.id = event.id
   try {
     const lock = await acquireStripeEventLock({
       eventId,
@@ -77,7 +80,6 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (lock === "processing_elsewhere") {
-      // ✅ Réponse 200 (pas de retry Stripe demandé)
       logger.warn("Stripe event is being processed elsewhere (skip)", { eventId, eventType });
       return res.status(200).json({
         received: true,
@@ -207,7 +209,6 @@ router.post("/", async (req: Request, res: Response) => {
         logger.info("Unhandled Stripe event", { eventType, eventId });
     }
 
-    // ✅ Mark processed uniquement si traitement OK
     await markStripeEventProcessed(eventId);
 
     return res.status(200).json({
@@ -227,53 +228,6 @@ router.post("/", async (req: Request, res: Response) => {
     });
   }
 });
-
-/**
- * Idempotence persistante (multi-instances)
- * Utilise stripe_events (id = event.id Stripe, type, created_at, processed_at)
- */
-async function acquireStripeEventLock(args: {
-  eventId: string;
-  type: string;
-  createdAt: string;
-}): Promise<"acquired" | "already_processed" | "processing_elsewhere"> {
-  const { error: insErr } = await supabaseAdmin.from("stripe_events").insert({
-    id: args.eventId,
-    type: args.type,
-    created_at: args.createdAt,
-    processed_at: null,
-  });
-
-  if (!insErr) return "acquired";
-
-  const code = (insErr as unknown as { code?: string }).code;
-  if (code !== "23505") {
-    throw new Error(`stripe_events_insert_failed:${insErr.message}`);
-  }
-
-  // Duplicate : on regarde processed_at
-  const { data, error: selErr } = await supabaseAdmin
-    .from("stripe_events")
-    .select("processed_at")
-    .eq("id", args.eventId)
-    .maybeSingle();
-
-  if (selErr) throw new Error(`stripe_events_select_failed:${selErr.message}`);
-
-  if (data?.processed_at) return "already_processed";
-  return "processing_elsewhere";
-}
-
-async function markStripeEventProcessed(eventId: string): Promise<void> {
-  const { error } = await supabaseAdmin
-    .from("stripe_events")
-    .update({ processed_at: new Date().toISOString() })
-    .eq("id", eventId);
-
-  if (error) {
-    throw new Error(`stripe_events_update_failed:${error.message}`);
-  }
-}
 
 function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   const sub = (invoice as any).subscription;

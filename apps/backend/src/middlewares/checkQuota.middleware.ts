@@ -2,6 +2,13 @@ import type { Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
 
+function getRequestId(req: Request): string | null {
+  const rid =
+    (req.headers["x-request-id"] as string | undefined) ??
+    (req as any).requestId;
+  return typeof rid === "string" ? rid : null;
+}
+
 /**
  * checkQuota (P1)
  * Pré-check quota AVANT un appel IA (ici: vision)
@@ -60,6 +67,14 @@ export const checkQuota = async (req: Request, res: Response, next: NextFunction
 
     if (!quota) {
       // Pas de ligne quota => on bloque proprement (ou tu peux choisir de l'initialiser ailleurs)
+      logger.warn("metric.quota_refused", {
+        requestId: getRequestId(req),
+        userId,
+        feature: "vision",
+        reason: "quota_row_missing",
+        count: 1,
+      });
+
       return res.status(403).json({
         success: false,
         error: "Quota introuvable. Veuillez réessayer.",
@@ -106,6 +121,17 @@ export const checkQuota = async (req: Request, res: Response, next: NextFunction
     const requiredUnits = 1;
 
     if (limit > 0 && used + requiredUnits > limit) {
+      logger.warn("metric.quota_refused", {
+        requestId: getRequestId(req),
+        userId,
+        feature: "vision",
+        reason: "monthly_limit_exceeded",
+        used,
+        limit,
+        reset_at: quota.reset_at ?? null,
+        count: 1,
+      });
+
       return res.status(403).json({
         success: false,
         error: "Quota mensuel IA dépassé. Passez au plan PRO.",
