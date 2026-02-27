@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Bot, User, Loader2 } from "lucide-react";
 import { fetchWithAuth } from "../../../auth/fetchWithAuth";
+import { useExpertAssistantStore } from "../expertAssistant.store";
 
 interface Message {
   id: string;
@@ -21,9 +22,36 @@ export default function AssistantPanel({ variant = "page" }: Props) {
     },
   ]);
 
+  const [analysisContext, setAnalysisContext] = useState<any>(null);
+
+  const payload = useExpertAssistantStore((s) => s.payload);
+  const clear = useExpertAssistantStore((s) => s.clear);
+
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!payload) return;
+
+    if (payload.analysisData) {
+      setAnalysisContext(payload.analysisData);
+    }
+
+    // ✅ Correction unique: forcer une string (jamais undefined)
+    if (payload.message != null) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `payload-${Date.now()}`,
+          role: "assistant",
+          content: payload.message ?? "",
+        },
+      ]);
+    }
+
+    clear();
+  }, [payload, clear]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -45,13 +73,23 @@ export default function AssistantPanel({ variant = "page" }: Props) {
     setLoading(true);
 
     try {
-      const data = await fetchWithAuth<{ result?: string; jobId?: string }>("/ai/run", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "expert",
-          prompt: input,
-        }),
-      });
+      let finalPrompt = input;
+      if (analysisContext) {
+        finalPrompt = `CONTEXTE COMPTA: ${JSON.stringify(
+          analysisContext
+        )}\n\nQUESTION: ${input}`;
+      }
+
+      const data = await fetchWithAuth<{ result?: string; jobId?: string }>(
+        "/ai/run",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            type: "expert",
+            prompt: finalPrompt,
+          }),
+        }
+      );
 
       const botMsg: Message = {
         id: Date.now().toString(),

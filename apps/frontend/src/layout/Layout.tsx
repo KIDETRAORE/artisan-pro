@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { useEffect } from "react";
 import { useLocation, Link, Outlet } from 'react-router-dom';
 import { FileText, Camera, PieChart, MessageSquare, X, Sparkles } from 'lucide-react';
-// 🔥 Import du nouveau composant expert
-import AiModePanel from "../features/ai/AiModePanel";
+// 🔥 Remplacement: on n'affiche plus AiModePanel dans la bulle, mais le chat Assistant
+import AssistantPanel from "../features/ai/assistant/AssistantPanel";
 import { useExpertAssistantStore } from "../features/ai/expertAssistant.store";
 
 export default function Layout() {
@@ -39,7 +39,6 @@ export default function Layout() {
               <span className="text-lg">🛠️</span>
           </div>
 
-          {/* ✅ MODIFICATION : logo cliquable vers /dashboard */}
           <Link to="/dashboard">
             <div>
               <h1 className="text-xl font-black text-slate-900 leading-none flex items-center gap-1 hover:opacity-90 transition-opacity">
@@ -66,13 +65,13 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      {/* 🟦 BULLE FLOTTANTE EXPERT AI (PHASE 5) */}
+      {/* 🟦 BULLE FLOTTANTE -> CHAT ASSISTANT */}
       <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-end gap-4">
         {isChatOpen && (
           <div className="bg-white w-[350px] max-h-[600px] rounded-[2.5rem] shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
             <div className="p-5 bg-slate-900 text-white flex justify-between items-center">
               <span className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                <Sparkles size={14} className="text-purple-400" /> Mode Expert Stratégique
+                <Sparkles size={14} className="text-purple-400" /> Assistant
               </span>
               <button 
                 onClick={() => setIsChatOpen(false)} 
@@ -83,7 +82,7 @@ export default function Layout() {
             </div>
             
             <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
-              <AiModePanel />
+              <AssistantPanel variant="bubble" />
             </div>
           </div>
         )}
