@@ -71,6 +71,10 @@ export default function Compta() {
   const pollJobIdRef = useRef<string | null>(null);
   const pollDelayRef = useRef<number>(2000); // base: 2s
 
+  // ✅ AJOUTS demandés : timeout global
+  const pollStartedAtRef = useRef<number>(0);
+  const MAX_POLL_MS = 2 * 60 * 1000; // 2 minutes
+
   const stopPolling = () => {
     if (pollTimerRef.current) {
       window.clearTimeout(pollTimerRef.current);
@@ -79,6 +83,9 @@ export default function Compta() {
     pollActiveRef.current = false;
     pollJobIdRef.current = null;
     pollDelayRef.current = 2000;
+
+    // ✅ AJOUT demandé : reset timeout global
+    pollStartedAtRef.current = 0;
   };
 
   // Cleanup si navigation/unmount
@@ -119,11 +126,40 @@ export default function Compta() {
     pollJobIdRef.current = jobId;
     pollDelayRef.current = 2000;
 
+    // ✅ AJOUT demandé : démarrage timer global
+    pollStartedAtRef.current = Date.now();
+
     const tick = async () => {
       if (!pollActiveRef.current || pollJobIdRef.current !== jobId) return;
 
       try {
         const data = await fetchWithAuth<any>(`/ai/status/${jobId}`);
+
+        // ✅ AJOUT demandé : timeout global anti-boucle
+        if (
+          pollStartedAtRef.current &&
+          Date.now() - pollStartedAtRef.current > MAX_POLL_MS
+        ) {
+          stopPolling();
+          setIsProcessing(false);
+          setUiError({
+            kind: "timeout",
+            message:
+              "Le traitement prend trop de temps. Réessaie, ou vérifie ton fichier.",
+          });
+          return;
+        }
+
+        // ✅ AJOUT demandé : stop si success !== true OU status vide/inconnu
+        if (data?.success === false || !data?.status) {
+          stopPolling();
+          setIsProcessing(false);
+          setUiError({
+            kind: "generic",
+            message: data?.error || "Statut d'analyse indisponible.",
+          });
+          return;
+        }
 
         if (data.status === 'completed') {
           stopPolling();
@@ -143,7 +179,12 @@ export default function Compta() {
         if (data.status === 'failed') {
           stopPolling();
           setIsProcessing(false);
-          setUiError({ kind: "generic", message: "L'analyse comptable a échoué." });
+
+          // ✅ AJOUT demandé : afficher la vraie raison (data.error)
+          setUiError({
+            kind: "generic",
+            message: data?.error || "L'analyse comptable a échoué.",
+          });
           return;
         }
 

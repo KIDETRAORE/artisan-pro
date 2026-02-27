@@ -1,4 +1,5 @@
 import { Worker, type Job } from "bullmq";
+import * as XLSX from "xlsx";
 import { redisOptions } from "../config/redis";
 import { runAI, type AIType } from "../services/ai/gemini.service";
 import { quotaService } from "../services/quota.service";
@@ -35,6 +36,49 @@ function toQuotaFeature(type: unknown): string {
 }
 
 /**
+ * Gemini n'accepte pas le binaire XLSX en inlineData.
+ * Si un XLSX est fourni, on le convertit en texte JSON et on l'injecte dans le prompt,
+ * puis on ne passe plus fileBase64/mimeType à runAI.
+ */
+function isXlsxMime(mimeType?: string): boolean {
+  const mt = String(mimeType ?? "").toLowerCase();
+  return (
+    mt === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    mt.includes("spreadsheetml") ||
+    mt.includes("application/vnd.ms-excel")
+  );
+}
+
+function xlsxBase64ToPromptText(fileBase64: string): string {
+  const buffer = Buffer.from(fileBase64, "base64");
+  const wb = XLSX.read(buffer, { type: "buffer" });
+
+  const MAX_SHEETS = 5;
+  const MAX_ROWS_PER_SHEET = 300;
+
+  const sheets = wb.SheetNames.slice(0, MAX_SHEETS);
+  const out: Record<string, unknown[]> = {};
+
+  for (const name of sheets) {
+    const sheet = wb.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: null }) as unknown[];
+    out[name] = rows.slice(0, MAX_ROWS_PER_SHEET);
+  }
+
+  return JSON.stringify(
+    {
+      format: "xlsx",
+      sheets,
+      note:
+        "Données extraites depuis un fichier XLSX. Certaines lignes peuvent être échantillonnées pour rester dans les limites de tokens.",
+      data: out,
+    },
+    null,
+    2
+  );
+}
+
+/**
  * Worker dédié au traitement des tâches de la queue 'aiQueue'.
  * P1:
  * - pré-check quota avant coût IA
@@ -58,7 +102,12 @@ export const aiWorker = new Worker(
     const aiType = toAIType(type);
     const feature = toQuotaFeature(type);
 
-    logger.info(`🔥 [WORKER-AI] Job ${job.id} en cours`, { type, aiType, feature, userId });
+    logger.info(`🔥 [WORKER-AI] Job ${job.id} en cours`, {
+      type,
+      aiType,
+      feature,
+      userId,
+    });
 
     // ✅ Pré-check quota (évite coût IA)
     const q = await quotaService.checkQuota(userId, feature);
@@ -73,11 +122,40 @@ export const aiWorker = new Worker(
     }
 
     try {
+      // ✅ XLSX: conversion en texte (Gemini refuse inlineData XLSX)
+      let finalPrompt = prompt;
+      let finalFileBase64 = fileBase64;
+      let finalMimeType = mimeType;
+
+      if (fileBase64 && isXlsxMime(mimeType)) {
+        const extracted = xlsxBase64ToPromptText(fileBase64);
+
+        finalPrompt = [
+          finalPrompt ?? "",
+          "\n\n---\n\n",
+          "Le fichier fourni est un tableur XLSX. Voici les données extraites (JSON) :\n",
+          extracted,
+          "\n\n---\n\n",
+          "Consignes : base-toi sur ces données extraites pour produire la réponse structurée demandée.",
+        ].join("");
+
+        // On ne passe plus de fichier à Gemini (sinon 400 Unsupported MIME type)
+        finalFileBase64 = undefined;
+        finalMimeType = undefined;
+
+        logger.info("📄 [WORKER-AI] XLSX converti en texte pour Gemini", {
+          jobId: job.id,
+          userId,
+          aiType,
+          feature,
+        });
+      }
+
       // ✅ Appel IA (type strict)
       const result = await runAI(aiType, {
-        prompt,
-        fileBase64,
-        mimeType,
+        prompt: finalPrompt,
+        fileBase64: finalFileBase64,
+        mimeType: finalMimeType,
         userId,
       });
 

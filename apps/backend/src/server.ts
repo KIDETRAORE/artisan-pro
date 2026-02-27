@@ -3,6 +3,7 @@ import app from "./app";
 import { ENV } from "./config/env";
 import { logger } from "./utils/logger";
 import { startScheduler } from "./automation/scheduler";
+import "./workers/ai.worker";
 
 if (!ENV.PORT || Number.isNaN(ENV.PORT)) {
   logger.error("Invalid or missing ENV.PORT");
