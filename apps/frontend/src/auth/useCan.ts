@@ -2,53 +2,40 @@
 
 import { useAuth } from "../store/auth.store";
 import type { Permission } from "../api/auth.api";
-import { can as canFn } from "./can";
 
 /**
  * Hook de gestion des permissions
  *
  * Usage:
  * const can = useCan();
- * can("devis:write") -> boolean
+ * can("delete_user") -> boolean
  *
  * OU
- * const canEdit = useCan("devis:write");
+ * const canDelete = useCan("delete_user");
  */
-
-// 🔹 Overloads
-export function useCan(): (permission: Permission) => boolean;
-export function useCan(permission: Permission): boolean;
-
-// 🔹 Implémentation
 export function useCan(permission?: Permission) {
   const { user } = useAuth();
 
-  // Aucun utilisateur connecté
+  /**
+   * Aucun utilisateur connecté
+   */
   if (!user) {
-    return permission
-      ? false
-      : (_perm: Permission) => false;
+    return permission ? false : () => false;
   }
 
   /**
-   * ⚠️ IMPORTANT
-   * On NE fait PAS user.role === "admin" directement
-   * car AuthUser ne garantit pas la propriété role
-   *
-   * L’admin est traité via la permission spéciale "admin"
+   * Admin → accès total
    */
-
-  const isAdmin = canFn(user, "admin");
-
-  if (isAdmin) {
-    return permission
-      ? true
-      : (_perm: Permission) => true;
+  if (user.role === "admin") {
+    return permission ? true : () => true;
   }
 
-  const hasPermission = (perm: Permission) => canFn(user, perm);
+  /**
+   * Vérification permission fine
+   */
+  const hasPermission = (perm: Permission) => {
+    return user.permissions.includes(perm);
+  };
 
-  return permission
-    ? hasPermission(permission)
-    : hasPermission;
+  return permission ? hasPermission(permission) : hasPermission;
 }

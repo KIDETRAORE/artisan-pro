@@ -19,19 +19,41 @@ export type AIType =
 
 export interface AIParams {
   prompt?: string;
-
-  /**
-   * ✅ Support fichiers (vision/vocal/pdf/csv…)
-   * - image: mimeType="image/jpeg|image/png"
-   * - audio: mimeType="audio/webm|audio/mpeg|audio/wav" etc.
-   */
   fileBase64?: string;
   mimeType?: string;
-
   userId: string;
-
-  // ✅ Observabilité (optionnel, non cassant)
   requestId?: string;
+}
+
+/* ✅ AJOUT UNIQUE */
+function tryParseJsonFromText(text: string): unknown | null {
+  const t = text.trim();
+
+  if (
+    (t.startsWith("{") && t.endsWith("}")) ||
+    (t.startsWith("[") && t.endsWith("]"))
+  ) {
+    try {
+      return JSON.parse(t);
+    } catch {}
+  }
+
+  const fenceMatch = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch?.[1]) {
+    try {
+      return JSON.parse(fenceMatch[1].trim());
+    } catch {}
+  }
+
+  const firstBrace = t.indexOf("{");
+  const lastBrace = t.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(t.slice(firstBrace, lastBrace + 1));
+    } catch {}
+  }
+
+  return null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -40,13 +62,11 @@ function sleep(ms: number): Promise<void> {
 
 function isRetryableGeminiError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  // Heuristiques sûres (sans parser des structures internes)
   return (
     /429/.test(msg) ||
     /Too Many Requests/i.test(msg) ||
     /quota/i.test(msg) ||
     /rate/i.test(msg) ||
-    /timed? out/i.test(msg) ||
     /timeout/i.test(msg) ||
     /5\d\d/.test(msg) ||
     /internal/i.test(msg) ||
@@ -54,13 +74,11 @@ function isRetryableGeminiError(err: unknown): boolean {
   );
 }
 
-export async function runAI(type: AIType, payload: AIParams): Promise<string> {
+export async function runAI(type: AIType, payload: AIParams): Promise<any> {
   if (!ENV.GEMINI_API_KEY) {
     logger.error("GEMINI_API_KEY missing");
     throw new HttpError(500, "Configuration IA incomplète");
   }
-
-  const totalStart = Date.now();
 
   const artisanContext = await getArtisanContext(payload.userId);
   const baseInstruction = PROMPTS[type] || PROMPTS.assistant;
@@ -71,19 +89,8 @@ export async function runAI(type: AIType, payload: AIParams): Promise<string> {
       ? "Analyse ce document comptable, calcule les totaux Recettes, Dépenses et TVA."
       : "Analyse de document");
 
-  const jsonStructureDevis = `
-Structure JSON impérative pour DEVIS/VISION :
-{
-  "clientName": "string ou null",
-  "totalHT": number,
-  "totalTTC": number,
-  "items": [{ "description": "string", "price": number }]
-}`;
-
   const fullPrompt = `
 ${baseInstruction}
-
-${type === "vision" || type === "vocal" || type === "devis" ? jsonStructureDevis : ""}
 
 CONTEXTE DE L'ARTISAN :
 ${artisanContext}
@@ -91,8 +98,8 @@ ${artisanContext}
 DEMANDE :
 ${userPrompt}
 
-IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte avant ou après le JSON.
-  `.trim();
+IMPORTANT : Réponds UNIQUEMENT au format JSON valide.
+`.trim();
 
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
@@ -102,63 +109,39 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte a
     topK: 32,
   };
 
-  const MAX_ATTEMPTS = 3; // 1 + 2 retries
-  const TIMEOUT_MS = 25_000;
+  const MAX_ATTEMPTS = 3;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
     try {
-      // ✅ Logs non sensibles
-      logger.info("🤖 runAI attempt", {
-        type,
-        userId: payload.userId,
-        attempt,
-        hasFile: Boolean(payload.fileBase64 && payload.mimeType),
-        mimeType: payload.mimeType ?? null,
-      });
-
       let result;
 
       if (payload.fileBase64 && payload.mimeType) {
-        let finalMimeType = payload.mimeType;
-        if (finalMimeType === "text/csv") finalMimeType = "text/plain";
-
-        result = await model.generateContent(
-          {
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  { text: fullPrompt },
-                  {
-                    inlineData: {
-                      mimeType: finalMimeType,
-                      data: payload.fileBase64,
-                    },
+        result = await model.generateContent({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: fullPrompt },
+                {
+                  inlineData: {
+                    mimeType: payload.mimeType,
+                    data: payload.fileBase64,
                   },
-                ],
-              },
-            ],
-            generationConfig,
-          },
-          { signal: controller.signal as any }
-        );
+                },
+              ],
+            },
+          ],
+          generationConfig,
+        });
       } else {
-        result = await model.generateContent(
-          {
-            contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
-            generationConfig,
-          },
-          { signal: controller.signal as any }
-        );
+        result = await model.generateContent({
+          contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
+          generationConfig,
+        });
       }
 
       const response = await result.response;
-      let text = response.text();
-
-      text = text.replace(/```json|```/g, "").trim();
+      let text = response.text().replace(/```json|```/g, "").trim();
 
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) text = jsonMatch[0];
@@ -175,73 +158,23 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide. Ne pas ajouter de texte a
         logger.error("DB Log Error:", dbErr);
       }
 
-      clearTimeout(timeout);
-
-      // ✅ Metrics (succès)
-      const durationMs = Date.now() - totalStart;
-
-      logger.info("metric.ai_latency", {
-        requestId: payload.requestId ?? null,
-        userId: payload.userId,
-        type,
-        durationMs,
-        status: "success",
-        attempt,
-      });
-
-      logger.info("metric.ai_usage", {
-        requestId: payload.requestId ?? null,
-        userId: payload.userId,
-        type,
-        count: 1,
-      });
+      /* ✅ MODIF UNIQUE : pour compta, retourner un objet JSON si possible */
+      if (type === "compta") {
+        const parsed = tryParseJsonFromText(text);
+        if (parsed !== null) return parsed;
+      }
 
       return text;
     } catch (error: unknown) {
-      clearTimeout(timeout);
-
-      const message = error instanceof Error ? error.message : String(error);
-
-      // ✅ Logs non sensibles (pas de prompt complet, pas de base64)
-      logger.error("❌ Gemini generateContent failed", {
-        type,
-        userId: payload.userId,
-        attempt,
-        message,
-      });
-
-      const retryable = isRetryableGeminiError(error);
-
-      if (attempt < MAX_ATTEMPTS && retryable) {
-        const backoffMs = 300 * attempt; // backoff court (300ms, 600ms)
-        await sleep(backoffMs);
+      if (attempt < MAX_ATTEMPTS && isRetryableGeminiError(error)) {
+        await sleep(300 * attempt);
         continue;
       }
 
-      // ✅ Metrics (échec final uniquement)
-      const durationMs = Date.now() - totalStart;
-
-      logger.warn("metric.ai_latency", {
-        requestId: payload.requestId ?? null,
-        userId: payload.userId,
-        type,
-        durationMs,
-        status: "error",
-        attempt,
-      });
-
-      logger.warn("metric.ai_error", {
-        requestId: payload.requestId ?? null,
-        userId: payload.userId,
-        type,
-        count: 1,
-        message,
-      });
-
+      const message = error instanceof Error ? error.message : String(error);
       throw new HttpError(500, `Erreur IA: ${message}`);
     }
   }
 
-  // ne devrait jamais arriver
   throw new HttpError(500, "Erreur IA: échec après retries");
 }

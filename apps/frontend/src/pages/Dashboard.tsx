@@ -9,8 +9,17 @@ import {
   Users
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useComptaReportStore } from "../store/comptaReport.store";
 
 export default function Dashboard() {
+  const report = useComptaReportStore((s) => s.report);
+
+  const recettesHT = report?.totals?.recettesHT ?? 0;
+  const depensesHT = report?.totals?.depensesHT ?? 0;
+  const resultatNet = report?.totals?.resultatNet ?? 0;
+  const tvaCollectee = report?.tva?.collectee ?? 0;
+  const tvaDeductible = report?.tva?.deductible ?? 0;
+
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
       
@@ -24,19 +33,19 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard 
           title="Chiffre d'Affaires" 
-          value="12 450 €" 
+          value={`${recettesHT} €`} 
           trend="+12% ce mois" 
           icon={<TrendingUp className="text-emerald-500" />} 
         />
         <StatCard 
           title="Devis en attente" 
-          value="8" 
+          value={`${resultatNet} €`} 
           trend="3 urgents" 
           icon={<Clock className="text-amber-500" />} 
         />
         <StatCard 
           title="Factures impayées" 
-          value="3 200 €" 
+          value={`${depensesHT} €`} 
           trend="Action requise" 
           icon={<AlertTriangle className="text-red-500" />} 
         />

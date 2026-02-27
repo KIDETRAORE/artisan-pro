@@ -4,6 +4,7 @@ import { redisOptions } from "../config/redis";
 import { runAI, type AIType } from "../services/ai/gemini.service";
 import { quotaService } from "../services/quota.service";
 import { logger } from "../utils/logger";
+import { supabaseAdmin } from "../lib/supabaseAdmin"; // ✅ AJOUTÉ
 
 logger.info("👷 [WORKER-AI] Chargement du worker IA...");
 
@@ -21,25 +22,14 @@ function isAIType(x: unknown): x is AIType {
 function toAIType(type: unknown): AIType {
   const t = String(type ?? "").toLowerCase();
   if (isAIType(t)) return t;
-  // fallback sûr (valeur valide de AIType)
   return "assistant";
 }
 
-/**
- * Pour le quotaService, on garde une feature string.
- * Ici, on utilise la même valeur que AIType (ou "ai" si inconnu),
- * pour rester compatible avec ton quotaService.checkQuota(feature: string).
- */
 function toQuotaFeature(type: unknown): string {
   const t = String(type ?? "").toLowerCase();
   return isAIType(t) ? t : "ai";
 }
 
-/**
- * Gemini n'accepte pas le binaire XLSX en inlineData.
- * Si un XLSX est fourni, on le convertit en texte JSON et on l'injecte dans le prompt,
- * puis on ne passe plus fileBase64/mimeType à runAI.
- */
 function isXlsxMime(mimeType?: string): boolean {
   const mt = String(mimeType ?? "").toLowerCase();
   return (
@@ -78,12 +68,6 @@ function xlsxBase64ToPromptText(fileBase64: string): string {
   );
 }
 
-/**
- * Worker dédié au traitement des tâches de la queue 'aiQueue'.
- * P1:
- * - pré-check quota avant coût IA
- * - consommation quota après succès (bloquant)
- */
 export const aiWorker = new Worker(
   "aiQueue",
   async (job: Job) => {
@@ -109,7 +93,6 @@ export const aiWorker = new Worker(
       userId,
     });
 
-    // ✅ Pré-check quota (évite coût IA)
     const q = await quotaService.checkQuota(userId, feature);
     if (!q.allowed) {
       logger.warn("🚫 [WORKER-AI] Quota bloqué", {
@@ -122,7 +105,6 @@ export const aiWorker = new Worker(
     }
 
     try {
-      // ✅ XLSX: conversion en texte (Gemini refuse inlineData XLSX)
       let finalPrompt = prompt;
       let finalFileBase64 = fileBase64;
       let finalMimeType = mimeType;
@@ -139,7 +121,6 @@ export const aiWorker = new Worker(
           "Consignes : base-toi sur ces données extraites pour produire la réponse structurée demandée.",
         ].join("");
 
-        // On ne passe plus de fichier à Gemini (sinon 400 Unsupported MIME type)
         finalFileBase64 = undefined;
         finalMimeType = undefined;
 
@@ -151,7 +132,6 @@ export const aiWorker = new Worker(
         });
       }
 
-      // ✅ Appel IA (type strict)
       const result = await runAI(aiType, {
         prompt: finalPrompt,
         fileBase64: finalFileBase64,
@@ -159,13 +139,31 @@ export const aiWorker = new Worker(
         userId,
       });
 
-      // ✅ Consommation quota APRÈS succès (bloquant)
       await quotaService.recordUsage(
         userId,
         feature,
         typeof prompt === "string" ? prompt : "worker-input",
         result
       );
+
+      // ✅ MODIF UNIQUE : persister le report compta dans ai_logs.response_json
+      if (aiType === "compta") {
+        try {
+          await supabaseAdmin.from("ai_logs").insert({
+            user_id: userId,
+            feature: "compta",
+            status: "completed",
+            response_json: result as any,
+            response: JSON.stringify(result), // optionnel
+          });
+        } catch (e: unknown) {
+          logger.error("💥 [WORKER-AI] Impossible de sauvegarder ai_logs (compta)", {
+            jobId: job.id,
+            userId,
+            message: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
 
       logger.info(`✅ [WORKER-AI] Job ${job.id} terminé avec succès.`, {
         userId,

@@ -1,58 +1,125 @@
-import React, { useState } from "react";
-import { useUser } from "../context/user.context";
+import { useState } from "react";
+import { 
+  User, 
+  Brain, 
+  Shield, 
+  Database, 
+  CreditCard, 
+  Save 
+} from "lucide-react";
 
 export default function Settings() {
-  const { userData, setUserData } = useUser();
-  const [name, setName] = useState(userData?.name ?? "");
-  const [email, setEmail] = useState(userData?.email ?? "");
-
-  const save = () => {
-    // Pour l’instant: “fonctionnel” côté UI.
-    // Si tu veux persister en backend, on branchera un endpoint ensuite.
-    setUserData({
-      ...(userData ?? {}),
-      name,
-      email,
-      plan: userData?.plan ?? "FREE",
-      quota: userData?.quota,
-    });
-  };
+  const [autoOpenExpert, setAutoOpenExpert] = useState(true);
+  const [defaultModel, setDefaultModel] = useState("gemini-2.5-flash");
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h2 className="text-2xl font-black text-slate-900">Réglages</h2>
-      <p className="text-slate-600 mt-2">
-        Paramètres de profil (UI prête). Persistance backend à brancher si besoin.
-      </p>
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
+      
+      <div>
+        <h2 className="text-3xl font-extrabold text-slate-900">
+          Paramètres
+        </h2>
+        <p className="text-slate-500 mt-1">
+          Configuration de votre espace ArtisanPro
+        </p>
+      </div>
 
-      <div className="mt-6 bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
-        <label className="block text-sm font-bold text-slate-900">
-          Nom
-        </label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="mt-2 w-full border border-slate-200 rounded-xl px-3 py-2"
-          placeholder="Ton nom"
-        />
+      {/* Profil */}
+      <Section icon={<User size={18} />} title="Profil">
+        <div className="space-y-4">
+          <Input label="Nom" placeholder="Votre nom" />
+          <Input label="Email" placeholder="email@exemple.com" />
+        </div>
+      </Section>
 
-        <label className="block text-sm font-bold text-slate-900 mt-4">
-          Email
-        </label>
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="mt-2 w-full border border-slate-200 rounded-xl px-3 py-2"
-          placeholder="Ton email"
-        />
+      {/* IA */}
+      <Section icon={<Brain size={18} />} title="Paramètres IA">
+        <div className="space-y-4">
+          
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-700">
+              Ouvrir automatiquement la bulle Expert après analyse
+            </span>
+            <input 
+              type="checkbox"
+              checked={autoOpenExpert}
+              onChange={() => setAutoOpenExpert(!autoOpenExpert)}
+              className="w-5 h-5"
+            />
+          </div>
 
-        <button
-          onClick={save}
-          className="mt-5 px-4 py-2 rounded-xl bg-[#2563eb] text-white font-bold hover:opacity-90"
-        >
-          Enregistrer
+          <div>
+            <label className="text-sm font-medium text-slate-700">
+              Modèle IA par défaut
+            </label>
+            <select 
+              value={defaultModel}
+              onChange={(e) => setDefaultModel(e.target.value)}
+              className="mt-2 w-full px-4 py-2 rounded-xl bg-slate-100"
+            >
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+            </select>
+          </div>
+
+        </div>
+      </Section>
+
+      {/* Sécurité */}
+      <Section icon={<Shield size={18} />} title="Sécurité">
+        <button className="text-blue-600 font-semibold">
+          Changer le mot de passe
+        </button>
+      </Section>
+
+      {/* Données */}
+      <Section icon={<Database size={18} />} title="Données & exports">
+        <button className="text-blue-600 font-semibold">
+          Télécharger mes données
+        </button>
+      </Section>
+
+      {/* Abonnement */}
+      <Section icon={<CreditCard size={18} />} title="Abonnement">
+        <div className="text-sm text-slate-600">
+          Plan actuel : <span className="font-bold text-slate-900">PRO</span>
+        </div>
+      </Section>
+
+      <div className="pt-4">
+        <button className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-bold flex items-center gap-2">
+          <Save size={16} />
+          Sauvegarder
         </button>
       </div>
+    </div>
+  );
+}
+
+function Section({ icon, title, children }: any) {
+  return (
+    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="p-2 bg-slate-100 rounded-xl">
+          {icon}
+        </div>
+        <h3 className="font-bold text-slate-900">{title}</h3>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Input({ label, placeholder }: any) {
+  return (
+    <div>
+      <label className="text-sm font-medium text-slate-700">
+        {label}
+      </label>
+      <input 
+        placeholder={placeholder}
+        className="mt-2 w-full px-4 py-2 rounded-xl bg-slate-100"
+      />
     </div>
   );
 }

@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // 1. Import pour la redirection
-import { Link } from "react-router-dom";
+import React, { useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   FileBarChart,
   CloudUpload,
@@ -10,392 +9,567 @@ import {
   ReceiptEuro,
   CheckCircle2,
   Sparkles,
-  AlertTriangle
-} from 'lucide-react';
-import { fetchWithAuth } from '../auth/fetchWithAuth';
-import { ApiError } from "../auth/ApiError";
+  AlertTriangle,
+  Table2,
+  Download,
+} from "lucide-react";
+import { useAuth } from "../store/auth.store";
+import { useComptaReportStore } from "../store/comptaReport.store";
 import { useExpertAssistantStore } from "../features/ai/expertAssistant.store";
+import { z } from "zod";
 
-type UiError =
-  | { kind: "quota"; message: string }
-  | { kind: "rate"; message: string }
-  | { kind: "timeout"; message: string }
-  | { kind: "generic"; message: string };
+/**
+ * Helpers formats
+ */
+const IsoDateTime = z.string().refine(
+  (v: string) => !Number.isNaN(Date.parse(v)),
+  "generatedAt must be a valid ISO datetime string"
+);
 
-function toUiError(err: unknown): UiError {
-  if (err instanceof ApiError) {
-    // ✅ Quota atteint
-    if (err.status === 403 && err.code === "quota_exceeded") {
-      return {
-        kind: "quota",
-        message: err.message || "Quota atteint. Passe au plan PRO pour continuer.",
-      };
-    }
+const YearMonth = z.string().regex(/^\d{4}-\d{2}$/, "month must be YYYY-MM");
 
-    // ✅ Trop de requêtes
-    if (err.status === 429 || err.code === "rate_limited") {
-      return {
-        kind: "rate",
-        message: "Trop de requêtes. Réessaie dans quelques secondes.",
-      };
-    }
+/**
+ * Severity aligned with your report needs
+ */
+const AnomalySeverity = z.enum(["info", "warn", "critical"]);
 
-    return { kind: "generic", message: err.message || "Erreur serveur." };
-  }
+export const ComptaReportSchema = z.object({
+  meta: z.object({
+    currency: z.string().default("EUR"),
+    sourceFileName: z
+      .string()
+      .optional()
+      .nullable()
+      .transform((v) => (v == null ? undefined : v)),
+    generatedAt: IsoDateTime,
+    sheets: z.array(z.string()),
+    rowsTotal: z.number(),
+  }),
 
-  // ✅ Timeout / réseau
-  if (err instanceof Error) {
-    const msg = err.message || "";
-    if (/timeout/i.test(msg) || /Failed to fetch/i.test(msg)) {
-      return {
-        kind: "timeout",
-        message:
-          "Connexion instable ou délai dépassé. Vérifie ton réseau et réessaie.",
-      };
-    }
-    return { kind: "generic", message: msg };
-  }
+  totals: z.object({
+    recettesHT: z.number(),
+    recettesTTC: z.number(),
+    depensesHT: z.number(),
+    depensesTTC: z.number(),
+    resultatNet: z.number(),
+  }),
 
-  return { kind: "generic", message: "Une erreur est survenue." };
-}
+  tva: z.object({
+    collectee: z.number(),
+    deductible: z.number(),
+    aPayer: z.number(),
+    parTaux: z
+      .array(
+        z.object({
+          taux: z.number(),
+          baseHT: z.number(),
+          tva: z.number(),
+          type: z.enum(["vente", "achat"]),
+        })
+      )
+      .default([]),
+  }),
+
+  breakdown: z.object({
+    parMois: z
+      .array(
+        z.object({
+          month: YearMonth,
+          recettesHT: z.number(),
+          depensesHT: z.number(),
+          resultatNet: z.number(),
+          tvaCollectee: z.number(),
+          tvaDeductible: z.number(),
+        })
+      )
+      .default([]),
+
+    topRecettes: z
+      .array(
+        z.object({
+          label: z.string(),
+          amountHT: z.number(),
+          count: z.number(),
+        })
+      )
+      .default([]),
+
+    topDepenses: z
+      .array(
+        z.object({
+          label: z.string(),
+          amountHT: z.number(),
+          count: z.number(),
+        })
+      )
+      .default([]),
+  }),
+
+  anomalies: z
+    .array(
+      z.object({
+        severity: AnomalySeverity,
+        message: z.string(),
+        sheet: z
+          .string()
+          .optional()
+          .nullable()
+          .transform((v) => (v == null ? undefined : v)),
+        rowIndex: z
+          .number()
+          .optional()
+          .nullable()
+          .transform((v) => (v == null ? undefined : v)),
+      })
+    )
+    .default([]),
+
+  data: z.object({
+    sheets: z.record(
+      z.string(),
+      z.object({
+        columns: z.array(z.string()),
+        rows: z.array(z.array(z.unknown())),
+        truncated: z.boolean().optional(),
+      })
+    ),
+  }),
+
+  summary: z.object({
+    resume: z.string(),
+    actions: z.array(z.string()).default([]),
+    questions: z.array(z.string()).default([]),
+  }),
+});
+
+export type ComptaReport = z.infer<typeof ComptaReportSchema>;
+
+const API_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/ai`
+  : "http://localhost:8080/ai";
 
 export default function Compta() {
-  const navigate = useNavigate(); // 2. Initialisation du hook de navigation
+  const { accessToken } = useAuth();
+  const navigate = useNavigate();
+
+  const setDashboardReport = useComptaReportStore((s) => s.setReport);
   const openWith = useExpertAssistantStore((s) => s.openWith);
 
+  const [file, setFile] = useState<File | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+
   const [isProcessing, setIsProcessing] = useState(false);
-  const [report, setReport] = useState<any>(null);
-  const [uiError, setUiError] = useState<UiError | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [rawResult, setRawResult] = useState<any>(null);
+  const [report, setReport] = useState<ComptaReport | null>(null);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
 
-  // ✅ Polling refs (éviter polling multiples + backoff 429 + cleanup)
-  const pollTimerRef = useRef<number | null>(null);
-  const pollActiveRef = useRef(false);
-  const pollJobIdRef = useRef<string | null>(null);
-  const pollDelayRef = useRef<number>(2000); // base: 2s
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // ✅ AJOUTS demandés : timeout global
-  const pollStartedAtRef = useRef<number>(0);
-  const MAX_POLL_MS = 2 * 60 * 1000; // 2 minutes
-
-  const stopPolling = () => {
-    if (pollTimerRef.current) {
-      window.clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
+  const safeParseResult = (value: any) => {
+    if (!value) return value;
+    if (typeof value === "string") {
+      const cleaned = value.replace(/```json|```/gi, "").trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        return cleaned;
+      }
     }
-    pollActiveRef.current = false;
-    pollJobIdRef.current = null;
-    pollDelayRef.current = 2000;
-
-    // ✅ AJOUT demandé : reset timeout global
-    pollStartedAtRef.current = 0;
+    return value;
   };
 
-  // Cleanup si navigation/unmount
-  useEffect(() => {
-    return () => {
-      stopPolling();
-    };
-  }, []);
+  const startPolling = (id: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`${API_URL}/status/${id}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
 
-  // --- 1. FONCTION MODE EXPERT (Store + Redirection Dashboard) ---
+        if (response.status === 304) return;
+
+        const data = await response.json();
+
+        if (data.status === "completed") {
+          clearInterval(pollInterval);
+          setIsProcessing(false);
+
+          const parsed = safeParseResult(data.result);
+          setRawResult(parsed);
+
+          const validated = ComptaReportSchema.safeParse(parsed);
+          if (!validated.success) {
+            setReport(null);
+            setSchemaError(
+              "Le serveur a renvoyé un JSON invalide (format ComptaReport)."
+            );
+            return;
+          }
+
+          setSchemaError(null);
+          setReport(validated.data);
+
+          // ✅ MODIF: injecte le report dans le store Dashboard (mise à jour à chaque upload)
+          setDashboardReport(validated.data);
+        }
+
+        if (data.status === "failed") {
+          clearInterval(pollInterval);
+          setIsProcessing(false);
+          setReport(null);
+          setSchemaError(null);
+          setRawResult(null);
+          alert(data.error || "L'analyse comptable a échoué.");
+        }
+      } catch {
+        clearInterval(pollInterval);
+        setIsProcessing(false);
+      }
+    }, 2000);
+  };
+
+  const handleUpload = async () => {
+    if (!file) return;
+    if (!accessToken) return alert("Vous devez être connecté.");
+
+    setIsProcessing(true);
+    setReport(null);
+    setRawResult(null);
+    setSchemaError(null);
+
+    const form = new FormData();
+    form.append("type", "compta");
+    form.append("file", file);
+
+    const response = await fetch(`${API_URL}/run`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form,
+    });
+
+    const data = await response.json();
+    if (!data.jobId) {
+      setIsProcessing(false);
+      return alert(data.error || "Erreur lors du lancement.");
+    }
+
+    setJobId(String(data.jobId));
+    startPolling(String(data.jobId));
+  };
+
   const handleExpertChat = () => {
     if (!report) return;
 
+    const resultatNet = Number(report?.totals?.resultatNet ?? 0) || 0;
+
+    // ✅ MODIF: envoie le report au store expert + navigation dashboard (bulle)
     openWith({
       source: "compta",
-      message:
-        "Voici mon rapport compta structuré. Passe en revue, détecte incohérences, risques, et propose un plan d’actions + explications.",
+      message: `Analyse expert activée ! Résultat net estimé: ${resultatNet}€. Que veux-tu optimiser (TVA, charges, marge, trésorerie) ?`,
       analysisData: report,
       createdAt: new Date().toISOString(),
     });
 
+    // ✅ fallback existant si ton Layout écoute toujours l’event (migration progressive)
+    const event = new CustomEvent("openExpertChat", {
+      detail: {
+        analysisData: report,
+        message: `Analyse expert activée ! Résultat net estimé: ${resultatNet}€. Que veux-tu optimiser (TVA, charges, marge, trésorerie) ?`,
+      },
+    });
+    window.dispatchEvent(event);
+
     navigate("/dashboard");
   };
 
-  // --- 2. POLLING (Attente du résultat) ---
-  const startPolling = (jobId: string) => {
-    // ✅ éviter plusieurs polls simultanés (ou redémarrer proprement si nouveau job)
-    if (pollActiveRef.current) {
-      if (pollJobIdRef.current === jobId) return; // déjà en cours pour ce job
-      stopPolling(); // nouveau job -> on stop l'ancien proprement
-    }
-
-    pollActiveRef.current = true;
-    pollJobIdRef.current = jobId;
-    pollDelayRef.current = 2000;
-
-    // ✅ AJOUT demandé : démarrage timer global
-    pollStartedAtRef.current = Date.now();
-
-    const tick = async () => {
-      if (!pollActiveRef.current || pollJobIdRef.current !== jobId) return;
-
-      try {
-        const data = await fetchWithAuth<any>(`/ai/status/${jobId}`);
-
-        // ✅ AJOUT demandé : timeout global anti-boucle
-        if (
-          pollStartedAtRef.current &&
-          Date.now() - pollStartedAtRef.current > MAX_POLL_MS
-        ) {
-          stopPolling();
-          setIsProcessing(false);
-          setUiError({
-            kind: "timeout",
-            message:
-              "Le traitement prend trop de temps. Réessaie, ou vérifie ton fichier.",
-          });
-          return;
-        }
-
-        // ✅ AJOUT demandé : stop si success !== true OU status vide/inconnu
-        if (data?.success === false || !data?.status) {
-          stopPolling();
-          setIsProcessing(false);
-          setUiError({
-            kind: "generic",
-            message: data?.error || "Statut d'analyse indisponible.",
-          });
-          return;
-        }
-
-        if (data.status === 'completed') {
-          stopPolling();
-
-          let result = data.result;
-          if (typeof result === 'string') {
-            const match = result.match(/\{[\s\S]*\}/);
-            result = match ? JSON.parse(match[0]) : JSON.parse(result);
-          }
-
-          setReport(result);
-          setIsProcessing(false);
-          setUiError(null);
-          return;
-        }
-
-        if (data.status === 'failed') {
-          stopPolling();
-          setIsProcessing(false);
-
-          // ✅ AJOUT demandé : afficher la vraie raison (data.error)
-          setUiError({
-            kind: "generic",
-            message: data?.error || "L'analyse comptable a échoué.",
-          });
-          return;
-        }
-
-        // ✅ statut intermédiaire -> continue au rythme courant
-        pollTimerRef.current = window.setTimeout(tick, pollDelayRef.current);
-      } catch (err) {
-        // ✅ 429 -> backoff au lieu de stopper
-        if (err instanceof ApiError && err.status === 429) {
-          setUiError(toUiError(err)); // message "Trop de requêtes..."
-          pollDelayRef.current = Math.min(pollDelayRef.current * 2, 10000);
-          pollTimerRef.current = window.setTimeout(tick, pollDelayRef.current);
-          return;
-        }
-
-        // ✅ autres erreurs -> stop + UI (comme demandé)
-        stopPolling();
-        setIsProcessing(false);
-        setUiError(toUiError(err));
-      }
-    };
-
-    // start
-    pollTimerRef.current = window.setTimeout(tick, pollDelayRef.current);
+  const downloadJson = () => {
+    if (!jobId) return;
+    window.open(`${API_URL}/export/${jobId}?format=json`, "_blank");
   };
 
-  // --- 3. GESTION DE L'UPLOAD ---
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsProcessing(true);
-    setReport(null);
-    setUiError(null);
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', 'compta');
-
-    try {
-      const data = await fetchWithAuth<{ jobId?: string }>(`/ai/run`, {
-        method: 'POST',
-        body: formData,
-      });
-      if (data.jobId) startPolling(data.jobId);
-    } catch (err) {
-      setUiError(toUiError(err));
-      setIsProcessing(false);
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+  const downloadCsv = () => {
+    if (!jobId) return;
+    window.open(`${API_URL}/export/${jobId}?format=csv`, "_blank");
   };
+
+  const totals = report?.totals;
+  const tva = report?.tva;
+
+  const profitColor =
+    totals && totals.resultatNet >= 0 ? "text-emerald-600" : "text-red-600";
+
+  const anomaliesCount = report?.anomalies?.length ?? 0;
+
+  const previewSheets = useMemo(() => {
+    if (!report?.data?.sheets) return [];
+    return Object.entries(report.data.sheets).map(([name, table]) => ({
+      name,
+      columns: table.columns,
+      rows: table.rows,
+      truncated: !!table.truncated,
+    }));
+  }, [report]);
 
   return (
-    <div className="h-full w-full max-w-md mx-auto overflow-y-auto px-4 pt-4 pb-24 scroll-smooth animate-in fade-in duration-500">
-
-      {/* CADRE BASE DE CONNAISSANCE */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm mb-4">
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-emerald-500 font-bold">📊</span>
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Base de connaissance externe</span>
+    <div className="p-6 pb-32">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-lg">
+          <FileBarChart size={22} />
         </div>
-        <div
-          onClick={() => !isProcessing && fileInputRef.current?.click()}
-          className="border-2 border-dashed border-slate-100 rounded-2xl py-6 flex flex-col items-center justify-center gap-2 text-slate-400 hover:bg-slate-50 transition-colors cursor-pointer"
-        >
+        <div>
+          <h2 className="text-2xl font-black text-slate-900 leading-tight">
+            Compta IA
+          </h2>
+          <p className="text-sm text-slate-500 font-semibold">
+            Analyse XLSX/CSV → Rapport structuré + preview + exports
+          </p>
+        </div>
+      </div>
+
+      {/* Upload Card */}
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+        <div className="flex flex-col gap-3">
           <input
+            ref={inputRef}
             type="file"
-            ref={fileInputRef}
-            onChange={handleUpload}
+            accept=".xlsx,.csv"
             className="hidden"
-            accept="image/*,.csv,.xlsx,application/pdf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
-          {isProcessing ? (
-            <Loader2 className="animate-spin text-blue-500" size={20} />
-          ) : (
-            <CloudUpload size={20} className="opacity-40" />
+
+          <div className="flex flex-wrap gap-3 items-center">
+            <button
+              onClick={() => inputRef.current?.click()}
+              className="px-4 py-3 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase tracking-widest flex items-center gap-2"
+            >
+              <CloudUpload size={16} />
+              Choisir un fichier
+            </button>
+
+            {file && (
+              <span className="text-sm font-bold text-slate-700">
+                {file.name}
+              </span>
+            )}
+
+            <button
+              onClick={handleUpload}
+              disabled={!file || isProcessing}
+              className="px-4 py-3 rounded-2xl bg-emerald-600 text-white font-black text-xs uppercase tracking-widest disabled:opacity-50"
+            >
+              {isProcessing ? "Analyse…" : "Lancer analyse"}
+            </button>
+          </div>
+
+          {schemaError && (
+            <div className="mt-3 text-sm text-red-600 font-semibold">
+              {schemaError}
+            </div>
           )}
-          <span className="text-xs font-bold italic text-center px-4 text-slate-500">
-            {isProcessing ? "Calculs IA en cours..." : "Scanner facture ou relevé"}
-          </span>
         </div>
       </div>
 
-      {/* ZONE D'AFFICHAGE DYNAMIQUE */}
-      <div className="bg-white rounded-[2.5rem] p-8 shadow-sm flex flex-col min-h-[400px]">
+      {/* Results */}
+      {report && (
+        <div className="mt-6 space-y-6">
+          {/* KPI */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 text-slate-500 font-black text-xs uppercase tracking-widest">
+                <ReceiptEuro size={14} />
+                Recettes
+              </div>
+              <div className="mt-3 text-2xl font-black text-slate-900">
+                {totals?.recettesTTC?.toFixed(2)} €
+              </div>
+            </div>
 
-        {/* ✅ BANNERS ERREUR (quota / 429 / timeout / generic) */}
-        {uiError && (
-          <div
-            className={[
-              "mb-4 p-3 rounded-2xl border text-[11px] leading-snug",
-              uiError.kind === "quota"
-                ? "bg-amber-50 border-amber-100 text-amber-900"
-                : uiError.kind === "rate"
-                ? "bg-blue-50 border-blue-100 text-blue-900"
-                : uiError.kind === "timeout"
-                ? "bg-slate-50 border-slate-100 text-slate-800"
-                : "bg-red-50 border-red-100 text-red-900",
-            ].join(" ")}
-          >
-            <div className="flex items-start gap-2">
-              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <div className="font-black uppercase tracking-widest text-[9px] opacity-70">
-                  {uiError.kind === "quota"
-                    ? "Quota atteint"
-                    : uiError.kind === "rate"
-                    ? "Trop de requêtes"
-                    : uiError.kind === "timeout"
-                    ? "Délai dépassé"
-                    : "Erreur"}
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 text-slate-500 font-black text-xs uppercase tracking-widest">
+                <TrendingDown size={14} />
+                Dépenses
+              </div>
+              <div className="mt-3 text-2xl font-black text-slate-900">
+                {totals?.depensesTTC?.toFixed(2)} €
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 text-slate-500 font-black text-xs uppercase tracking-widest">
+                <TrendingUp size={14} />
+                Résultat net
+              </div>
+              <div className={`mt-3 text-2xl font-black ${profitColor}`}>
+                {totals?.resultatNet?.toFixed(2)} €
+              </div>
+            </div>
+          </div>
+
+          {/* TVA */}
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">
+                TVA
+              </h3>
+              <span className="text-xs font-bold text-slate-500">
+                {report.meta.currency}
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                <div className="text-xs font-black uppercase tracking-widest text-slate-500">
+                  Collectée
                 </div>
-                <div className="mt-1">{uiError.message}</div>
+                <div className="mt-2 text-xl font-black text-slate-900">
+                  {tva?.collectee?.toFixed(2)} €
+                </div>
+              </div>
 
-                {uiError.kind === "quota" && (
-                  <div className="mt-2">
-                    <Link
-                      to="/upgrade"
-                      className="inline-flex items-center justify-center px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest"
-                    >
-                      Passer PRO
-                    </Link>
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                <div className="text-xs font-black uppercase tracking-widest text-slate-500">
+                  Déductible
+                </div>
+                <div className="mt-2 text-xl font-black text-slate-900">
+                  {tva?.deductible?.toFixed(2)} €
+                </div>
+              </div>
+
+              <div className="bg-slate-900 rounded-2xl p-4 text-white">
+                <div className="text-xs font-black uppercase tracking-widest text-white/70">
+                  À payer
+                </div>
+                <div className="mt-2 text-xl font-black">
+                  {tva?.aPayer?.toFixed(2)} €
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
+                <Table2 size={14} />
+                Preview
+              </h3>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={downloadJson}
+                  className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-700 font-black text-xs uppercase tracking-widest flex items-center gap-2"
+                >
+                  <Download size={14} /> JSON
+                </button>
+                <button
+                  onClick={downloadCsv}
+                  className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-700 font-black text-xs uppercase tracking-widest flex items-center gap-2"
+                >
+                  <Download size={14} /> CSV
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {previewSheets.map((s) => (
+                <div
+                  key={s.name}
+                  className="border border-slate-100 rounded-2xl overflow-hidden"
+                >
+                  <div className="px-4 py-3 bg-slate-50 flex items-center justify-between">
+                    <div className="font-black text-xs uppercase tracking-widest text-slate-700">
+                      {s.name}
+                    </div>
+                    {s.truncated && (
+                      <div className="text-xs font-bold text-amber-700 flex items-center gap-2">
+                        <AlertTriangle size={14} />
+                        Preview tronquée
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-white">
+                        <tr>
+                          {s.columns.map((c, idx) => (
+                            <th
+                              key={idx}
+                              className="text-left px-4 py-2 text-xs font-black uppercase tracking-widest text-slate-500"
+                            >
+                              {c}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white">
+                        {s.rows.slice(0, 10).map((row, rIdx) => (
+                          <tr
+                            key={rIdx}
+                            className="border-t border-slate-100"
+                          >
+                            {row.map((cell, cIdx) => (
+                              <td
+                                key={cIdx}
+                                className="px-4 py-2 text-slate-700"
+                              >
+                                {String(cell ?? "")}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="px-4 py-3 bg-slate-50 text-xs text-slate-600 font-semibold">
+                    Affichage: 10 lignes (preview). Export disponible via boutons.
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        )}
 
-        {!report ? (
-          <div className="flex-1 flex flex-col items-center text-center justify-center py-10">
-            <div className="w-20 h-20 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-200 mb-8 border border-slate-100">
-              <FileBarChart size={40} />
+          {/* Summary + Expert */}
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-emerald-600" />
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">
+                  Résumé
+                </h3>
+              </div>
+              <div className="text-xs font-bold text-slate-500">
+                Anomalies: {anomaliesCount}
+              </div>
             </div>
-            <h2 className="text-lg font-black text-slate-900 tracking-tight uppercase mb-3">
-              Comptabilité IA
-            </h2>
-            <p className="text-slate-400 text-[13px] leading-relaxed italic max-w-[280px]">
-              Importez vos documents pour générer un bilan de santé et extraire la TVA automatiquement.
+
+            <p className="mt-3 text-sm text-slate-700 whitespace-pre-wrap">
+              {report.summary.resume}
             </p>
+
+            <div className="mt-4">
+              <button
+                onClick={handleExpertChat}
+                className="w-full py-4 rounded-2xl bg-gradient-to-tr from-purple-600 to-blue-600 text-white font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2"
+              >
+                <Sparkles size={16} />
+                Mode Expert IA
+              </button>
+              <p className="mt-2 text-xs text-slate-500 font-semibold">
+                Ouvre la bulle trans-onglet et injecte l’analyse dans le chat
+                expert.
+              </p>
+            </div>
           </div>
-        ) : (
-          <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-            <div className="flex justify-between items-center border-b pb-4">
-              <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">Analyse Terminée</h2>
-              <CheckCircle2 className="text-emerald-500" size={18} />
-            </div>
+        </div>
+      )}
 
-            {/* BÉNÉFICE NET */}
-            <div className="bg-slate-900 rounded-3xl p-6 text-center text-white shadow-xl">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Résultat Net Estimé</p>
-              <p className="text-3xl font-black text-emerald-400">{report.resultat_net || 0} €</p>
-            </div>
-
-            {/* GRID RECETTES / DEPENSES */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
-                <div className="flex items-center gap-2 text-emerald-600 mb-1">
-                  <TrendingUp size={14} />
-                  <span className="text-[9px] font-black uppercase">Recettes</span>
-                </div>
-                <p className="text-lg font-bold text-slate-900">{report.total_recettes || 0} €</p>
-              </div>
-              <div className="bg-red-50 p-4 rounded-2xl border border-red-100">
-                <div className="flex items-center gap-2 text-red-600 mb-1">
-                  <TrendingDown size={14} />
-                  <span className="text-[9px] font-black uppercase">Dépenses</span>
-                </div>
-                <p className="text-lg font-bold text-slate-900">{report.total_depenses || 0} €</p>
-              </div>
-            </div>
-
-            {/* SYNTHÈSE TVA */}
-            <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
-                  <ReceiptEuro size={18} />
-                </div>
-                <div>
-                  <p className="text-[9px] font-black text-slate-400 uppercase">TVA Solde</p>
-                  <p className="font-bold text-blue-900">
-                    {((report.tva_collectee || 0) - (report.tva_deductible || 0)).toFixed(2)} €
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* RÉSUMÉ IA */}
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 italic text-[11px] text-slate-600 leading-relaxed">
-              "{report.summary || "Analyse effectuée avec succès."}"
-            </div>
-
-            {/* BOUTON MODE EXPERT AI */}
-            <button
-              onClick={handleExpertChat}
-              className="w-full py-4 bg-emerald-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 active:scale-95"
-            >
-              <Sparkles size={14} /> Mode Expert AI
-            </button>
-
-            <button
-              onClick={() => {
-                setReport(null);
-                setUiError(null);
-              }}
-              className="w-full py-2 text-slate-400 text-[10px] font-bold uppercase tracking-widest hover:text-slate-600 transition-all"
-            >
-              Nouvelle Analyse
-            </button>
-          </div>
-        )}
-      </div>
+      {!report && isProcessing && (
+        <div className="mt-6 bg-white rounded-3xl border border-slate-100 shadow-sm p-5 flex items-center gap-3 text-slate-700 font-bold">
+          <Loader2 className="animate-spin" size={18} />
+          Analyse en cours…
+        </div>
+      )}
     </div>
   );
 }

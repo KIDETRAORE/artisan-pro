@@ -1,112 +1,68 @@
-import React, { useEffect, useState } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
-import { useAuth } from "./store/auth.store";
-import { useUser } from "./context/user.context";
-import { fetchWithAuth } from "./auth/fetchWithAuth";
-
-import Layout from "./layout/Layout";
-import Login from "./pages/Login";
-import Vision from "./pages/Vision";
-import Devis from "./pages/Devis";
-import Compta from "./pages/Compta";
-import Dashboard from "./pages/Dashboard";
-
-// ✅ nouvelles pages
-import Help from "./pages/Help";
-import Settings from "./pages/Settings";
-import Upgrade from "./pages/Upgrade";
-import Billing from "./pages/Billing";
-
-type DashboardResponse = {
-  user?: { email?: string | null };
-  subscription?: { plan?: string };
-  quota?: { used?: number; limit?: number };
-};
+import React, { useEffect } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './store/auth.store';
+import { useUser } from './context/user.context';
+import Layout from './layout/Layout';
+import Login from './pages/Login';
+import Vision from './pages/Vision';
+import Devis from './pages/Devis';
+import Compta from './pages/Compta';
+import Dashboard from './pages/Dashboard';
+import Settings from './pages/Settings'; // ✅ Import ajouté
 
 export default function App() {
   const { user, accessToken } = useAuth();
   const { setUserData } = useUser();
 
-  const [bootError, setBootError] = useState<string | null>(null);
-
   useEffect(() => {
-    let cancelled = false;
+    if (user?.email && accessToken) {
+      const emailName = user.email.split('@')[0] || 'Artisan';
+      const formattedName =
+        emailName.charAt(0).toUpperCase() + emailName.slice(1);
 
-    async function bootstrap() {
-      if (!user?.email || !accessToken) return;
-
-      setBootError(null);
-
-      try {
-        const data = await fetchWithAuth<DashboardResponse>("/dashboard");
-
-        const email = user.email;
-        const emailName = email.split("@")[0] || "Artisan";
-        const formattedName = emailName.charAt(0).toUpperCase() + emailName.slice(1);
-
-        const plan = (data.subscription?.plan ?? "FREE").toString().toUpperCase();
-        const used = Number(data.quota?.used ?? 0);
-        const limit = Number(data.quota?.limit ?? 0);
-
-        if (cancelled) return;
-
-        setUserData({
-          name: formattedName,
-          email,
-          plan,
-          quota: { used, limit },
-        });
-      } catch (e: any) {
-        if (cancelled) return;
-        setBootError(e?.message ?? "Erreur lors du chargement des infos compte.");
-        // on peut laisser l'app continuer, mais sans quota/plan.
-        setUserData({
-          name: user.email.split("@")[0] || "Artisan",
-          email: user.email,
-          plan: "FREE",
-          quota: { used: 0, limit: 0 },
-        });
-      }
+      setUserData({
+        name: formattedName,
+        email: user.email,
+        plan: 'PRO',
+        quota: { used: 3, limit: 10 },
+      });
     }
-
-    bootstrap();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.email, accessToken, setUserData]);
+  }, [user, accessToken, setUserData]);
 
   return (
-    <>
-      {bootError && accessToken && (
-        <div className="bg-amber-50 border-b border-amber-100 text-amber-800 text-xs px-4 py-2">
-          {bootError}
-        </div>
-      )}
+    <Routes>
+      {/* 1. Route Publique */}
+      <Route
+        path="/login"
+        element={!accessToken ? <Login /> : <Navigate to="/vision" replace />}
+      />
 
-      <Routes>
-        <Route
-          path="/login"
-          element={!accessToken ? <Login /> : <Navigate to="/dashboard" replace />}
-        />
+      {/* 2. Groupe de Routes Protégées */}
+      <Route
+        element={
+          accessToken ? <Layout /> : <Navigate to="/login" replace />
+        }
+      >
+        <Route path="/vision" element={<Vision />} />
+        <Route path="/devis" element={<Devis />} />
+        <Route path="/compta" element={<Compta />} />
 
-        <Route element={accessToken ? <Layout /> : <Navigate to="/login" replace />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/vision" element={<Vision />} />
-          <Route path="/devis" element={<Devis />} />
-          <Route path="/compta" element={<Compta />} />
+        {/* ✅ Nouvelle vraie route Dashboard */}
+        <Route path="/dashboard" element={<Dashboard />} />
 
-          {/* Billing */}
-          <Route path="/upgrade" element={<Upgrade />} />
-          <Route path="/billing" element={<Billing />} />
+        {/* ✅ Nouvelle route Settings */}
+        <Route path="/settings" element={<Settings />} />
 
-          <Route path="/help" element={<Help />} />
-          <Route path="/settings" element={<Settings />} />
+        {/* ✅ / redirige vers /dashboard */}
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        </Route>
+        {/* Redirections internes conservées */}
+        <Route path="/assistant" element={<Navigate to="/vision" replace />} />
+        <Route path="/factures" element={<Navigate to="/devis" replace />} />
+      </Route>
 
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    </>
+      {/* 3. Fallback */}
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
   );
 }

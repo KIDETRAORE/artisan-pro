@@ -38,7 +38,6 @@ export default function AssistantPanel({ variant = "page" }: Props) {
       setAnalysisContext(payload.analysisData);
     }
 
-    // ✅ Correction unique: forcer une string (jamais undefined)
     if (payload.message != null) {
       setMessages((prev) => [
         ...prev,
@@ -81,12 +80,13 @@ export default function AssistantPanel({ variant = "page" }: Props) {
       }
 
       const data = await fetchWithAuth<{ result?: string; jobId?: string }>(
-        "/ai/run",
+        "/ai/chat",
         {
           method: "POST",
           body: JSON.stringify({
             type: "expert",
             prompt: finalPrompt,
+            context: analysisContext ?? undefined,
           }),
         }
       );

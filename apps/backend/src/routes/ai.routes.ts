@@ -4,6 +4,7 @@ import multer from "multer";
 import { fileTypeFromBuffer } from "file-type";
 import { aiQueue } from "../queues/ai.queue";
 import { logger } from "../utils/logger";
+import { supabaseAdmin } from "../lib/supabaseAdmin"; // ✅ AJOUTÉ
 
 const router = Router();
 
@@ -16,9 +17,7 @@ const upload = multer({
 });
 
 /**
- * Upload middleware with:
- * - size limit error => 413
- * - real mime detection (file-type) => 415
+ * Upload middleware
  */
 const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => void) => {
   upload.single("file")(req, res, async (err: unknown) => {
@@ -36,31 +35,25 @@ const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => 
 
     const detected = await fileTypeFromBuffer(file.buffer);
 
-    // IA / Vision / Vocal peuvent utiliser images + audio + PDF selon ton pipeline
     const allowedMimes = [
-      // images
       "image/jpeg",
       "image/png",
       "image/webp",
-      // audio
       "audio/mpeg",
       "audio/wav",
       "audio/x-wav",
       "audio/webm",
       "audio/ogg",
       "audio/mp4",
-      // documents
       "application/pdf",
-      // ✅ spreadsheets
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-      "application/vnd.ms-excel", // .xls
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
     ];
 
     const fileName = file.originalname ?? "";
     const ext = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() : undefined;
     const isXlsx = ext === "xlsx";
 
-    // ✅ xlsx est souvent détecté comme application/zip (car format OOXML = zip)
     const detectedMime = detected?.mime ?? null;
     const isAllowed =
       (detectedMime !== null && allowedMimes.includes(detectedMime)) ||
@@ -79,9 +72,6 @@ const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => 
 
 /**
  * POST /ai/run
- * Lance une tâche IA via BullMQ
- *
- * ✅ Auth/Perm/RateLimit/Quota sont déjà appliqués dans routes/index.ts sur "/ai"
  */
 router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
   logger.info("[AI-ROUTE] /run request received");
@@ -90,7 +80,6 @@ router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
     const { type } = req.body as { type?: string };
     const file = req.file;
 
-    // req.user doit être injecté par authMiddleware (au niveau routes/index.ts)
     if (!req.user?.id) {
       logger.warn("[AI-ROUTE] /run unauthorized (missing req.user.id)");
       return res.status(401).json({ success: false, error: "Non authentifié" });
@@ -113,8 +102,8 @@ router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
         fileName: file.originalname,
       },
       {
-        removeOnComplete: { age: 600, count: 50 }, // 10 min / 50 jobs
-        removeOnFail: { age: 3600 }, // 1h
+        removeOnComplete: { age: 600, count: 50 },
+        removeOnFail: { age: 3600 },
       }
     );
 
@@ -133,8 +122,58 @@ router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /ai/chat
+ */
+router.post("/chat", async (req: Request, res: Response) => {
+  logger.info("[AI-ROUTE] /chat request received");
+
+  try {
+    const { type, prompt, context } = req.body as {
+      type?: string;
+      prompt?: string;
+      context?: unknown;
+    };
+
+    if (!req.user?.id) {
+      logger.warn("[AI-ROUTE] /chat unauthorized (missing req.user.id)");
+      return res.status(401).json({ success: false, error: "Non authentifié" });
+    }
+
+    if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
+      logger.warn("[AI-ROUTE] /chat missing prompt");
+      return res.status(400).json({ success: false, error: "Prompt manquant" });
+    }
+
+    const job = await aiQueue.add(
+      "ai-task",
+      {
+        type: type || "expert",
+        userId: req.user.id,
+        prompt,
+        context,
+      },
+      {
+        removeOnComplete: { age: 600, count: 50 },
+        removeOnFail: { age: 3600 },
+      }
+    );
+
+    logger.info("[AI-ROUTE] /chat job created", {
+      jobId: job.id,
+      userId: req.user.id,
+    });
+
+    return res.status(200).json({ success: true, jobId: job.id });
+  } catch (error: unknown) {
+    logger.error("[AI-ROUTE] /chat failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(500).json({ success: false, error: "Internal Server Error" });
+  }
+});
+
+/**
  * GET /ai/status/:jobId
- * Récupère le statut et le résultat du job
  */
 router.get("/status/:jobId", async (req: Request, res: Response) => {
   try {
@@ -150,7 +189,6 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: "Analyse introuvable" });
     }
 
-    // ✅ Sécurité : vérifier ownership
     const ownerId = (job.data as any)?.userId as string | undefined;
     if (ownerId && req.user?.id && ownerId !== req.user.id) {
       return res.status(403).json({ success: false, error: "Forbidden" });
@@ -169,6 +207,45 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
       message: error instanceof Error ? error.message : String(error),
     });
     return res.status(500).json({ success: false, error: "Internal Server Error" });
+  }
+});
+
+/**
+ * ✅ NOUVELLE ROUTE
+ * GET /ai/compta/latest
+ */
+router.get("/compta/latest", async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, error: "Non authentifié" });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("ai_logs")
+      .select("id, feature, status, response_json, created_at")
+      .eq("user_id", req.user.id)
+      .eq("feature", "compta")
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      return res.status(500).json({ success: false, error: "DB error" });
+    }
+
+    const row = data?.[0];
+
+    return res.status(200).json({
+      success: true,
+      report: row?.response_json ?? null,
+      createdAt: row?.created_at ?? null,
+      id: row?.id ?? null,
+    });
+  } catch {
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+    });
   }
 });
 
