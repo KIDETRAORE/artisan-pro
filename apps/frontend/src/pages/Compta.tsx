@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { fetchWithAuth } from '../auth/fetchWithAuth';
 import { ApiError } from "../auth/ApiError";
+import { useExpertAssistantStore } from "../features/ai/expertAssistant.store";
 
 type UiError =
   | { kind: "quota"; message: string }
@@ -60,6 +61,8 @@ function toUiError(err: unknown): UiError {
 
 export default function Compta() {
   const navigate = useNavigate(); // 2. Initialisation du hook de navigation
+  const openWith = useExpertAssistantStore((s) => s.openWith);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [report, setReport] = useState<any>(null);
   const [uiError, setUiError] = useState<UiError | null>(null);
@@ -95,23 +98,19 @@ export default function Compta() {
     };
   }, []);
 
-  // --- 1. FONCTION MODE EXPERT (Redirection + Event) ---
+  // --- 1. FONCTION MODE EXPERT (Store + Redirection Dashboard) ---
   const handleExpertChat = () => {
     if (!report) return;
 
-    // A. On redirige d'abord vers la page Assistant
-    navigate('/assistant');
+    openWith({
+      source: "compta",
+      message:
+        "Voici mon rapport compta structuré. Passe en revue, détecte incohérences, risques, et propose un plan d’actions + explications.",
+      analysisData: report,
+      createdAt: new Date().toISOString(),
+    });
 
-    // B. On envoie l'événement après un court délai pour laisser la page Assistant se charger
-    setTimeout(() => {
-      const event = new CustomEvent('openExpertChat', {
-        detail: {
-          analysisData: report,
-          message: `Analyse expert activée ! Je vois un bénéfice de ${report.resultat_net}€. Comment puis-je t'aider à optimiser ta gestion ou tes prochains chantiers ?`
-        }
-      });
-      window.dispatchEvent(event);
-    }, 150); // 150ms est idéal pour le montage du composant
+    navigate("/dashboard");
   };
 
   // --- 2. POLLING (Attente du résultat) ---

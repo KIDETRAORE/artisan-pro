@@ -1,12 +1,22 @@
 import React, { useState } from 'react';
+import { useEffect } from "react";
 import { useLocation, Link, Outlet } from 'react-router-dom';
 import { FileText, Camera, PieChart, MessageSquare, X, Sparkles } from 'lucide-react';
 // 🔥 Import du nouveau composant expert
 import AiModePanel from "../features/ai/AiModePanel";
+import { useExpertAssistantStore } from "../features/ai/expertAssistant.store";
 
 export default function Layout() {
   const location = useLocation();
   const [isChatOpen, setIsChatOpen] = useState(false);
+
+  const payload = useExpertAssistantStore((s) => s.payload);
+
+  useEffect(() => {
+    if (payload) {
+      setIsChatOpen(true);
+    }
+  }, [payload]);
 
   const navigation = [
     { name: 'DEVIS', href: '/devis', icon: FileText, color: 'bg-[#2563eb]' },
