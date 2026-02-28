@@ -33,7 +33,8 @@ export const quotaMiddleware = async (
     const status = String(sub?.status ?? "inactive").toLowerCase();
 
     // ✅ B (déjà OK): comparaison via isPro
-    const isProActive = isPro(plan) && (status === "active" || status === "trialing");
+    const isProActive =
+      isPro(plan) && (status === "active" || status === "trialing");
 
     if (isProActive) {
       return next();
@@ -81,28 +82,6 @@ export const quotaMiddleware = async (
           .status(500)
           .json({ success: false, error: "Erreur interne" });
       }
-
-      void (async () => {
-        try {
-          await supabaseAdmin
-            .from("profiles")
-            .update({
-              monthly_quota_used: 0,
-              monthly_quota_limit: limit,
-              quota_reset_at: Math.floor(nextReset.getTime() / 1000),
-              plan,
-              subscription_status: status,
-            })
-            .eq("id", userId);
-
-          logger.info("🪞 profiles cache updated (quota reset)", { userId });
-        } catch (e: unknown) {
-          logger.warn("⚠️ profiles cache update failed", {
-            userId,
-            error: e,
-          });
-        }
-      })();
 
       used = 0;
     }
