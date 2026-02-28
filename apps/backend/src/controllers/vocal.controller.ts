@@ -8,6 +8,7 @@ import { logger } from "../utils/logger";
 import { runAI } from "../services/ai/gemini.service";
 import { executeAIAction } from "../services/ai/action.executor";
 import { quotaService } from "../services/quota.service";
+import { sendError } from "@utils/apiError";
 
 /**
  * ======================
@@ -33,13 +34,7 @@ export const uploadMiddleware = (
 ) => {
   upload.single("file")(req, res, async (err: unknown) => {
     if (err) {
-      return res.status(413).json({
-        success: false,
-        error: {
-          code: "payload_too_large",
-          message: "Fichier trop volumineux (max 10MB).",
-        },
-      });
+      return sendError(req, res, 413, "payload_too_large", "Fichier trop volumineux");
     }
 
     const file = (req as Request & { file?: Express.Multer.File }).file;
@@ -58,13 +53,13 @@ export const uploadMiddleware = (
     ];
 
     if (!detected || !allowedMimes.includes(detected.mime)) {
-      return res.status(415).json({
-        success: false,
-        error: {
-          code: "unsupported_media_type",
-          message: "Format audio non supporté.",
-        },
-      });
+      return sendError(
+        req,
+        res,
+        415,
+        "unsupported_media_type",
+        "Type de fichier non supporté"
+      );
     }
 
     return next();

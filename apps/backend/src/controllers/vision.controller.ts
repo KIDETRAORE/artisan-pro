@@ -12,6 +12,7 @@ import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { requireUser } from "../utils/requireUser";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
+import { sendError } from "@utils/apiError"; // ✅ AJOUT
 
 /**
  * =====================================
@@ -25,7 +26,6 @@ export async function analyzeVisionController(
   const user = requireUser(req);
   const userId = user.id;
 
-  // multer met le fichier dans req.file
   const file = (req as any).file as Express.Multer.File | undefined;
 
   if (!file?.buffer?.length) {
@@ -34,13 +34,11 @@ export async function analyzeVisionController(
 
   const buffer = file.buffer;
 
-  // ✅ limite max buffer (binaire direct)
-  const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
   if (buffer.length > MAX_IMAGE_BYTES) {
     throw new HttpError(413, "Image trop volumineuse (max 5MB).");
   }
 
-  // ✅ check MIME réel via file-type (ne pas faire confiance au client)
   const detected = await fileTypeFromBuffer(buffer);
   const allowedMimes = ["image/jpeg", "image/png", "image/webp"];
 
@@ -49,7 +47,6 @@ export async function analyzeVisionController(
   }
 
   const sanitizedBuffer = await sanitizeImage(buffer);
-
   const fileBase64 = sanitizedBuffer.toString("base64");
 
   const aiText = await runAI("vision", {
@@ -81,9 +78,6 @@ export async function analyzeVisionController(
     sanitizedSize: sanitizedBuffer.length,
   });
 
-  /**
-   * ✅ Consommation quota APRÈS succès
-   */
   try {
     await quotaService.recordUsage(
       userId,
@@ -151,13 +145,14 @@ export async function getVisionByIdController(req: Request, res: Response) {
     .single();
 
   if (error || !data) {
-    return res.status(404).json({
-      success: false,
-      error: {
-        code: "not_found",
-        message: "Analyse non trouvée",
-      },
-    });
+    // ✅ MODIFICATION : utilisation de sendError
+    return sendError(
+      req,
+      res,
+      404,
+      "not_found",
+      "Analyse non trouvée"
+    );
   }
 
   return res.status(200).json(data);
