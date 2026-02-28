@@ -4,6 +4,8 @@ import { supabase } from "../lib/supabase";
 export interface AuthUser {
   id: string;
   email: string;
+  role: "user" | "admin";
+  permissions: string[];
 }
 
 interface AuthState {
@@ -12,6 +14,7 @@ interface AuthState {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  restoreSession: () => Promise<void>;
 }
 
 export const useAuth = create<AuthState>((set) => ({
@@ -30,16 +33,47 @@ export const useAuth = create<AuthState>((set) => ({
   logout: async () => {
     await supabase.auth.signOut();
   },
+
+  restoreSession: async () => {
+    set({ isLoading: true });
+
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      set({ user: null, accessToken: null, isLoading: false });
+      return;
+    }
+
+    const session = data.session;
+
+    const newUser: AuthUser | null = session
+      ? {
+          id: session.user.id,
+          email: session.user.email ?? "",
+          role: "user",
+          permissions: [] as string[],
+        }
+      : null;
+
+    const newToken = session?.access_token ?? null;
+
+    set({
+      user: newUser,
+      accessToken: newToken,
+      isLoading: false,
+    });
+  },
 }));
 
 /**
  * Synchronisation avec Supabase
  */
 supabase.auth.onAuthStateChange((_event, session) => {
-  const newUser = session
+  const newUser: AuthUser | null = session
     ? {
         id: session.user.id,
         email: session.user.email ?? "",
+        role: "user",
+        permissions: [] as string[],
       }
     : null;
 

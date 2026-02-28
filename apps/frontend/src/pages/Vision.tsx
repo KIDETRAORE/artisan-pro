@@ -1,14 +1,9 @@
 import React, { useState, useRef } from "react";
-import {
-  Camera,
-  ShieldCheck,
-  Loader2,
-  Sparkles,
-} from "lucide-react";
+import { Camera, ShieldCheck, Loader2, Sparkles } from "lucide-react";
 import { useAuth } from "../store/auth.store";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
-import { useUser } from "../context/user.context";
+import { useUser, normalizePlan, normalizeStatus, isProActive } from "../context/user.context";
 
 export default function Vision() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -16,22 +11,25 @@ export default function Vision() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
-  const { user } = useAuth(); // (si dispo dans ton store)
+  const { user } = useAuth();
   const { userData, setUserData } = useUser();
 
   const refreshQuotaFromDashboard = async () => {
     try {
       const data = await fetchWithAuth<any>("/dashboard", { method: "GET" });
 
-      const plan = data?.subscription?.plan ?? userData?.plan ?? "FREE";
-      const status = String(data?.subscription?.status ?? "inactive").toLowerCase();
-      const proActive = plan === "PRO" && (status === "active" || status === "trialing");
+      const rawPlan = data?.subscription?.plan ?? userData?.plan ?? "free";
+      const rawStatus = data?.subscription?.status ?? userData?.status ?? "inactive";
+
+      const plan = normalizePlan(rawPlan);
+      const status = normalizeStatus(rawStatus);
+      const proActive = isProActive(plan, status);
 
       setUserData({
         ...userData,
-        // conserve email/name si déjà présents
         email: userData?.email ?? user?.email ?? undefined,
         plan,
+        status,
         quota: proActive
           ? undefined
           : {
@@ -74,13 +72,10 @@ export default function Vision() {
         body: form,
       });
 
-      // fetchWithAuth renvoie déjà le JSON (selon implémentation).
-      // Si ton fetchWithAuth renvoie une Response, remplace par res.json().
       const data = res;
 
       setAnalysis(data);
 
-      // ✅ refresh quota après succès
       await refreshQuotaFromDashboard();
     } catch {
       alert("Erreur lors de l'analyse.");
@@ -159,9 +154,7 @@ export default function Vision() {
           </>
         ) : (
           <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-500">
-            <pre className="text-[11px] whitespace-pre-wrap">
-              {JSON.stringify(analysis, null, 2)}
-            </pre>
+            <pre className="text-[11px] whitespace-pre-wrap">{JSON.stringify(analysis, null, 2)}</pre>
 
             <button
               onClick={() => sendToExpertMode(analysis)}

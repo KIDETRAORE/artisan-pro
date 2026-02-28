@@ -9,7 +9,7 @@ export default function Upgrade() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const plan = userData?.plan ?? "FREE";
+  const plan = userData?.plan ?? "free";
 
   const startCheckout = async () => {
     setLoading(true);

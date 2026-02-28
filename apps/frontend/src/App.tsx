@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./store/auth.store";
-import { useUser } from "./context/user.context";
+import { useUser, normalizePlan, normalizeStatus, isProActive } from "./context/user.context";
 import Layout from "./layout/Layout";
 import Login from "./pages/Login";
 import Vision from "./pages/Vision";
@@ -14,7 +14,7 @@ import { fetchWithAuth } from "./auth/fetchWithAuth";
 type DashboardResponse = {
   user?: { id: string; email?: string | null };
   subscription?: {
-    plan?: "FREE" | "PRO";
+    plan?: string; // ✅ MODIF: backend truth is "free"|"pro" (we normalize)
     status?: string;
     currentPeriodEnd?: any;
   };
@@ -38,16 +38,16 @@ export default function App() {
         const formattedName =
           emailName.charAt(0).toUpperCase() + emailName.slice(1);
 
-        const plan = data?.subscription?.plan ?? "FREE";
-        const status = String(data?.subscription?.status ?? "inactive").toLowerCase();
-        const proActive =
-          plan === "PRO" && (status === "active" || status === "trialing");
+        const plan = normalizePlan(data?.subscription?.plan ?? "free");
+        const status = normalizeStatus(data?.subscription?.status ?? "inactive");
+        const proActive = isProActive(plan, status);
 
         setUserData({
           name: formattedName,
           email: user.email,
           plan,
-          // ✅ UI: quota undefined => illimité (comme ton Topbar)
+          status,
+          // ✅ UI: quota undefined => illimité (comme ton Topbar/Layout)
           quota: proActive
             ? undefined
             : {

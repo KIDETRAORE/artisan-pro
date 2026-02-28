@@ -7,13 +7,13 @@ import { useUser } from "../context/user.context";
 
 export default function Layout() {
   const location = useLocation();
-  const navigate = useNavigate(); // ✅ ajouté
+  const navigate = useNavigate();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ExpertTab>("strategy");
 
   const { userData } = useUser();
 
-  const plan = userData?.plan ?? "FREE";
+  const plan = userData?.plan ?? "free";
   const quota = userData?.quota;
 
   const percentage =
@@ -43,12 +43,10 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-[#f8fafc] overflow-hidden flex-col font-sans relative">
-      {/* BANDEAU TOP IA LOCAL */}
       <div className="bg-[#4f46e5] text-white text-[10px] font-black py-1 flex justify-center items-center gap-2 uppercase tracking-tighter shrink-0 z-50">
         <span>⚡ Mode Direct (IA Local)</span>
       </div>
 
-      {/* TOPBAR BLANCHE */}
       <header className="bg-white px-6 py-4 flex justify-between items-center shadow-sm border-b border-slate-100 shrink-0 z-40">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-[#2563eb] rounded-full flex items-center justify-center text-white shadow-lg">
@@ -63,7 +61,7 @@ export default function Layout() {
 
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                  Plan {plan}
+                  Plan {String(plan).toUpperCase()}
                 </span>
 
                 {quota ? (
@@ -95,7 +93,6 @@ export default function Layout() {
             ?
           </button>
 
-          {/* ✅ MODIF UNIQUE : bouton réglages connecté */}
           <button
             onClick={() => navigate("/settings")}
             className="w-10 h-10 rounded-full border border-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-50"
@@ -105,12 +102,10 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* PAGE */}
       <main className="flex-1 overflow-y-auto relative">
         <Outlet />
       </main>
 
-      {/* 🟦 BULLE FLOTTANTE EXPERT AI */}
       <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-end gap-4">
         {isChatOpen && (
           <div className="bg-white w-[380px] max-h-[650px] rounded-[2.5rem] shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
@@ -142,15 +137,10 @@ export default function Layout() {
           }`}
           title="Mode Expert IA"
         >
-          {isChatOpen ? (
-            <X size={24} />
-          ) : (
-            <Sparkles size={24} className="animate-pulse" />
-          )}
+          {isChatOpen ? <X size={24} /> : <Sparkles size={24} className="animate-pulse" />}
         </button>
       </div>
 
-      {/* LE DOCK */}
       <div className="fixed bottom-6 left-4 right-4 z-50">
         <div className="bg-white shadow-2xl rounded-full px-6 py-3 flex justify-around items-center border border-slate-100">
           {navigation.map((item) => {
@@ -169,10 +159,7 @@ export default function Layout() {
                     isActive ? item.color : "bg-slate-200"
                   }`}
                 >
-                  <Icon
-                    size={18}
-                    className={isActive ? "text-white" : "text-slate-600"}
-                  />
+                  <Icon size={18} className={isActive ? "text-white" : "text-slate-600"} />
                 </div>
                 <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">
                   {item.name}

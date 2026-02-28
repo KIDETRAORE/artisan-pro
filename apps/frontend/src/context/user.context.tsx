@@ -1,9 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  ReactNode,
-} from "react";
+import { createContext, useContext, useState, ReactNode } from "react";
 
 /* ============================
     TYPES
@@ -14,10 +9,52 @@ export type Quota = {
   limit: number;
 };
 
+export type Plan = "free" | "pro";
+export type SubscriptionStatus =
+  | "active"
+  | "trialing"
+  | "canceled"
+  | "incomplete"
+  | "incomplete_expired"
+  | "past_due"
+  | "unpaid"
+  | "paused"
+  | "inactive"
+  | "unknown";
+
+export const normalizePlan = (plan?: string | null): Plan => {
+  const p = String(plan ?? "free").toLowerCase();
+  return p === "pro" ? "pro" : "free";
+};
+
+export const normalizeStatus = (status?: string | null): SubscriptionStatus => {
+  const s = String(status ?? "unknown").toLowerCase();
+  const allowed: Record<string, SubscriptionStatus> = {
+    active: "active",
+    trialing: "trialing",
+    canceled: "canceled",
+    incomplete: "incomplete",
+    incomplete_expired: "incomplete_expired",
+    past_due: "past_due",
+    unpaid: "unpaid",
+    paused: "paused",
+    inactive: "inactive",
+    unknown: "unknown",
+  };
+  return allowed[s] ?? "unknown";
+};
+
+export const isProActive = (plan?: string | null, status?: string | null) => {
+  const p = normalizePlan(plan);
+  const s = normalizeStatus(status);
+  return p === "pro" && (s === "active" || s === "trialing");
+};
+
 export type UserData = {
-  name?: string;     // <-- AJOUTÉ
-  email?: string;    // <-- AJOUTÉ
-  plan?: string;
+  name?: string;
+  email?: string;
+  plan?: Plan;
+  status?: SubscriptionStatus;
   quota?: Quota;
 };
 
@@ -31,34 +68,21 @@ type UserContextType = {
     CONTEXT
 ============================ */
 
-const UserContext = createContext<UserContextType | undefined>(
-  undefined
-);
+const UserContext = createContext<UserContextType | undefined>(undefined);
 
 /* ============================
     PROVIDER
 ============================ */
 
-export function UserProvider({
-  children,
-}: {
-  children: ReactNode;
-}) {
-  const [userData, setUserData] =
-    useState<UserData | null>(null);
+export function UserProvider({ children }: { children: ReactNode }) {
+  const [userData, setUserData] = useState<UserData | null>(null);
 
   const clearUserData = () => {
     setUserData(null);
   };
 
   return (
-    <UserContext.Provider
-      value={{
-        userData,
-        setUserData,
-        clearUserData,
-      }}
-    >
+    <UserContext.Provider value={{ userData, setUserData, clearUserData }}>
       {children}
     </UserContext.Provider>
   );
@@ -72,9 +96,7 @@ export function useUser() {
   const context = useContext(UserContext);
 
   if (!context) {
-    throw new Error(
-      "useUser must be used inside UserProvider"
-    );
+    throw new Error("useUser must be used inside UserProvider");
   }
 
   return context;
