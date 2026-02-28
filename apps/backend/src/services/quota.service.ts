@@ -1,13 +1,12 @@
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
-import { consumeAiQuotaOrThrow } from "./quota/consumeQuota";
+import { consumeAiQuotaOrThrow, QuotaError } from "./quota/consumeQuota";
+import { normalizePlan, normalizeStatus, isProActive } from "../domain/plan";
 
 /**
  * ======================
  * LIMITES PAR PLAN
  * ======================
- * NOTE: dans ton système actuel, PRO est déjà "bypass quota" dans certains middlewares.
- * Ici on garde des limites pour UI/reporting, mais le blocage PRO peut rester géré ailleurs.
  */
 const PLAN_LIMITS: Record<string, number> = {
   free: 100,
@@ -18,7 +17,6 @@ const PLAN_LIMITS: Record<string, number> = {
  * ======================
  * POIDS PAR FEATURE
  * ======================
- * 1 appel IA = N unités
  */
 export const FEATURE_WEIGHTS: Record<string, number> = {
   assistant: 1,
@@ -33,7 +31,6 @@ export const FEATURE_WEIGHTS: Record<string, number> = {
  * ======================
  * CAPS PAR FEATURE
  * ======================
- * Limites mensuelles indépendantes (basées sur ai_usage)
  */
 export const FEATURE_CAPS: Record<string, number> = {
   vision: 15,
@@ -58,30 +55,13 @@ function nextResetDate(from = new Date()): Date {
   return new Date(from.getFullYear(), from.getMonth() + 1, 1);
 }
 
-function normalizePlan(plan?: string | null) {
-  return String(plan ?? "free").toLowerCase();
-}
-
-function normalizeStatus(status?: string | null) {
-  return String(status ?? "inactive").toLowerCase();
-}
-
-function isProActive(plan: string, status: string) {
-  return plan === "pro" && (status === "active" || status === "trialing");
-}
-
 /**
  * ======================
  * QUOTA SERVICE
  * ======================
  */
 export const quotaService = {
-  /**
-   * Assure l'existence de ai_quota + synchro monthly_limit
-   * + assure reset_at non-null (standard: 1er jour mois suivant)
-   */
   async ensureQuotaRow(userId: string) {
-    // 1️⃣ Subscription = source de vérité plan/status
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
       .select("plan,status")
@@ -102,7 +82,6 @@ export const quotaService = {
 
     const planLimit = PLAN_LIMITS[pro ? "pro" : "free"];
 
-    // 2️⃣ ai_quota
     const { data: quota, error: quotaErr } = await supabaseAdmin
       .from("ai_quota")
       .select("user_id, monthly_limit, used, reset_at")
@@ -119,7 +98,6 @@ export const quotaService = {
 
     const defaultResetAt = nextResetDate().toISOString();
 
-    // 3️⃣ Création si absente
     if (!quota) {
       const { error: insertErr } = await supabaseAdmin.from("ai_quota").insert({
         user_id: userId,
@@ -136,26 +114,9 @@ export const quotaService = {
         throw new Error("ai_quota_insert_error");
       }
 
-      // cache UI (best effort)
-      void (async () => {
-        try {
-          await supabaseAdmin
-            .from("profiles")
-            .update({
-              monthly_quota_used: 0,
-              monthly_quota_limit: planLimit,
-              quota_reset_at: Math.floor(new Date(defaultResetAt).getTime() / 1000),
-            })
-            .eq("id", userId);
-        } catch {
-          /* ignore */
-        }
-      })();
-
       return { monthly_limit: planLimit, used: 0, reset_at: defaultResetAt, pro };
     }
 
-    // 4️⃣ Sync limite si plan changé
     const updates: Record<string, unknown> = {};
     if (Number(quota.monthly_limit) !== planLimit) {
       updates.monthly_limit = planLimit;
@@ -177,9 +138,6 @@ export const quotaService = {
         });
         throw new Error("ai_quota_update_error");
       }
-
-      // cache UI (best effort)
-      
     }
 
     return {
@@ -190,62 +148,21 @@ export const quotaService = {
     };
   },
 
-  /**
-   * Pré-check (lecture seule) AVANT appel IA
-   * - reset si reset_at dépassé
-   * - vérifie cap feature (ai_usage)
-   * - vérifie quota global (ai_quota)
-   */
   async checkQuota(userId: string, feature: string) {
     const weight = FEATURE_WEIGHTS[feature] ?? 1;
     const q = await this.ensureQuotaRow(userId);
 
-    // PRO actif => pas de quota
     if (q.pro) return { allowed: true as const };
 
     const limit = Number(q.monthly_limit);
     let used = Number(q.used);
     const resetAt = q.reset_at ? new Date(q.reset_at) : null;
 
-    // reset si nécessaire (safe en parallèle)
     const now = new Date();
-    if (resetAt && now > resetAt) {
-      const nextReset = nextResetDate(now).toISOString();
-
-      // ✅ Reset conditionnel: ne s'applique que si reset_at est vraiment passé
-      const { error: resetErr } = await supabaseAdmin
-        .from("ai_quota")
-        .update({ used: 0, reset_at: nextReset })
-        .eq("user_id", userId)
-        .lt("reset_at", now.toISOString());
-
-      if (resetErr) {
-        logger.error("[QuotaService] ai_quota reset error", {
-          userId,
-          message: resetErr.message,
-        });
-        throw new Error("ai_quota_reset_error");
-      }
-
-      // ✅ Re-read pour éviter tout état local incohérent (parallélisme / multi-instances)
-      const { data: refreshed, error: refErr } = await supabaseAdmin
-        .from("ai_quota")
-        .select("used, reset_at")
-        .eq("user_id", userId)
-        .single();
-
-      if (refErr) {
-        logger.error("[QuotaService] ai_quota refresh after reset error", {
-          userId,
-          message: refErr.message,
-        });
-        throw new Error("ai_quota_refresh_error");
-      }
-
-      used = Number(refreshed.used ?? 0);
+    if (resetAt && now >= resetAt) {
+      used = 0;
     }
 
-    // Cap feature (mensuel)
     const cap = FEATURE_CAPS[feature];
     if (cap) {
       const periodStart = firstDayOfMonthISO(now);
@@ -271,7 +188,6 @@ export const quotaService = {
       }
     }
 
-    // Quota global
     if (limit > 0 && used + weight > limit) {
       return { allowed: false as const, reason: "Quota insuffisant" };
     }
@@ -279,18 +195,10 @@ export const quotaService = {
     return { allowed: true as const };
   },
 
-  /**
-   * Consommation réelle (APRÈS succès IA)
-   * ✅ BLOQUANT : throw si RPC down ou quota dépassé
-   * ✅ Atomique via consume_ai_quota
-   * ai_usage = log best-effort
-   */
   async recordUsage(userId: string, feature: string, input?: string, output?: string) {
     const q = await this.ensureQuotaRow(userId);
 
-    // PRO actif => on peut log, mais on ne consomme pas
     if (q.pro) {
-      // log best-effort
       void supabaseAdmin.from("ai_usage").insert({
         user_id: userId,
         feature,
@@ -299,13 +207,29 @@ export const quotaService = {
       return;
     }
 
-    const weight = FEATURE_WEIGHTS[feature] ?? 1;
+    const rawWeight = FEATURE_WEIGHTS[feature] ?? 1;
+    const weight = Math.max(1, Number(rawWeight) || 1);
     const tokens = estimateTokens(input) + estimateTokens(output);
 
-    // ✅ consommation atomique (source de vérité)
-    const result = await consumeAiQuotaOrThrow(userId, weight);
+    try {
+      await consumeAiQuotaOrThrow(userId, weight);
+    } catch (err: any) {
+      const msg = String(err?.message ?? "");
 
-    // log append-only (best-effort)
+      if (msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("exceed")) {
+        throw new QuotaError("quota_exceeded");
+      }
+
+      logger.error("[QuotaService] consume_ai_quota failed", {
+        userId,
+        feature,
+        weight,
+        message: msg,
+      });
+
+      throw new QuotaError("quota_rpc_failed");
+    }
+
     void (async () => {
       try {
         await supabaseAdmin.from("ai_usage").insert({
@@ -321,9 +245,6 @@ export const quotaService = {
         });
       }
     })();
-
-    // cache UI (best effort) — ATTENTION champs corrects
-   
   },
 
   async getUserQuota(userId: string) {

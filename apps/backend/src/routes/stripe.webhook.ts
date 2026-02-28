@@ -8,6 +8,7 @@ import {
   acquireStripeEventLock,
   markStripeEventProcessed,
 } from "../services/stripe/stripeIdempotency";
+import { normalizePlan } from "../domain/plan"; // ✅ MODIF: helper unique
 
 const router = Router();
 
@@ -80,7 +81,10 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (lock === "processing_elsewhere") {
-      logger.warn("Stripe event is being processed elsewhere (skip)", { eventId, eventType });
+      logger.warn("Stripe event is being processed elsewhere (skip)", {
+        eventId,
+        eventType,
+      });
       return res.status(200).json({
         received: true,
         status: "processing_elsewhere",
@@ -125,7 +129,9 @@ router.post("/", async (req: Request, res: Response) => {
         }
 
         const customerId =
-          typeof session.customer === "string" ? session.customer : session.customer?.id;
+          typeof session.customer === "string"
+            ? session.customer
+            : session.customer?.id;
 
         await syncSubscriptionTruth(userId, subscription, customerId ?? undefined);
         break;
@@ -147,10 +153,13 @@ router.post("/", async (req: Request, res: Response) => {
         const userId = subscription.metadata?.userId;
 
         if (!userId) {
-          logger.warn("No userId found in subscription metadata (invoice.payment_succeeded)", {
-            eventId,
-            subscriptionId: subscription.id,
-          });
+          logger.warn(
+            "No userId found in subscription metadata (invoice.payment_succeeded)",
+            {
+              eventId,
+              subscriptionId: subscription.id,
+            }
+          );
           break;
         }
 
@@ -180,12 +189,15 @@ router.post("/", async (req: Request, res: Response) => {
 
         if (!userId) break;
 
+        // ✅ MODIF: remplacer "FREE" par un plan normalisé
+        const plan = normalizePlan("free");
+
         const { error: subErr } = await supabaseAdmin
           .from("subscriptions")
           .upsert(
             {
               user_id: userId,
-              plan: "FREE",
+              plan,
               status: "canceled",
               stripe_customer_id: null,
               stripe_subscription_id: null,
@@ -250,7 +262,9 @@ async function syncSubscriptionTruth(
   const isActive = status === "active" || status === "trialing";
   const periodEnd = getCurrentPeriodEnd(subscription);
 
-  const plan = isActive ? "PRO" : "FREE";
+  // ✅ MODIF: remplacer "PRO"/"FREE" par plan normalisé
+  const rawPlanFromMappingOrFallback = isActive ? "pro" : "free";
+  const plan = normalizePlan(rawPlanFromMappingOrFallback);
 
   const { error: subErr } = await supabaseAdmin
     .from("subscriptions")

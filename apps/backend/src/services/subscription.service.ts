@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
 import { quotaService } from "../services/quota.service";
+import { normalizePlan, isPro } from "../domain/plan";
 
 /**
  * SubscriptionService (P1)
@@ -27,16 +28,13 @@ export class SubscriptionService {
       throw new HttpError(500, "Failed to fetch subscription");
     }
 
-    const plan = String(data?.plan ?? "free").toLowerCase();
+    const plan = normalizePlan(data?.plan); // ✅ C
     const status = String(data?.status ?? "inactive").toLowerCase();
 
-    const isProActive = plan === "pro" && (status === "active" || status === "trialing");
+    const isProActive = isPro(plan) && (status === "active" || status === "trialing"); // ✅ B
     return isProActive ? "PRO" : "FREE";
   }
 
-  /**
-   * Renvoie l'usage courant depuis ai_quota.used
-   */
   static async getMonthlyUsage(userId: string): Promise<number> {
     const { data, error } = await supabaseAdmin
       .from("ai_quota")
@@ -51,11 +49,6 @@ export class SubscriptionService {
     return Number(data?.used ?? 0);
   }
 
-  /**
-   * Legacy: incrementUsage n'est plus supporté en P1.
-   * La consommation doit être faite via quotaService.recordUsage()
-   * (qui consomme via RPC consume_ai_quota après succès IA).
-   */
   static async incrementUsage(_userId: string): Promise<void> {
     throw new HttpError(
       410,
@@ -63,17 +56,10 @@ export class SubscriptionService {
     );
   }
 
-  /**
-   * Check access générique (P1):
-   * - PRO actif => OK
-   * - FREE => pré-check quota via quotaService.checkQuota
-   *
-   * ⚠️ feature par défaut = "ai" (si tu as une clé globale),
-   * sinon tu dois passer la feature ("vision", "vocal", "assistant"...)
-   */
   static async checkAccess(userId: string, feature: string = "ai"): Promise<void> {
     const plan = await this.getUserPlan(userId);
-    if (plan === "PRO") return;
+
+    if (isPro(plan)) return; // ✅ A
 
     const q = await quotaService.checkQuota(userId, feature);
     if (!q.allowed) {

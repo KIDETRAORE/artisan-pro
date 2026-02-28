@@ -1,9 +1,8 @@
 // apps/backend/src/routes/vision.routes.ts
 import { Router } from "express";
-import { z } from "zod";
+import multer from "multer";
 
 import { authMiddleware } from "@middlewares/auth.middleware";
-import { validate } from "@middlewares/validate.middleware";
 import { checkQuota } from "@middlewares/checkQuota.middleware";
 import { asyncHandler } from "@utils/asyncHandler";
 
@@ -15,8 +14,21 @@ import {
 
 const router = Router();
 
-const visionSchema = z.object({
-  image: z.string().min(20, "Image base64 manquante ou invalide"),
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB max (à ajuster)
+    files: 1,
+  },
+  fileFilter: (_req, file, cb) => {
+    const ok = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
+
+    if (ok) {
+      cb(null, true);
+    } else {
+      cb(null, false);
+    }
+  },
 });
 
 /**
@@ -31,8 +43,8 @@ const visionSchema = z.object({
 router.post(
   "/analyze",
   authMiddleware,
-  checkQuota, // doit checker ai_quota (P1), pas compter vision_analyses
-  validate(visionSchema),
+  checkQuota,
+  upload.single("image"),
   asyncHandler(analyzeVisionController)
 );
 

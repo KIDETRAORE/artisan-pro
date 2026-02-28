@@ -35,17 +35,19 @@ Règles STRICTES :
 `.trim();
 }
 
-export async function analyzeImageWithVision(
-  imageBuffer: Buffer,
-  userId: string
-): Promise<VisionAnalysis> {
+export async function analyzeImageBuffer(input: {
+  userId: string;
+  buffer: Buffer;
+  mimeType: string;
+  originalName?: string;
+}): Promise<VisionAnalysis> {
   const prompt = buildVisionPrompt();
 
   const rawText = await runAI("vision", {
     prompt,
-    fileBase64: imageBuffer.toString("base64"),
-    mimeType: "image/jpeg", // ✅ ajuste si tu connais le vrai type (png/jpg)
-    userId,
+    fileBase64: input.buffer.toString("base64"),
+    mimeType: input.mimeType,
+    userId: input.userId,
   });
 
   const cleaned = rawText

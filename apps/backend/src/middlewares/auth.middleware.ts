@@ -1,6 +1,9 @@
-import { Request, Response, NextFunction } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
+import type { Permission, UserRole } from "../auth/permissions";
+import { PERMISSIONS } from "../auth/permissions";
+import { sendError } from "../utils/apiError"; // ✅ ajout
 
 export const authMiddleware = async (
   req: Request,
@@ -10,48 +13,77 @@ export const authMiddleware = async (
   try {
     const authHeader = req.headers.authorization;
 
-    // 1. Vérification de la présence du header Authorization
+    // 1) Vérification header Authorization
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       logger.warn("🔐 Tentative d'accès sans token");
-      res.status(401).json({ success: false, message: "Non authentifié : Token manquant" });
+      sendError(req, res, 401, "auth_missing_token", "Non authentifié : Token manquant");
       return;
     }
 
     const token = authHeader.replace("Bearer ", "");
 
-    // 2. Validation du token auprès de Supabase
+    // 2) Validation du token auprès de Supabase
     const { data, error } = await supabaseAdmin.auth.getUser(token);
 
     if (error || !data?.user) {
-      logger.warn(`🔐 Token invalide ou expiré : ${error?.message || "User non trouvé"}`);
-      res.status(401).json({ success: false, message: "Session invalide ou expirée" });
+      logger.warn(
+        `🔐 Token invalide ou expiré : ${error?.message || "User non trouvé"}`
+      );
+      sendError(req, res, 401, "auth_invalid_token", "Session invalide ou expirée");
       return;
     }
 
-    // 3. 🔥 Injection du user dans la requête (permissions depuis app_metadata)
-    const permissions = Array.isArray((data.user as any)?.app_metadata?.permissions)
-      ? ((data.user as any).app_metadata.permissions as string[])
+    const userId = data.user.id;
+
+    // 3) Permissions depuis app_metadata (filtrées sur Permission union)
+    const rawPermissions = Array.isArray(
+      (data.user as any)?.app_metadata?.permissions
+    )
+      ? ((data.user as any).app_metadata.permissions as unknown[])
       : [];
 
-    (req as any).user = {
-      ...data.user,
+    const allowed = new Set<string>(Object.values(PERMISSIONS));
+    const permissions: Permission[] = rawPermissions
+      .map((p) => String(p))
+      .filter((p): p is Permission => allowed.has(p));
+
+    // 4) Récupération du role depuis profiles (source de vérité)
+    const { data: profile, error: profErr } = await supabaseAdmin
+      .from("profiles")
+      .select("role,email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profErr) {
+      logger.error("🔥 Erreur lookup profile dans authMiddleware", {
+        userId,
+        message: profErr.message,
+      });
+      sendError(req, res, 401, "auth_error", "Erreur d'authentification");
+      return;
+    }
+
+    // Fallbacks sûrs
+    const role = (profile?.role ? String(profile.role) : "user") as UserRole;
+    const email = profile?.email ?? data.user.email ?? undefined;
+
+    // 5) Injection au format UNIQUE et TYPÉ (AuthUser)
+    req.user = {
+      id: userId,
+      email,
+      role,
       permissions,
     };
 
-    // ✅ Log conforme (pas de donnée sensible)
-    logger.info("✅ Utilisateur authentifié", {
-      userId: data.user.id,
-    });
-
-    // ✅ Debug non sensible : vérifier ce que Supabase renvoie vraiment
-    logger.info("DEBUG auth permissions", {
-      userId: data.user.id,
-      permissions,
-    });
+    logger.info("✅ Utilisateur authentifié", { userId });
 
     next();
-  } catch (error: any) {
-    logger.error("🔥 Erreur critique Auth Middleware:", error);
-    res.status(401).json({ success: false, message: "Erreur d'authentification" });
+  } catch (err: unknown) {
+    logger.error("🔥 Erreur critique Auth Middleware:", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+
+    sendError(req, res, 401, "auth_error", "Erreur d'authentification");
+    return;
   }
 };

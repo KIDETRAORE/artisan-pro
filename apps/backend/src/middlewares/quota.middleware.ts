@@ -1,15 +1,8 @@
 import type { Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
+import { isPro, normalizePlan } from "../domain/plan"; // ✅ A/B/C (ajout normalizePlan)
 
-/**
- * quotaMiddleware
- * - Truth plan/status: subscriptions
- * - Truth quota: ai_quota
- * - profiles = cache UI (optionnel)
- *
- * used = nombre d'actions IA (1 appel = 1)
- */
 export const quotaMiddleware = async (
   req: Request,
   res: Response,
@@ -24,9 +17,6 @@ export const quotaMiddleware = async (
       });
     }
 
-    /**
-     * 1️⃣ Source de vérité plan : subscriptions
-     */
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
       .select("plan, status")
@@ -38,19 +28,17 @@ export const quotaMiddleware = async (
       return res.status(500).json({ success: false, error: "Erreur interne" });
     }
 
-    const plan = String(sub?.plan ?? "FREE").toUpperCase();
+    // ✅ C: plan normalisé via helper unique
+    const plan = normalizePlan(sub?.plan);
     const status = String(sub?.status ?? "inactive").toLowerCase();
 
-    const isProActive =
-      plan === "PRO" && (status === "active" || status === "trialing");
+    // ✅ B (déjà OK): comparaison via isPro
+    const isProActive = isPro(plan) && (status === "active" || status === "trialing");
 
     if (isProActive) {
-      return next(); // PRO actif → pas de quota
+      return next();
     }
 
-    /**
-     * 2️⃣ Source de vérité quota : ai_quota
-     */
     const { data: quota, error: quotaErr } = await supabaseAdmin
       .from("ai_quota")
       .select("monthly_limit, used, reset_at")
@@ -67,18 +55,11 @@ export const quotaMiddleware = async (
     const limit = Number(quota.monthly_limit ?? 0);
     let used = Number(quota.used ?? 0);
 
-    /**
-     * 3️⃣ Reset automatique (reset_at = timestamp)
-     */
     const now = new Date();
     const resetAt = quota.reset_at ? new Date(quota.reset_at) : null;
 
     if (resetAt && now > resetAt) {
-      const nextReset = new Date(
-        now.getFullYear(),
-        now.getMonth() + 1,
-        1
-      ); // 1er jour mois suivant
+      const nextReset = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
       logger.info("🔄 Reset quota mensuel", {
         userId,
@@ -101,10 +82,6 @@ export const quotaMiddleware = async (
           .json({ success: false, error: "Erreur interne" });
       }
 
-      /**
-       * 🪞 Cache UI (profiles) — best effort
-       * Pas de .catch() → PromiseLike safe
-       */
       void (async () => {
         try {
           await supabaseAdmin
@@ -112,9 +89,7 @@ export const quotaMiddleware = async (
             .update({
               monthly_quota_used: 0,
               monthly_quota_limit: limit,
-              quota_reset_at: Math.floor(
-                nextReset.getTime() / 1000
-              ), // bigint seconds (cache UI)
+              quota_reset_at: Math.floor(nextReset.getTime() / 1000),
               plan,
               subscription_status: status,
             })
@@ -129,12 +104,9 @@ export const quotaMiddleware = async (
         }
       })();
 
-      used = 0; // mise à jour locale
+      used = 0;
     }
 
-    /**
-     * 4️⃣ Check AVANT appel IA
-     */
     if (limit > 0 && used >= limit) {
       return res.status(403).json({
         success: false,
@@ -148,8 +120,6 @@ export const quotaMiddleware = async (
     return next();
   } catch (err: unknown) {
     logger.error("🔥 Erreur Quota Middleware", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Erreur interne" });
+    return res.status(500).json({ success: false, error: "Erreur interne" });
   }
 };

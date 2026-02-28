@@ -11,7 +11,7 @@ import {
 import { useAuth } from "../store/auth.store";
 import { useNavigate } from "react-router-dom";
 
-const API_URL = "http://localhost:8080/ai";
+const API_URL = "http://localhost:8080/vision";
 
 export default function Vision() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -34,47 +34,6 @@ export default function Vision() {
     );
   };
 
-  const startPolling = (jobId: string) => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const response = await fetch(`${API_URL}/status/${jobId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-
-        if (response.status === 304) return;
-
-        const data = await response.json();
-
-        if (data.status === "completed") {
-          clearInterval(pollInterval);
-
-          let result = data.result;
-
-          // Nettoyage JSON si Gemini ajoute du texte
-          if (typeof result === "string") {
-            const match = result.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-            const jsonStr = match ? match[0] : result;
-            try {
-              result = JSON.parse(jsonStr);
-            } catch {
-              // fallback: on laisse la string telle quelle
-              result = { raw: String(result) };
-            }
-          }
-
-          setAnalysis(result);
-          setIsProcessing(false);
-        } else if (data.status === "failed") {
-          clearInterval(pollInterval);
-          setIsProcessing(false);
-          alert(data.error || "L'analyse a échoué.");
-        }
-      } catch (err) {
-        console.error("Erreur polling:", err);
-      }
-    }, 1200);
-  };
-
   const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -82,27 +41,29 @@ export default function Vision() {
     setIsProcessing(true);
     setAnalysis(null);
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("type", "vision");
+    const form = new FormData();
+    form.append("image", file);
 
     try {
-      const response = await fetch(`${API_URL}/run`, {
+      const res = await fetch(`${API_URL}/analyze`, {
         method: "POST",
-        body: formData,
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: form,
       });
 
-      const data = await response.json();
-      if (data.jobId) startPolling(data.jobId);
-      else {
-        setIsProcessing(false);
-        alert(data.message || "Impossible de lancer l'analyse.");
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error?.message || "Analyse échouée");
       }
+
+      setAnalysis(data);
     } catch (err) {
-      alert("Erreur de connexion au serveur.");
-      setIsProcessing(false);
+      alert("Erreur lors de l'analyse.");
     } finally {
+      setIsProcessing(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -176,56 +137,10 @@ export default function Vision() {
           </>
         ) : (
           <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-500">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Eye size={14} className="text-blue-500" />
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Matériaux & Éléments
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {analysis.elements_visibles?.map((el: string, i: number) => (
-                  <span
-                    key={i}
-                    className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[9px] font-bold rounded-md border border-slate-200 uppercase"
-                  >
-                    {el}
-                  </span>
-                ))}
-              </div>
-            </div>
+            <pre className="text-[11px] whitespace-pre-wrap">
+              {JSON.stringify(analysis, null, 2)}
+            </pre>
 
-            {analysis.anomalies?.length > 0 && (
-              <div className="p-4 bg-red-50 rounded-2xl border border-red-100">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle size={16} className="text-red-500" />
-                  <span className="text-[10px] font-black text-red-600 uppercase">
-                    Points de vigilance
-                  </span>
-                </div>
-                <ul className="space-y-1">
-                  {analysis.anomalies.map((ano: string, i: number) => (
-                    <li key={i} className="text-[11px] text-red-800 leading-tight">
-                      • {ano}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-              <div className="flex items-center gap-2 mb-2">
-                <Lightbulb size={16} className="text-emerald-600" />
-                <span className="text-[10px] font-black text-emerald-600 uppercase">
-                  Recommandations
-                </span>
-              </div>
-              <p className="text-[11px] text-emerald-800 leading-relaxed font-medium">
-                {analysis.recommandations?.[0] || "Installation conforme aux premières observations."}
-              </p>
-            </div>
-
-            {/* ✅ ENVOYER AU MODE EXPERT */}
             <button
               onClick={() => sendToExpertMode(analysis)}
               className="w-full py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2"

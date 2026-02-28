@@ -1,39 +1,19 @@
 import Stripe from "stripe";
 import { ENV } from "../config/env";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
+import { normalizePlan } from "../domain/plan";
 
 export const stripe = new Stripe(ENV.STRIPE_SECRET_KEY, {
 });
 
 export class StripeService {
-
-  /* ================================
-     CHECKOUT SESSION
-  ================================== */
-
-  static async createCheckoutSession(user: {
-    id: string;
-    email: string;
-  }) {
-
+  static async createCheckoutSession(user: { id: string; email: string }) {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-
       payment_method_types: ["card"],
-
       customer_email: user.email,
-
-      line_items: [
-        {
-          price: ENV.STRIPE_PRICE_ID,
-          quantity: 1,
-        },
-      ],
-
-      metadata: {
-        userId: user.id,
-      },
-
+      line_items: [{ price: ENV.STRIPE_PRICE_ID, quantity: 1 }],
+      metadata: { userId: user.id },
       success_url: `${ENV.FRONTEND_URL}/success`,
       cancel_url: `${ENV.FRONTEND_URL}/cancel`,
     });
@@ -41,12 +21,7 @@ export class StripeService {
     return session.url;
   }
 
-  /* ================================
-     BILLING PORTAL
-  ================================== */
-
   static async createBillingPortal(userId: string) {
-
     const { data: profile, error } = await supabaseAdmin
       .from("profiles")
       .select("stripe_customer_id")
@@ -65,28 +40,20 @@ export class StripeService {
     return portalSession.url;
   }
 
-  /* ================================
-     WEBHOOK HANDLER
-  ================================== */
-
   static async handleWebhook(event: Stripe.Event) {
-
     switch (event.type) {
-
       case "checkout.session.completed": {
-
         const session = event.data.object as Stripe.Checkout.Session;
-
         const userId = session.metadata?.userId;
         const customerId = session.customer as string;
-
         if (!userId) return;
 
-        // 🔹 Sauvegarde customer + passage PRO
+        const plan = normalizePlan("pro"); // ✅ A/C
+
         await supabaseAdmin
           .from("profiles")
           .update({
-            plan: "PRO",
+            plan,
             stripe_customer_id: customerId,
           })
           .eq("id", userId);
@@ -95,14 +62,14 @@ export class StripeService {
       }
 
       case "customer.subscription.deleted": {
-
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
 
-        // 🔹 Retour FREE si abonnement annulé
+        const plan = normalizePlan("free"); // ✅ A/C
+
         await supabaseAdmin
           .from("profiles")
-          .update({ plan: "FREE" })
+          .update({ plan })
           .eq("stripe_customer_id", customerId);
 
         break;

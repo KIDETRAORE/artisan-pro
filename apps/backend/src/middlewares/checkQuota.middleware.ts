@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
+import { isPro, normalizePlan } from "../domain/plan"; // ✅ A/B/C: helper unique
 
 function getRequestId(req: Request): string | null {
   const rid =
@@ -42,10 +43,12 @@ export const checkQuota = async (req: Request, res: Response, next: NextFunction
       return res.status(500).json({ success: false, error: "Quota check failed" });
     }
 
-    const plan = String(sub?.plan ?? "free").toLowerCase();
+    // ✅ C: plan normalisé via helper unique
+    const plan = normalizePlan(sub?.plan);
     const status = String(sub?.status ?? "inactive").toLowerCase();
 
-    const isProActive = plan === "pro" && (status === "active" || status === "trialing");
+    // ✅ B: plus de comparaison inline sur "pro"
+    const isProActive = isPro(plan) && (status === "active" || status === "trialing");
     if (isProActive) return next();
 
     /**
@@ -66,7 +69,6 @@ export const checkQuota = async (req: Request, res: Response, next: NextFunction
     }
 
     if (!quota) {
-      // Pas de ligne quota => on bloque proprement (ou tu peux choisir de l'initialiser ailleurs)
       logger.warn("metric.quota_refused", {
         requestId: getRequestId(req),
         userId,
@@ -115,8 +117,6 @@ export const checkQuota = async (req: Request, res: Response, next: NextFunction
 
     /**
      * 4) Pré-check (vision consomme du quota, mais la consommation se fera après succès)
-     * Ici: on vérifie juste qu'il reste au moins 1 unité.
-     * (Si vision est pondérée > 1, adapte ici selon ton poids.)
      */
     const requiredUnits = 1;
 

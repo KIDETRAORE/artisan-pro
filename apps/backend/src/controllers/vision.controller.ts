@@ -1,5 +1,5 @@
+// apps/backend/src/controllers/vision.controller.ts
 import type { Request, Response } from "express";
-import { Buffer } from "node:buffer";
 import { fileTypeFromBuffer } from "file-type";
 
 import { PROMPTS } from "../services/ai/prompts";
@@ -13,80 +13,39 @@ import { requireUser } from "../utils/requireUser";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
 
-type VisionAnalyzeBody = {
-  image: string; // data:image/...;base64,...
-};
-
 /**
  * =====================================
- * Helpers
- * =====================================
- */
-function parseDataUriImage(dataUri: string): { mimeType: string; buffer: Buffer } {
-  if (!dataUri || typeof dataUri !== "string") {
-    throw new HttpError(400, "Image manquante ou invalide");
-  }
-
-  const match = dataUri.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-  if (!match?.[1] || !match?.[2]) {
-    throw new HttpError(400, "Format base64 invalide");
-  }
-
-  const mimeType = match[1];
-
-  try {
-    const buffer = Buffer.from(match[2], "base64");
-    if (!buffer.length) throw new Error("EMPTY_BUFFER");
-    return { mimeType, buffer };
-  } catch {
-    throw new HttpError(400, "Format base64 invalide");
-  }
-}
-
-/**
- * =====================================
- * POST /vision/analyze
- * (Zod doit valider req.body.image dans la route)
+ * POST /vision/analyze (multipart/form-data)
  * =====================================
  */
 export async function analyzeVisionController(
-  req: Request<{}, {}, VisionAnalyzeBody>,
+  req: Request,
   res: Response
 ) {
   const user = requireUser(req);
   const userId = user.id;
 
-  // ⚠️ Le pré-check quota est idéalement fait dans la route via middleware.
-  // Si tu veux un pré-check "defense-in-depth", décommente :
-  // const check = await quotaService.checkQuota(userId, "vision");
-  // if (!check.allowed) throw new HttpError(403, check.reason || "Quota insuffisant");
+  // multer met le fichier dans req.file
+  const file = (req as any).file as Express.Multer.File | undefined;
 
-  const { mimeType, buffer } = parseDataUriImage(req.body.image);
-
-  // ✅ limite max buffer (après décodage base64)
-  const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
-  if (buffer.length > MAX_IMAGE_BYTES) {
-    return res.status(413).json({
-      success: false,
-      error: {
-        code: "payload_too_large",
-        message: "Image trop volumineuse (max 5MB).",
-      },
-    });
+  if (!file?.buffer?.length) {
+    throw new HttpError(400, "Image manquante (champ 'image')");
   }
 
-  // ✅ check MIME réel via file-type (ne pas faire confiance au data URI)
+  const buffer = file.buffer;
+
+  // ✅ limite max buffer (binaire direct)
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+  if (buffer.length > MAX_IMAGE_BYTES) {
+    throw new HttpError(413, "Image trop volumineuse (max 5MB).");
+  }
+
+  // ✅ check MIME réel via file-type (ne pas faire confiance au client)
   const detected = await fileTypeFromBuffer(buffer);
   const allowedMimes = ["image/jpeg", "image/png", "image/webp"];
 
   if (!detected || !allowedMimes.includes(detected.mime)) {
-    return res.status(415).json({
-      success: false,
-      error: {
-        code: "unsupported_media_type",
-        message: "Type d'image non supporté.",
-      },
-    });
+    throw new HttpError(415, "Type d'image non supporté.");
   }
 
   const sanitizedBuffer = await sanitizeImage(buffer);
@@ -96,7 +55,7 @@ export async function analyzeVisionController(
   const aiText = await runAI("vision", {
     prompt: PROMPTS.vision,
     fileBase64,
-    mimeType,
+    mimeType: detected.mime,
     userId,
   });
 
@@ -123,8 +82,7 @@ export async function analyzeVisionController(
   });
 
   /**
-   * ✅ Consommation quota APRÈS succès (source de vérité = ai_quota via quotaService)
-   * IMPORTANT: ce call doit être BLOQUANT (sinon IA consommée sans être comptée)
+   * ✅ Consommation quota APRÈS succès
    */
   try {
     await quotaService.recordUsage(
@@ -139,8 +97,6 @@ export async function analyzeVisionController(
       message: err instanceof Error ? err.message : String(err),
     });
 
-    // Si le quota est dépassé au moment de consommer (race condition),
-    // on renvoie une erreur claire.
     throw new HttpError(403, "Quota mensuel IA dépassé. Passez au plan PRO.");
   }
 

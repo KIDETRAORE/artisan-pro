@@ -1,6 +1,7 @@
 // apps/backend/src/controllers/dashboard.controller.ts
 import type { Request, Response } from "express";
-import type { Plan } from "../types/plan";
+import type { Plan } from "../domain/plan";
+import { normalizePlan, isPro } from "../domain/plan";
 import { quotaService } from "../services/quota.service";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
@@ -40,11 +41,11 @@ export class DashboardController {
       throw new HttpError(500, "Erreur lors du chargement du dashboard");
     }
 
-    const planRaw = String(sub?.plan ?? "free").toLowerCase();
+    const planNorm = normalizePlan(sub?.plan); // ✅ C
     const statusRaw = String(sub?.status ?? "inactive").toLowerCase();
 
     // Normalisation vers ton type Plan ("FREE" | "PRO")
-    const plan: Plan = planRaw === "pro" ? "PRO" : "FREE";
+    const plan: Plan = planNorm === "pro" ? "PRO" : "FREE";
 
     // (Optionnel) Tu peux exposer status au front si utile
     const subscription = {
@@ -67,8 +68,7 @@ export class DashboardController {
     // ===============================
     // Features (si tu veux les baser sur plan+status)
     // ===============================
-    const isProActive =
-      plan === "PRO" && (statusRaw === "active" || statusRaw === "trialing");
+    const isProActive = isPro(plan) && (statusRaw === "active" || statusRaw === "trialing"); // ✅ A
 
     const features = {
       generate: true,

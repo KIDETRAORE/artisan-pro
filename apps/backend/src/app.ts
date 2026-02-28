@@ -3,9 +3,10 @@ import express from "express";
 import cors, { type CorsOptions } from "cors";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
+import helmet from "helmet"; // ✅ ajout
 
 import { ENV } from "./config/env";
-import { errorHandler } from "./middlewares/error.middleware";
+import { errorHandler } from "@middlewares/error.middleware";
 import { globalRateLimit } from "./middlewares/rateLimit.middleware";
 import { logger } from "./utils/logger";
 import { applySecurity } from "./middlewares/security.middleware";
@@ -18,6 +19,8 @@ import router from "./routes";
 import stripeWebhookRoutes from "./routes/stripe.webhook";
 
 const app = express();
+
+const isProd = ENV.NODE_ENV === "production"; // ✅ ajout
 
 /**
  * ======================
@@ -32,6 +35,50 @@ app.set("trust proxy", 1);
  * ======================
  */
 applySecurity(app);
+
+// ✅ ajout : CSP dev permissif / prod strict (sans nonce)
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        // Base
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+
+        // Scripts / styles
+        scriptSrc: isProd
+          ? ["'self'"]
+          : ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+
+        styleSrc: isProd
+          ? ["'self'"]
+          : ["'self'", "'unsafe-inline'"],
+
+        // Images / fonts
+        imgSrc: ["'self'", "data:", "blob:"],
+        fontSrc: ["'self'", "data:"],
+
+        // Réseau (APIs externes) — adapte selon tes besoins réels
+        connectSrc: [
+          "'self'",
+          // ex: Supabase / Stripe / Google, etc.
+          // "https://*.supabase.co",
+          // "https://api.stripe.com",
+        ],
+
+        // Iframes (Stripe, etc.) si nécessaire
+        frameSrc: [
+          "'self'",
+          // "https://js.stripe.com",
+          // "https://hooks.stripe.com",
+        ],
+      },
+    },
+  })
+);
 
 /**
  * ======================

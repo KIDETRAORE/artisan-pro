@@ -4,6 +4,7 @@ import { requireUser } from "../utils/requireUser";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { quotaService } from "../services/quota.service";
 import { logger } from "../utils/logger";
+import { normalizePlan, isPro } from "../domain/plan";
 
 export const getUserInfo = async (req: Request, res: Response) => {
   const user = requireUser(req);
@@ -20,12 +21,11 @@ export const getUserInfo = async (req: Request, res: Response) => {
     throw new Error("Subscription fetch failed");
   }
 
-  const planRaw = String(sub?.plan ?? "free").toLowerCase();
+  const planNorm = normalizePlan(sub?.plan); // ✅ C
   const statusRaw = String(sub?.status ?? "inactive").toLowerCase();
 
-  const plan = planRaw === "pro" ? "PRO" : "FREE";
-  const isProActive =
-    plan === "PRO" && (statusRaw === "active" || statusRaw === "trialing");
+  const plan = planNorm === "pro" ? "PRO" : "FREE";
+  const isProActive = isPro(plan) && (statusRaw === "active" || statusRaw === "trialing"); // ✅ A
 
   // ✅ Source de vérité quota: ai_quota
   const quota = await quotaService.getUserQuota(user.id);

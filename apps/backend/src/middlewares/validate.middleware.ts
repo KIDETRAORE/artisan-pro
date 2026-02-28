@@ -4,6 +4,16 @@ import { z } from "zod";
 
 type ValidatableProperty = "body" | "query" | "params";
 
+type ErrorBody = {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+  };
+  requestId?: string;
+  details?: unknown;
+};
+
 /**
  * Middleware de validation générique basé sur Zod
  *
@@ -18,13 +28,25 @@ export const validate =
     const result = schema.safeParse((req as any)[property]);
 
     if (!result.success) {
-      return res.status(400).json({
-        message: "Erreur de validation",
-        errors: result.error.issues.map((e) => ({
+      const requestId =
+        (req.headers["x-request-id"] as string | undefined) ??
+        (req as any).requestId ??
+        undefined;
+
+      const body: ErrorBody = {
+        success: false,
+        error: {
+          code: "validation_error",
+          message: "Erreur de validation",
+        },
+        requestId,
+        details: result.error.issues.map((e) => ({
           field: e.path.length ? e.path.join(".") : property,
           message: e.message,
         })),
-      });
+      };
+
+      return res.status(400).json(body);
     }
 
     (req as any)[property] = result.data;
