@@ -48,9 +48,10 @@ export const authMiddleware = async (
       .filter((p): p is Permission => allowed.has(p));
 
     // 4) Récupération du role depuis profiles (source de vérité)
+    // ✅ On ne lit QUE des champs existants et autorisés: role (+ full_name si besoin)
     const { data: profile, error: profErr } = await supabaseAdmin
       .from("profiles")
-      .select("role,email")
+      .select("role,full_name")
       .eq("id", userId)
       .maybeSingle();
 
@@ -65,7 +66,9 @@ export const authMiddleware = async (
 
     // Fallbacks sûrs
     const role = (profile?.role ? String(profile.role) : "user") as UserRole;
-    const email = profile?.email ?? data.user.email ?? undefined;
+
+    // ✅ Email: uniquement depuis Supabase Auth (pas depuis profiles)
+    const email = data.user.email ?? undefined;
 
     // 5) Injection au format UNIQUE et TYPÉ (AuthUser)
     req.user = {

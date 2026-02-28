@@ -89,32 +89,6 @@ export async function handleAudioUpload(req: Request, res: Response) {
 
   await validateAudio(req.file.buffer);
 
-  /**
-   * ======================
-   * ÉTAPE A : PRÉ-CHECK QUOTA (évite coût IA)
-   * ======================
-   */
-  const quotaCheck = await quotaService.checkQuota(userId, "vocal");
-
-  if (!quotaCheck.allowed) {
-    logger.warn("Quota bloqué (vocal)", {
-      userId,
-      reason: quotaCheck.reason ?? "unknown",
-    });
-
-    return res.status(403).json({
-      success: false,
-      error: {
-        code: "quota_exceeded",
-        message:
-          quotaCheck.reason || "Quota insuffisant. Passez au plan PRO.",
-      },
-      details: {
-        reason: quotaCheck.reason ?? null,
-      },
-    });
-  }
-
   logger.info("Analyse vocale demandée", { userId });
 
   /**
@@ -154,22 +128,14 @@ export async function handleAudioUpload(req: Request, res: Response) {
    * ======================
    */
   try {
-    await quotaService.recordUsage(
-      userId,
-      "vocal",
-      "Audio input",
-      aiRawResponse
-    );
+    await quotaService.recordUsage(userId, "vocal", "Audio input", aiRawResponse);
   } catch (err: unknown) {
     logger.error("❌ Quota recordUsage failed (vocal)", {
       userId,
       message: err instanceof Error ? err.message : String(err),
     });
 
-    throw new HttpError(
-      403,
-      "Quota mensuel IA dépassé. Passez au plan PRO."
-    );
+    throw new HttpError(403, "Quota mensuel IA dépassé. Passez au plan PRO.");
   }
 
   const currentQuota = await quotaService.getUserQuota(userId);

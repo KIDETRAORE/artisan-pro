@@ -1,33 +1,68 @@
-import React, { useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './store/auth.store';
-import { useUser } from './context/user.context';
-import Layout from './layout/Layout';
-import Login from './pages/Login';
-import Vision from './pages/Vision';
-import Devis from './pages/Devis';
-import Compta from './pages/Compta';
-import Dashboard from './pages/Dashboard';
-import Settings from './pages/Settings'; // ✅ Import ajouté
+import React, { useEffect } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "./store/auth.store";
+import { useUser } from "./context/user.context";
+import Layout from "./layout/Layout";
+import Login from "./pages/Login";
+import Vision from "./pages/Vision";
+import Devis from "./pages/Devis";
+import Compta from "./pages/Compta";
+import Dashboard from "./pages/Dashboard";
+import Settings from "./pages/Settings";
+import { fetchWithAuth } from "./auth/fetchWithAuth";
+
+type DashboardResponse = {
+  user?: { id: string; email?: string | null };
+  subscription?: {
+    plan?: "FREE" | "PRO";
+    status?: string;
+    currentPeriodEnd?: any;
+  };
+  quota?: { used: number; limit: number; percent?: number; resetAt?: string | null };
+};
 
 export default function App() {
   const { user, accessToken } = useAuth();
-  const { setUserData } = useUser();
+  const { setUserData, clearUserData } = useUser();
 
   useEffect(() => {
-    if (user?.email && accessToken) {
-      const emailName = user.email.split('@')[0] || 'Artisan';
-      const formattedName =
-        emailName.charAt(0).toUpperCase() + emailName.slice(1);
+    const run = async () => {
+      if (!accessToken || !user?.email) return;
 
-      setUserData({
-        name: formattedName,
-        email: user.email,
-        plan: 'PRO',
-        quota: { used: 3, limit: 10 },
-      });
-    }
-  }, [user, accessToken, setUserData]);
+      try {
+        const data = await fetchWithAuth<DashboardResponse>("/dashboard", {
+          method: "GET",
+        });
+
+        const emailName = user.email.split("@")[0] || "Artisan";
+        const formattedName =
+          emailName.charAt(0).toUpperCase() + emailName.slice(1);
+
+        const plan = data?.subscription?.plan ?? "FREE";
+        const status = String(data?.subscription?.status ?? "inactive").toLowerCase();
+        const proActive =
+          plan === "PRO" && (status === "active" || status === "trialing");
+
+        setUserData({
+          name: formattedName,
+          email: user.email,
+          plan,
+          // ✅ UI: quota undefined => illimité (comme ton Topbar)
+          quota: proActive
+            ? undefined
+            : {
+                used: data?.quota?.used ?? 0,
+                limit: data?.quota?.limit ?? 0,
+              },
+        });
+      } catch {
+        // si ça fail, on évite de casser l'app
+        clearUserData();
+      }
+    };
+
+    run();
+  }, [user, accessToken, setUserData, clearUserData]);
 
   return (
     <Routes>
@@ -38,25 +73,13 @@ export default function App() {
       />
 
       {/* 2. Groupe de Routes Protégées */}
-      <Route
-        element={
-          accessToken ? <Layout /> : <Navigate to="/login" replace />
-        }
-      >
+      <Route element={accessToken ? <Layout /> : <Navigate to="/login" replace />}>
         <Route path="/vision" element={<Vision />} />
         <Route path="/devis" element={<Devis />} />
         <Route path="/compta" element={<Compta />} />
-
-        {/* ✅ Nouvelle vraie route Dashboard */}
         <Route path="/dashboard" element={<Dashboard />} />
-
-        {/* ✅ Nouvelle route Settings */}
         <Route path="/settings" element={<Settings />} />
-
-        {/* ✅ / redirige vers /dashboard */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
-        {/* Redirections internes conservées */}
         <Route path="/assistant" element={<Navigate to="/vision" replace />} />
         <Route path="/factures" element={<Navigate to="/devis" replace />} />
       </Route>

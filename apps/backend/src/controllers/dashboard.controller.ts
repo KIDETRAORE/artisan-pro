@@ -57,18 +57,21 @@ export class DashboardController {
     // ===============================
     // ✅ Source de vérité QUOTA : ai_quota
     // ===============================
+    await quotaService.ensureQuotaRow(user.id); // ✅ garantit la ligne
     const quota = await quotaService.getUserQuota(user.id);
 
     const used = quota?.used ?? 0;
     const limit = quota?.monthly_limit ?? 0;
     const resetAt = quota?.reset_at ?? null;
 
-    const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+    const percent =
+      limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
 
     // ===============================
     // Features (si tu veux les baser sur plan+status)
     // ===============================
-    const isProActive = isPro(plan) && (statusRaw === "active" || statusRaw === "trialing"); // ✅ A
+    const isProActive =
+      isPro(plan) && (statusRaw === "active" || statusRaw === "trialing"); // ✅ A
 
     const features = {
       generate: true,

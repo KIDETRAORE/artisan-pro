@@ -148,51 +148,63 @@ export const quotaService = {
     };
   },
 
+  // ✅ MODIF UNIQUE: checkQuota() devient 100% READ-ONLY (pas de ensureQuotaRow, pas d'UPDATE)
   async checkQuota(userId: string, feature: string) {
+    // 1) PRO bypass (subscriptions)
+    const { data: sub, error: subErr } = await supabaseAdmin
+      .from("subscriptions")
+      .select("plan,status")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (subErr) {
+      return { ok: false as const, code: "quota_check_failed", reason: subErr.message };
+    }
+
+    const plan = normalizePlan(sub?.plan);
+    const status = normalizeStatus(sub?.status);
+
+    if (isProActive(plan, status)) {
+      return { ok: true as const, unlimited: true };
+    }
+
+    // 2) Read-only quota (ai_quota)
+    const { data: quota, error: qErr } = await supabaseAdmin
+      .from("ai_quota")
+      .select("monthly_limit, used, reset_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (qErr) {
+      return { ok: false as const, code: "quota_check_failed", reason: qErr.message };
+    }
+
+    if (!quota) {
+      return { ok: false as const, code: "quota_row_missing" };
+    }
+
     const weight = FEATURE_WEIGHTS[feature] ?? 1;
-    const q = await this.ensureQuotaRow(userId);
 
-    if (q.pro) return { allowed: true as const };
+    const limit = Number(quota.monthly_limit ?? 0);
+    let used = Number(quota.used ?? 0);
+    const resetAt = quota.reset_at ? new Date(quota.reset_at) : null;
 
-    const limit = Number(q.monthly_limit);
-    let used = Number(q.used);
-    const resetAt = q.reset_at ? new Date(q.reset_at) : null;
+    // ✅ Reset logique uniquement (sans UPDATE)
+    if (resetAt && new Date() >= resetAt) used = 0;
 
-    const now = new Date();
-    if (resetAt && now >= resetAt) {
-      used = 0;
-    }
-
-    const cap = FEATURE_CAPS[feature];
-    if (cap) {
-      const periodStart = firstDayOfMonthISO(now);
-
-      const { count, error } = await supabaseAdmin
-        .from("ai_usage")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .eq("feature", feature)
-        .gte("created_at", periodStart);
-
-      if (error) {
-        logger.error("[QuotaService] ai_usage cap lookup error", {
-          userId,
-          feature,
-          message: error.message,
-        });
-        throw new Error("ai_usage_cap_lookup_error");
-      }
-
-      if ((count ?? 0) >= cap) {
-        return { allowed: false as const, reason: "Cap feature atteint" };
-      }
-    }
-
+    // 3) Refus si dépassement
     if (limit > 0 && used + weight > limit) {
-      return { allowed: false as const, reason: "Quota insuffisant" };
+      return {
+        ok: false as const,
+        code: "quota_exceeded",
+        used,
+        limit,
+        weight,
+        resetAt: quota.reset_at ?? null,
+      };
     }
 
-    return { allowed: true as const };
+    return { ok: true as const };
   },
 
   async recordUsage(userId: string, feature: string, input?: string, output?: string) {

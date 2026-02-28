@@ -1,26 +1,22 @@
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
-import { quotaService } from "../services/quota.service";
-import { normalizePlan, isPro } from "../domain/plan";
+import { normalizePlan, isPro as isProPlan } from "../domain/plan";
 
 /**
- * SubscriptionService (P1)
- * ✅ Source de vérité plan/status : subscriptions
- * ✅ Source de vérité usage/quota : ai_quota
- *
- * ⚠️ Legacy:
- * - profiles.plan ❌
- * - user_usage ❌
- * - rpc increment_monthly_usage ❌
- *
- * Ce service est conservé pour compatibilité si d'autres fichiers l'importent encore,
- * mais la consommation réelle du quota doit être faite via quotaService.recordUsage().
+ * SubscriptionService
+ * ✅ Wrapper de lecture unique sur la table subscriptions
+ * ✅ Ne dépend PAS de profiles
+ * ✅ Ne gère PAS le quota (ai_quota est géré ailleurs)
  */
 export class SubscriptionService {
-  static async getUserPlan(userId: string): Promise<"FREE" | "PRO"> {
+  static async getUserSubscription(userId: string): Promise<{
+    plan: "free" | "pro";
+    status: string;
+    currentPeriodEnd: string | null;
+  }> {
     const { data, error } = await supabaseAdmin
       .from("subscriptions")
-      .select("plan,status")
+      .select("plan,status,current_period_end")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -28,42 +24,28 @@ export class SubscriptionService {
       throw new HttpError(500, "Failed to fetch subscription");
     }
 
-    const plan = normalizePlan(data?.plan); // ✅ C
+    const plan = normalizePlan(data?.plan); // "free" | "pro"
     const status = String(data?.status ?? "inactive").toLowerCase();
 
-    const isProActive = isPro(plan) && (status === "active" || status === "trialing"); // ✅ B
-    return isProActive ? "PRO" : "FREE";
+    const currentPeriodEndRaw = (data as any)?.current_period_end ?? null;
+    const currentPeriodEnd =
+      typeof currentPeriodEndRaw === "string" ? currentPeriodEndRaw : null;
+
+    return { plan, status, currentPeriodEnd };
   }
 
-  static async getMonthlyUsage(userId: string): Promise<number> {
-    const { data, error } = await supabaseAdmin
-      .from("ai_quota")
-      .select("used")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (error) {
-      throw new HttpError(500, "Failed to fetch quota usage");
-    }
-
-    return Number(data?.used ?? 0);
-  }
-
-  static async incrementUsage(_userId: string): Promise<void> {
-    throw new HttpError(
-      410,
-      "incrementUsage is deprecated. Use quotaService.recordUsage() after successful AI calls."
+  static async isPro(userId: string): Promise<boolean> {
+    const sub = await this.getUserSubscription(userId);
+    return (
+      isProPlan(sub.plan) &&
+      (sub.status === "active" || sub.status === "trialing")
     );
   }
 
-  static async checkAccess(userId: string, feature: string = "ai"): Promise<void> {
-    const plan = await this.getUserPlan(userId);
-
-    if (isPro(plan)) return; // ✅ A
-
-    const q = await quotaService.checkQuota(userId, feature);
-    if (!q.allowed) {
-      throw new HttpError(403, q.reason || "Quota insuffisant. Upgrade to PRO.");
+  static async requirePro(userId: string): Promise<void> {
+    const ok = await this.isPro(userId);
+    if (!ok) {
+      throw new HttpError(403, "Plan PRO requis");
     }
   }
 }

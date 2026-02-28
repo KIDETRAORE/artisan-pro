@@ -1,104 +1,68 @@
+// apps/backend/src/middlewares/quota.middleware.ts
 import type { Request, Response, NextFunction } from "express";
-import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
-import { isPro, normalizePlan } from "../domain/plan"; // ✅ A/B/C (ajout normalizePlan)
+import { sendError } from "../utils/apiError";
+import { quotaService } from "../services/quota.service";
 
-export const quotaMiddleware = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+function resolveFeature(req: Request): string {
+  const base = String(req.baseUrl || "").toLowerCase();
+
+  if (base.startsWith("/vision")) return "vision";
+  if (base.startsWith("/compta")) return "compta";
+  if (base.startsWith("/vocal")) return "vocal";
+  if (base.startsWith("/assistant")) return "assistant";
+  if (base.startsWith("/ai")) return "assistant";
+  if (base.startsWith("/devis")) return "devis";
+
+  return "assistant";
+}
+
+export const quotaMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    return sendError(req, res, 401, "unauthorized", "Utilisateur non authentifié");
+  }
+
+  const feature = resolveFeature(req);
+
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        error: "Utilisateur non authentifié",
-      });
-    }
+    const q = await quotaService.checkQuota(userId, feature);
 
-    const { data: sub, error: subErr } = await supabaseAdmin
-      .from("subscriptions")
-      .select("plan, status")
-      .eq("user_id", userId)
-      .maybeSingle();
+    if (!q?.ok) {
+      const code = (q as any)?.code ?? "quota_exceeded";
 
-    if (subErr) {
-      logger.error("❌ subscriptions lookup error", { userId, subErr });
-      return res.status(500).json({ success: false, error: "Erreur interne" });
-    }
-
-    // ✅ C: plan normalisé via helper unique
-    const plan = normalizePlan(sub?.plan);
-    const status = String(sub?.status ?? "inactive").toLowerCase();
-
-    // ✅ B (déjà OK): comparaison via isPro
-    const isProActive =
-      isPro(plan) && (status === "active" || status === "trialing");
-
-    if (isProActive) {
-      return next();
-    }
-
-    const { data: quota, error: quotaErr } = await supabaseAdmin
-      .from("ai_quota")
-      .select("monthly_limit, used, reset_at")
-      .eq("user_id", userId)
-      .single();
-
-    if (quotaErr || !quota) {
-      logger.error("❌ ai_quota lookup error", { userId, quotaErr });
-      return res
-        .status(404)
-        .json({ success: false, error: "Quota introuvable" });
-    }
-
-    const limit = Number(quota.monthly_limit ?? 0);
-    let used = Number(quota.used ?? 0);
-
-    const now = new Date();
-    const resetAt = quota.reset_at ? new Date(quota.reset_at) : null;
-
-    if (resetAt && now > resetAt) {
-      const nextReset = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-      logger.info("🔄 Reset quota mensuel", {
-        userId,
-        from: resetAt.toISOString(),
-        to: nextReset.toISOString(),
-      });
-
-      const { error: resetErr } = await supabaseAdmin
-        .from("ai_quota")
-        .update({
-          used: 0,
-          reset_at: nextReset.toISOString(),
-        })
-        .eq("user_id", userId);
-
-      if (resetErr) {
-        logger.error("❌ ai_quota reset error", { userId, resetErr });
-        return res
-          .status(500)
-          .json({ success: false, error: "Erreur interne" });
+      if (code === "quota_row_missing") {
+        return sendError(req, res, 403, "quota_row_missing", "Quota introuvable. Ouvre le dashboard puis réessaie.", {
+          feature,
+        });
       }
 
-      used = 0;
-    }
+      if (code === "quota_exceeded") {
+        return sendError(req, res, 403, "quota_exceeded", "Quota insuffisant. Passez au plan PRO.", {
+          feature,
+          used: (q as any)?.used,
+          limit: (q as any)?.limit,
+          requiredUnits: (q as any)?.weight,
+          resetAt: (q as any)?.resetAt ?? null,
+        });
+      }
 
-    if (limit > 0 && used >= limit) {
-      return res.status(403).json({
-        success: false,
-        error: "Quota mensuel IA dépassé. Passez au plan PRO.",
-        usage: used,
-        limit,
-        reset_at: quota.reset_at ?? null,
+      return sendError(req, res, 500, "quota_check_failed", "Erreur lors de la vérification quota", {
+        feature,
+        reason: (q as any)?.reason,
       });
     }
 
     return next();
   } catch (err: unknown) {
-    logger.error("🔥 Erreur Quota Middleware", err);
-    return res.status(500).json({ success: false, error: "Erreur interne" });
+    logger.error("quotaMiddleware: unexpected error", {
+      userId,
+      feature,
+      message: err instanceof Error ? err.message : String(err),
+    });
+
+    return sendError(req, res, 500, "quota_check_failed", "Erreur lors de la vérification quota", {
+      feature,
+    });
   }
 };

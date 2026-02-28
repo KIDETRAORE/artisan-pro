@@ -3,7 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 
 import { authMiddleware } from "@middlewares/auth.middleware";
-import { checkQuota } from "@middlewares/checkQuota.middleware";
+import { quotaMiddleware } from "@middlewares/quota.middleware";
 import { asyncHandler } from "@utils/asyncHandler";
 
 import {
@@ -43,7 +43,7 @@ const upload = multer({
 router.post(
   "/analyze",
   authMiddleware,
-  checkQuota,
+  quotaMiddleware,
   upload.single("image"),
   asyncHandler(analyzeVisionController)
 );

@@ -3,22 +3,46 @@ import {
   Camera,
   ShieldCheck,
   Loader2,
-  AlertTriangle,
-  Lightbulb,
-  Eye,
   Sparkles,
 } from "lucide-react";
 import { useAuth } from "../store/auth.store";
 import { useNavigate } from "react-router-dom";
-
-const API_URL = "http://localhost:8080/vision";
+import { fetchWithAuth } from "../auth/fetchWithAuth";
+import { useUser } from "../context/user.context";
 
 export default function Vision() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [analysis, setAnalysis] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { accessToken } = useAuth();
   const navigate = useNavigate();
+
+  const { user } = useAuth(); // (si dispo dans ton store)
+  const { userData, setUserData } = useUser();
+
+  const refreshQuotaFromDashboard = async () => {
+    try {
+      const data = await fetchWithAuth<any>("/dashboard", { method: "GET" });
+
+      const plan = data?.subscription?.plan ?? userData?.plan ?? "FREE";
+      const status = String(data?.subscription?.status ?? "inactive").toLowerCase();
+      const proActive = plan === "PRO" && (status === "active" || status === "trialing");
+
+      setUserData({
+        ...userData,
+        // conserve email/name si déjà présents
+        email: userData?.email ?? user?.email ?? undefined,
+        plan,
+        quota: proActive
+          ? undefined
+          : {
+              used: Number(data?.quota?.used ?? 0),
+              limit: Number(data?.quota?.limit ?? 0),
+            },
+      });
+    } catch {
+      // best effort
+    }
+  };
 
   const sendToExpertMode = (payload: any) => {
     navigate("/assistant");
@@ -45,22 +69,20 @@ export default function Vision() {
     form.append("image", file);
 
     try {
-      const res = await fetch(`${API_URL}/analyze`, {
+      const res = await fetchWithAuth<any>("/vision/analyze", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
         body: form,
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.error?.message || "Analyse échouée");
-      }
+      // fetchWithAuth renvoie déjà le JSON (selon implémentation).
+      // Si ton fetchWithAuth renvoie une Response, remplace par res.json().
+      const data = res;
 
       setAnalysis(data);
-    } catch (err) {
+
+      // ✅ refresh quota après succès
+      await refreshQuotaFromDashboard();
+    } catch {
       alert("Erreur lors de l'analyse.");
     } finally {
       setIsProcessing(false);

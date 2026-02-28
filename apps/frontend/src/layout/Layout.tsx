@@ -3,12 +3,27 @@ import { useLocation, Link, Outlet, useNavigate } from "react-router-dom";
 import { FileText, Camera, PieChart, X, Sparkles } from "lucide-react";
 
 import ExpertHubPanel, { type ExpertTab } from "../features/ai/ExpertHubPanel";
+import { useUser } from "../context/user.context";
 
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate(); // ✅ ajouté
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ExpertTab>("strategy");
+
+  const { userData } = useUser();
+
+  const plan = userData?.plan ?? "FREE";
+  const quota = userData?.quota;
+
+  const percentage =
+    quota && quota.limit > 0 ? Math.min(100, (quota.used / quota.limit) * 100) : 0;
+
+  const getBarColor = () => {
+    if (percentage < 60) return "bg-indigo-600";
+    if (percentage < 85) return "bg-amber-500";
+    return "bg-red-500";
+  };
 
   useEffect(() => {
     const onOpenExpert = () => {
@@ -45,11 +60,31 @@ export default function Layout() {
               <h1 className="text-xl font-black text-slate-900 leading-none flex items-center gap-1">
                 Artisan<span className="text-[#2563eb]">Pro</span>
               </h1>
+
               <div className="flex items-center gap-2 mt-1">
-                <div className="w-12 h-1.5 bg-slate-100 rounded-full"></div>
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                  Mode Illimité
+                  Plan {plan}
                 </span>
+
+                {quota ? (
+                  <div className="w-28">
+                    <div className="flex justify-between text-[9px] text-slate-400 font-black uppercase tracking-widest">
+                      <span>
+                        {quota.used}/{quota.limit}
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className={`${getBarColor()} h-full rounded-full`}
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">
+                    Illimité
+                  </span>
+                )}
               </div>
             </div>
           </Link>
@@ -107,7 +142,11 @@ export default function Layout() {
           }`}
           title="Mode Expert IA"
         >
-          {isChatOpen ? <X size={24} /> : <Sparkles size={24} className="animate-pulse" />}
+          {isChatOpen ? (
+            <X size={24} />
+          ) : (
+            <Sparkles size={24} className="animate-pulse" />
+          )}
         </button>
       </div>
 
@@ -130,7 +169,10 @@ export default function Layout() {
                     isActive ? item.color : "bg-slate-200"
                   }`}
                 >
-                  <Icon size={18} className={isActive ? "text-white" : "text-slate-600"} />
+                  <Icon
+                    size={18}
+                    className={isActive ? "text-white" : "text-slate-600"}
+                  />
                 </div>
                 <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">
                   {item.name}
