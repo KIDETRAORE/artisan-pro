@@ -17,6 +17,10 @@ const router = Router();
  * Validation (Zod)
  * ===============================
  */
+const AiRunBodySchema = z.object({
+  type: z.string().min(1).max(40).optional(),
+});
+
 const AiChatBodySchema = z.object({
   type: z.string().min(1).max(40).optional(),
   prompt: z.string().min(1, "Prompt manquant").max(10_000),
@@ -116,11 +120,12 @@ router.post(
   "/run",
   aiRateLimit,
   uploadMiddleware,
+  validateStrip(AiRunBodySchema, "body"),
   async (req: Request, res: Response) => {
     logger.info("[AI-ROUTE] /run request received");
 
     try {
-      const { type } = req.body as { type?: string };
+      const { type } = req.body as z.infer<typeof AiRunBodySchema>;
       const file = req.file;
 
       if (!req.user?.id) {
@@ -217,7 +222,7 @@ router.post(
 /**
  * ===============================
  * GET /ai/status/:jobId
- * - Ne renvoie pas failedReason brut (évite fuite d'infos)
+ * - ✅ Normalise l'erreur côté client (pas de fuite failedReason)
  * ===============================
  */
 router.get(
@@ -239,13 +244,28 @@ router.get(
 
       const state = await job.getState();
 
+      // ✅ Si failed : garder le détail côté serveur uniquement
+      if (state === "failed") {
+        logger.warn("[AI-ROUTE] job failed (details kept server-side)", {
+          jobId: String(job.id),
+          userId: req.user?.id,
+          failedReason: (job as any)?.failedReason,
+          stacktrace: (job as any)?.stacktrace,
+          requestId: (req as any)?.requestId,
+        });
+      }
+
       return res.status(200).json({
         success: true,
         status: state,
         result: state === "completed" ? job.returnvalue : null,
         error:
           state === "failed"
-            ? { code: "ai_job_failed", message: "L'IA n'a pas pu traiter la demande" }
+            ? {
+                code: "ai_job_failed",
+                message: "L'IA n'a pas pu traiter la demande",
+                requestId: (req as any)?.requestId ?? undefined,
+              }
             : null,
       });
     } catch (error: unknown) {

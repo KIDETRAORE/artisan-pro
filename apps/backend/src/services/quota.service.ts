@@ -61,6 +61,18 @@ function nextResetDate(from = new Date()): Date {
  * ======================
  */
 export const quotaService = {
+  // ✅ READ-ONLY
+  async getQuotaRow(userId: string) {
+    const { data, error } = await supabaseAdmin
+      .from("ai_quota")
+      .select("user_id, monthly_limit, used, reset_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ?? null;
+  },
+
   async ensureQuotaRow(userId: string) {
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
@@ -208,15 +220,51 @@ export const quotaService = {
   },
 
   async recordUsage(userId: string, feature: string, input?: string, output?: string) {
-    const q = await this.ensureQuotaRow(userId);
+    // ✅ MODIF UNIQUE: recordUsage devient READ-ONLY avant RPC (pas de ensureQuotaRow)
+    const { data: sub, error: subErr } = await supabaseAdmin
+      .from("subscriptions")
+      .select("plan,status")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (q.pro) {
+    if (subErr) {
+      logger.error("[QuotaService] subscriptions lookup error (recordUsage)", {
+        userId,
+        message: subErr.message,
+      });
+      throw new QuotaError("quota_check_failed");
+    }
+
+    const plan = normalizePlan(sub?.plan);
+    const status = normalizeStatus(sub?.status);
+    const pro = isProActive(plan, status);
+
+    if (pro) {
       void supabaseAdmin.from("ai_usage").insert({
         user_id: userId,
         feature,
         tokens_estimated: (estimateTokens(input) + estimateTokens(output)) || 0,
       });
       return;
+    }
+
+    // ✅ En FREE : on exige que la row quota existe déjà (initialisée via dashboard/login)
+    const { data: quota, error: qErr } = await supabaseAdmin
+      .from("ai_quota")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (qErr) {
+      logger.error("[QuotaService] ai_quota lookup error (recordUsage)", {
+        userId,
+        message: qErr.message,
+      });
+      throw new QuotaError("quota_check_failed");
+    }
+
+    if (!quota) {
+      throw new QuotaError("quota_row_missing");
     }
 
     const rawWeight = FEATURE_WEIGHTS[feature] ?? 1;

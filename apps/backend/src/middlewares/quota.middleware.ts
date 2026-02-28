@@ -26,31 +26,25 @@ export const quotaMiddleware = async (req: Request, res: Response, next: NextFun
   const feature = resolveFeature(req);
 
   try {
-    const q = await quotaService.checkQuota(userId, feature);
+    // ✅ READ-ONLY: SELECT uniquement (pas de ensureQuotaRow, pas d'UPDATE)
+    const q = await quotaService.getUserQuota(userId);
 
-    if (!q?.ok) {
-      const code = (q as any)?.code ?? "quota_exceeded";
+    // Si pas de ligne quota : forcer un passage par /dashboard (init)
+    if (!q) {
+      return sendError(
+        req,
+        res,
+        403,
+        "quota_not_initialized",
+        "Quota non initialisé. Ouvre le dashboard puis réessaie.",
+        { feature }
+      );
+    }
 
-      if (code === "quota_row_missing") {
-        return sendError(req, res, 403, "quota_row_missing", "Quota introuvable. Ouvre le dashboard puis réessaie.", {
-          feature,
-        });
-      }
-
-      if (code === "quota_exceeded") {
-        return sendError(req, res, 403, "quota_exceeded", "Quota insuffisant. Passez au plan PRO.", {
-          feature,
-          used: (q as any)?.used,
-          limit: (q as any)?.limit,
-          requiredUnits: (q as any)?.weight,
-          resetAt: (q as any)?.resetAt ?? null,
-        });
-      }
-
-      return sendError(req, res, 500, "quota_check_failed", "Erreur lors de la vérification quota", {
-        feature,
-        reason: (q as any)?.reason,
-      });
+    // ✅ Reset logique uniquement (sans UPDATE)
+    if (q.reset_at && new Date(q.reset_at).getTime() <= Date.now()) {
+      // IMPORTANT: pas d'update ici (read-only)
+      // Le dashboard fera l'init/refresh si nécessaire.
     }
 
     return next();
@@ -61,8 +55,13 @@ export const quotaMiddleware = async (req: Request, res: Response, next: NextFun
       message: err instanceof Error ? err.message : String(err),
     });
 
-    return sendError(req, res, 500, "quota_check_failed", "Erreur lors de la vérification quota", {
-      feature,
-    });
+    return sendError(
+      req,
+      res,
+      500,
+      "quota_check_failed",
+      "Impossible de vérifier le quota",
+      { feature }
+    );
   }
 };

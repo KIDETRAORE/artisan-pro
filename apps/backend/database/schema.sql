@@ -9,6 +9,8 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
   role text default 'user',
+  company_name text,
+  email text,
   created_at timestamp default now()
 );
 
@@ -98,18 +100,8 @@ for each row execute procedure public.handle_new_user();
 -- ============================
 -- 7️⃣ RPC: INCREMENT QUOTA (ATOMIC)
 -- ============================
-create or replace function public.increment_quota(row_id uuid, val integer)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  update public.ai_quota
-  set used = used + val
-  where user_id = row_id;
-end;
-$$;
+-- DEPRECATED: increment_quota(...) removed.
+-- Quota consumption is ONLY via RPC consume_ai_quota(uid, amt) defined in migrations.
 
 -- ============================
 -- 8️⃣ ENABLE RLS

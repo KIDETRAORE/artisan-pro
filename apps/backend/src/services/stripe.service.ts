@@ -197,15 +197,7 @@ export class StripeService {
           currentPeriodEnd,
         });
 
-        // ✅ optionnel: en FREE, s'assurer que la row quota existe
-        if (isDeleted) {
-          const existing = customerId ? await getSubscriptionByCustomerId(customerId) : null;
-          const userId = existing?.user_id;
-          if (userId) {
-            await quotaService.ensureQuotaRow(userId);
-          }
-        }
-
+        // ✅ MODIF UNIQUE: ne plus initialiser quota depuis Stripe (déplacé sur dashboard/login init)
         break;
       }
 
