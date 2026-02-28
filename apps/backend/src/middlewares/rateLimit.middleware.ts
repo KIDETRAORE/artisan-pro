@@ -16,6 +16,9 @@ const shouldSkipRateLimit = (req: Request): boolean => {
   return req.path.startsWith("/stripe/webhook");
 };
 
+// ✅ MODIF UNIQUE: prod strict, dev plus permissif
+const isProd = process.env.NODE_ENV === "production";
+
 /**
  * ===============================
  * 1️⃣ Limite Globale
@@ -25,7 +28,7 @@ const shouldSkipRateLimit = (req: Request): boolean => {
  */
 export const globalRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
+  max: isProd ? 300 : 2000, // ✅ MODIF UNIQUE
 
   standardHeaders: true,
   legacyHeaders: false,

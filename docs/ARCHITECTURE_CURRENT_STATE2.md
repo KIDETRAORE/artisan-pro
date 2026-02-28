@@ -477,3 +477,78 @@ A regression is:
 - Breaking unified response format
 
 Any regression invalidates the change.
+
+# 11 Input Validation Rules (Immutable)
+
+All external inputs must be validated using Zod schemas.
+
+This applies to:
+
+req.body
+
+req.params
+
+req.query
+
+No controller is allowed to access raw request data without prior validation.
+
+Mandatory Pattern
+
+Each route must:
+
+Define a Zod schema
+
+Use validateStrip(schema, target)
+
+Only use validated data (no manual casting without schema)
+
+✅ Example (Compliant)
+const AiChatBodySchema = z.object({
+  type: z.string().min(1).max(40).optional(),
+  prompt: z.string().min(1).max(10_000),
+  context: z.unknown().optional(),
+});
+
+router.post(
+  "/chat",
+  validateStrip(AiChatBodySchema, "body"),
+  async (req, res) => {
+    const { type, prompt, context } =
+      req.body as z.infer<typeof AiChatBodySchema>;
+  }
+);
+Multipart Special Case
+
+For multipart routes:
+
+Zod validates text fields
+
+Multer validates file presence and size
+
+Runtime check validates mime-type
+
+Example:
+
+router.post(
+  "/run",
+  uploadMiddleware,
+  validateStrip(AiRunBodySchema, "body"),
+  async (...)
+);
+Forbidden Patterns
+const { type } = req.body as { type?: string };
+if (!req.body.prompt) { ... }
+
+Manual validation without Zod schema is not allowed.
+
+Architectural Objective
+
+Enforce strict API contracts
+
+Eliminate manual validation logic
+
+Prevent silent runtime inconsistencies
+
+Prepare for future OpenAPI generation
+
+🔒 This rule is considered architecturally immutable.

@@ -3,7 +3,12 @@ import { Camera, ShieldCheck, Loader2, Sparkles } from "lucide-react";
 import { useAuth } from "../store/auth.store";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
-import { useUser, normalizePlan, normalizeStatus, isProActive } from "../context/user.context";
+import {
+  useUser,
+  normalizePlan,
+  normalizeStatus,
+  isProActive,
+} from "../context/user.context";
 
 export default function Vision() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -14,10 +19,23 @@ export default function Vision() {
   const { user } = useAuth();
   const { userData, setUserData } = useUser();
 
+  // ✅ MODIF 1: lock + throttle pour éviter les refresh quota en boucle
+  const quotaRefreshInFlightRef = useRef(false);
+  const lastQuotaRefreshAtRef = useRef(0);
+
   const refreshQuotaFromDashboard = async () => {
+    // ✅ throttle: 1 refresh max / 3 secondes
+    const now = Date.now();
+    if (quotaRefreshInFlightRef.current) return;
+    if (now - lastQuotaRefreshAtRef.current < 3000) return;
+
+    quotaRefreshInFlightRef.current = true;
+    lastQuotaRefreshAtRef.current = now;
+
     try {
       const data = await fetchWithAuth<any>("/dashboard", { method: "GET" });
 
+      // ✅ MODIF 2: setUserData doit recevoir un UserData direct (pas une fonction)
       const rawPlan = data?.subscription?.plan ?? userData?.plan ?? "free";
       const rawStatus = data?.subscription?.status ?? userData?.status ?? "inactive";
 
@@ -26,7 +44,7 @@ export default function Vision() {
       const proActive = isProActive(plan, status);
 
       setUserData({
-        ...userData,
+        ...(userData ?? {}),
         email: userData?.email ?? user?.email ?? undefined,
         plan,
         status,
@@ -36,9 +54,11 @@ export default function Vision() {
               used: Number(data?.quota?.used ?? 0),
               limit: Number(data?.quota?.limit ?? 0),
             },
-      });
+      } as any);
     } catch {
       // best effort
+    } finally {
+      quotaRefreshInFlightRef.current = false;
     }
   };
 

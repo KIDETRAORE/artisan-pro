@@ -51,6 +51,9 @@ function xlsxBase64ToPromptText(fileBase64: string): string {
 
   for (const name of sheets) {
     const sheet = wb.Sheets[name];
+    // ✅ MODIF 1 : guard pour éviter WorkSheet | undefined
+    if (!sheet) continue;
+
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: null }) as unknown[];
     out[name] = rows.slice(0, MAX_ROWS_PER_SHEET);
   }
@@ -94,12 +97,13 @@ export const aiWorker = new Worker(
     });
 
     const q = await quotaService.checkQuota(userId, feature);
-    if (!q.allowed) {
+    // ✅ MODIF 2 : allowed -> ok
+    if (!q.ok) {
       logger.warn("🚫 [WORKER-AI] Quota bloqué", {
         jobId: job.id,
         userId,
         feature,
-        reason: q.reason ?? "unknown",
+        reason: (q as any).reason ?? "unknown",
       });
       throw new Error("quota_exceeded");
     }

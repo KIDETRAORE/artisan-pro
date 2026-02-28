@@ -1,15 +1,23 @@
-import React, { useEffect } from "react";
+import React, { useEffect, Suspense, lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./store/auth.store";
-import { useUser, normalizePlan, normalizeStatus, isProActive } from "./context/user.context";
+import {
+  useUser,
+  normalizePlan,
+  normalizeStatus,
+  isProActive,
+} from "./context/user.context";
 import Layout from "./layout/Layout";
 import Login from "./pages/Login";
-import Vision from "./pages/Vision";
 import Devis from "./pages/Devis";
-import Compta from "./pages/Compta";
-import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import { fetchWithAuth } from "./auth/fetchWithAuth";
+
+// ✅ MODIF (Option B): lazy-load pages lourdes
+const Vision = lazy(() => import("./pages/Vision"));
+const Compta = lazy(() => import("./pages/Compta"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Assistant = lazy(() => import("./pages/Assistant"));
 
 type DashboardResponse = {
   user?: { id: string; email?: string | null };
@@ -65,27 +73,36 @@ export default function App() {
   }, [user, accessToken, setUserData, clearUserData]);
 
   return (
-    <Routes>
-      {/* 1. Route Publique */}
-      <Route
-        path="/login"
-        element={!accessToken ? <Login /> : <Navigate to="/vision" replace />}
-      />
+    // ✅ MODIF (Option B): Suspense autour des routes
+    <Suspense fallback={<div className="p-4">Chargement…</div>}>
+      <Routes>
+        {/* 1. Route Publique */}
+        <Route
+          path="/login"
+          element={!accessToken ? <Login /> : <Navigate to="/vision" replace />}
+        />
 
-      {/* 2. Groupe de Routes Protégées */}
-      <Route element={accessToken ? <Layout /> : <Navigate to="/login" replace />}>
-        <Route path="/vision" element={<Vision />} />
-        <Route path="/devis" element={<Devis />} />
-        <Route path="/compta" element={<Compta />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/assistant" element={<Navigate to="/vision" replace />} />
-        <Route path="/factures" element={<Navigate to="/devis" replace />} />
-      </Route>
+        {/* 2. Groupe de Routes Protégées */}
+        <Route
+          element={accessToken ? <Layout /> : <Navigate to="/login" replace />}
+        >
+          <Route path="/vision" element={<Vision />} />
+          <Route path="/devis" element={<Devis />} />
+          <Route path="/compta" element={<Compta />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-      {/* 3. Fallback */}
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+          {/* ✅ MODIF: route /assistant lazy-load au lieu de redirect */}
+          <Route path="/assistant" element={<Assistant />} />
+
+          {/* inchangé */}
+          <Route path="/factures" element={<Navigate to="/devis" replace />} />
+        </Route>
+
+        {/* 3. Fallback */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </Suspense>
   );
 }

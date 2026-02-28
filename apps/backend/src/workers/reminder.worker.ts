@@ -54,7 +54,11 @@ function buildSafeReminderPrompt(p: {
   ].join("\n");
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
   let timer: NodeJS.Timeout;
   return Promise.race([
     promise,
@@ -137,11 +141,12 @@ export const reminderWorker = new Worker(
     // ===============================
     // ✅ Pré-check quota AVANT coût IA
     const quotaCheck = await quotaService.checkQuota(userId, "relance");
-    if (!quotaCheck.allowed) {
+    // ✅ MODIF UNIQUE : allowed -> ok
+    if (!quotaCheck.ok) {
       logger.warn("🚫 Relance bloquée (quota)", {
         invoiceId,
         userId,
-        reason: quotaCheck.reason ?? "unknown",
+        reason: (quotaCheck as any).reason ?? "unknown",
       });
       return;
     }
@@ -153,11 +158,7 @@ export const reminderWorker = new Worker(
       companyName: invoice.company_name ?? "",
     });
 
-    const aiText = await withTimeout(
-      runAI("relance", { prompt, userId }),
-      20_000,
-      "runAI"
-    );
+    const aiText = await withTimeout(runAI("relance", { prompt, userId }), 20_000, "runAI");
 
     // ✅ Consommation quota APRÈS succès IA (bloquant)
     try {
@@ -177,7 +178,10 @@ export const reminderWorker = new Worker(
     }
 
     const body = String(aiText).slice(0, 8000);
-    const subject = `Relance facture - ${clampString(invoice.client_name ?? "Client", 80)}`;
+    const subject = `Relance facture - ${clampString(
+      invoice.client_name ?? "Client",
+      80
+    )}`;
 
     await withTimeout(
       sendReminderEmail(invoice.client_email!, subject, body),

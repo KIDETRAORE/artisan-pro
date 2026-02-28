@@ -1,15 +1,39 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { fileTypeFromBuffer } from "file-type";
+import { z } from "zod";
+
 import { aiQueue } from "../queues/ai.queue";
 import { logger } from "../utils/logger";
-import { supabaseAdmin } from "../lib/supabaseAdmin"; // ✅ AJOUTÉ
+import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { sendError } from "../utils/apiError";
+import { aiRateLimit } from "../middlewares/rateLimit.middleware";
+import { validateStrip } from "../middlewares/validate.middleware";
 
 const router = Router();
 
 /**
+ * ===============================
+ * Validation (Zod)
+ * ===============================
+ */
+const AiChatBodySchema = z.object({
+  type: z.string().min(1).max(40).optional(),
+  prompt: z.string().min(1, "Prompt manquant").max(10_000),
+  context: z.unknown().optional(),
+});
+
+const AiStatusParamsSchema = z.object({
+  jobId: z
+    .string()
+    .min(1)
+    .refine((v) => v !== "undefined", "ID de job invalide"),
+});
+
+/**
+ * ===============================
  * Multer memory storage
+ * ===============================
  */
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -19,10 +43,20 @@ const upload = multer({
 /**
  * Upload middleware
  */
-const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => void) => {
+const uploadMiddleware = (
+  req: Request,
+  res: Response,
+  next: (err?: unknown) => void
+) => {
   upload.single("file")(req, res, async (err: unknown) => {
     if (err) {
-      return sendError(req, res, 413, "file_too_large", "Fichier trop volumineux (max 15MB).");
+      return sendError(
+        req,
+        res,
+        413,
+        "file_too_large",
+        "Fichier trop volumineux (max 15MB)."
+      );
     }
 
     const file = (req as Request & { file?: Express.Multer.File }).file;
@@ -48,7 +82,9 @@ const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => 
     ];
 
     const fileName = file.originalname ?? "";
-    const ext = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() : undefined;
+    const ext = fileName.includes(".")
+      ? fileName.split(".").pop()?.toLowerCase()
+      : undefined;
     const isXlsx = ext === "xlsx";
 
     const detectedMime = detected?.mime ?? null;
@@ -57,7 +93,13 @@ const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => 
       (detectedMime === "application/zip" && isXlsx);
 
     if (!isAllowed) {
-      return sendError(req, res, 415, "unsupported_media_type", "Type de fichier non supporté.");
+      return sendError(
+        req,
+        res,
+        415,
+        "unsupported_media_type",
+        "Type de fichier non supporté."
+      );
     }
 
     return next();
@@ -65,144 +107,155 @@ const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => 
 };
 
 /**
+ * ===============================
  * POST /ai/run
+ * - Rate limit UNIQUEMENT ici
+ * ===============================
  */
-router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
-  logger.info("[AI-ROUTE] /run request received");
+router.post(
+  "/run",
+  aiRateLimit,
+  uploadMiddleware,
+  async (req: Request, res: Response) => {
+    logger.info("[AI-ROUTE] /run request received");
 
-  try {
-    const { type } = req.body as { type?: string };
-    const file = req.file;
+    try {
+      const { type } = req.body as { type?: string };
+      const file = req.file;
 
-    if (!req.user?.id) {
-      logger.warn("[AI-ROUTE] /run unauthorized (missing req.user.id)");
-      return sendError(req, res, 401, "unauthorized", "Non authentifié");
-    }
-
-    if (!file) {
-      logger.warn("[AI-ROUTE] /run missing file");
-      return sendError(req, res, 400, "missing_file", "Aucun fichier reçu");
-    }
-
-    const fileBase64 = file.buffer.toString("base64");
-
-    const job = await aiQueue.add(
-      "ai-task",
-      {
-        type: type || "vision",
-        userId: req.user.id,
-        fileBase64,
-        mimeType: file.mimetype,
-        fileName: file.originalname,
-      },
-      {
-        removeOnComplete: { age: 600, count: 50 },
-        removeOnFail: { age: 3600 },
+      if (!req.user?.id) {
+        logger.warn("[AI-ROUTE] /run unauthorized (missing req.user.id)");
+        return sendError(req, res, 401, "unauthorized", "Non authentifié");
       }
-    );
 
-    logger.info("[AI-ROUTE] /run job created", {
-      jobId: job.id,
-      userId: req.user.id,
-    });
+      if (!file) {
+        logger.warn("[AI-ROUTE] /run missing file");
+        return sendError(req, res, 400, "missing_file", "Aucun fichier reçu");
+      }
 
-    return res.status(200).json({ success: true, jobId: job.id });
-  } catch (error: unknown) {
-    logger.error("[AI-ROUTE] /run failed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return sendError(req, res, 500, "internal_error", "Internal Server Error");
+      const fileBase64 = file.buffer.toString("base64");
+
+      const job = await aiQueue.add(
+        "ai-task",
+        {
+          type: type || "vision",
+          userId: req.user.id,
+          fileBase64,
+          mimeType: file.mimetype,
+          fileName: file.originalname,
+        },
+        {
+          removeOnComplete: { age: 600, count: 50 },
+          removeOnFail: { age: 3600 },
+        }
+      );
+
+      logger.info("[AI-ROUTE] /run job created", {
+        jobId: job.id,
+        userId: req.user.id,
+      });
+
+      return res.status(200).json({ success: true, jobId: job.id });
+    } catch (error: unknown) {
+      logger.error("[AI-ROUTE] /run failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return sendError(req, res, 500, "internal_error", "Internal Server Error");
+    }
   }
-});
+);
 
 /**
+ * ===============================
  * POST /ai/chat
+ * ===============================
  */
-router.post("/chat", async (req: Request, res: Response) => {
-  logger.info("[AI-ROUTE] /chat request received");
+router.post(
+  "/chat",
+  validateStrip(AiChatBodySchema, "body"),
+  async (req: Request, res: Response) => {
+    logger.info("[AI-ROUTE] /chat request received");
 
-  try {
-    const { type, prompt, context } = req.body as {
-      type?: string;
-      prompt?: string;
-      context?: unknown;
-    };
+    try {
+      const { type, prompt, context } =
+        req.body as z.infer<typeof AiChatBodySchema>;
 
-    if (!req.user?.id) {
-      logger.warn("[AI-ROUTE] /chat unauthorized (missing req.user.id)");
-      return sendError(req, res, 401, "unauthorized", "Non authentifié");
-    }
-
-    if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
-      logger.warn("[AI-ROUTE] /chat missing prompt");
-      return sendError(req, res, 400, "missing_prompt", "Prompt manquant");
-    }
-
-    const job = await aiQueue.add(
-      "ai-task",
-      {
-        type: type || "expert",
-        userId: req.user.id,
-        prompt,
-        context,
-      },
-      {
-        removeOnComplete: { age: 600, count: 50 },
-        removeOnFail: { age: 3600 },
+      if (!req.user?.id) {
+        logger.warn("[AI-ROUTE] /chat unauthorized (missing req.user.id)");
+        return sendError(req, res, 401, "unauthorized", "Non authentifié");
       }
-    );
 
-    logger.info("[AI-ROUTE] /chat job created", {
-      jobId: job.id,
-      userId: req.user.id,
-    });
+      const job = await aiQueue.add(
+        "ai-task",
+        {
+          type: type || "expert",
+          userId: req.user.id,
+          prompt,
+          context,
+        },
+        {
+          removeOnComplete: { age: 600, count: 50 },
+          removeOnFail: { age: 3600 },
+        }
+      );
 
-    return res.status(200).json({ success: true, jobId: job.id });
-  } catch (error: unknown) {
-    logger.error("[AI-ROUTE] /chat failed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return sendError(req, res, 500, "internal_error", "Internal Server Error");
+      logger.info("[AI-ROUTE] /chat job created", {
+        jobId: job.id,
+        userId: req.user.id,
+      });
+
+      return res.status(200).json({ success: true, jobId: job.id });
+    } catch (error: unknown) {
+      logger.error("[AI-ROUTE] /chat failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return sendError(req, res, 500, "internal_error", "Internal Server Error");
+    }
   }
-});
+);
 
 /**
+ * ===============================
  * GET /ai/status/:jobId
+ * - Ne renvoie pas failedReason brut (évite fuite d'infos)
+ * ===============================
  */
-router.get("/status/:jobId", async (req: Request, res: Response) => {
-  try {
-    const jobId = String(req.params.jobId);
+router.get(
+  "/status/:jobId",
+  validateStrip(AiStatusParamsSchema, "params"),
+  async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as z.infer<typeof AiStatusParamsSchema>;
 
-    if (!jobId || jobId === "undefined") {
-      return sendError(req, res, 400, "invalid_job_id", "ID de job invalide");
+      const job = await aiQueue.getJob(String(jobId));
+      if (!job) {
+        return sendError(req, res, 404, "not_found", "Analyse introuvable");
+      }
+
+      const ownerId = (job.data as any)?.userId as string | undefined;
+      if (ownerId && req.user?.id && ownerId !== req.user.id) {
+        return sendError(req, res, 403, "forbidden", "Forbidden");
+      }
+
+      const state = await job.getState();
+
+      return res.status(200).json({
+        success: true,
+        status: state,
+        result: state === "completed" ? job.returnvalue : null,
+        error:
+          state === "failed"
+            ? { code: "ai_job_failed", message: "L'IA n'a pas pu traiter la demande" }
+            : null,
+      });
+    } catch (error: unknown) {
+      logger.error("[AI-ROUTE] /status failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return sendError(req, res, 500, "internal_error", "Internal Server Error");
     }
-
-    const job = await aiQueue.getJob(jobId);
-
-    if (!job) {
-      return sendError(req, res, 404, "not_found", "Analyse introuvable");
-    }
-
-    const ownerId = (job.data as any)?.userId as string | undefined;
-    if (ownerId && req.user?.id && ownerId !== req.user.id) {
-      return sendError(req, res, 403, "forbidden", "Forbidden");
-    }
-
-    const state = await job.getState();
-
-    return res.status(200).json({
-      success: true,
-      status: state,
-      result: state === "completed" ? job.returnvalue : null,
-      error: state === "failed" ? job.failedReason : null,
-    });
-  } catch (error: unknown) {
-    logger.error("[AI-ROUTE] /status failed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return sendError(req, res, 500, "internal_error", "Internal Server Error");
   }
-});
+);
 
 /**
  * ✅ NOUVELLE ROUTE
