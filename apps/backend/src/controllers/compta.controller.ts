@@ -5,6 +5,7 @@ import { runAI } from "@services/ai/gemini.service";
 import { quotaService } from "@services/quota.service";
 import { logger } from "@utils/logger";
 import { HttpError } from "@utils/httpError";
+import { sendError } from "@utils/apiError";
 
 type AuthedRequest = Request & {
   user?: { id?: string };
@@ -64,16 +65,16 @@ export const comptaController = {
       });
 
       if (err instanceof HttpError) {
-        return res.status(err.statusCode).json({
-          success: false,
-          error: err.message,
-        });
+        return sendError(req, res, err.statusCode, "http_error", err.message);
       }
 
-      return res.status(500).json({
-        success: false,
-        error: "Erreur lors de l'analyse comptable",
-      });
+      return sendError(
+        req,
+        res,
+        500,
+        "compta_analysis_failed",
+        "Erreur lors de l'analyse comptable"
+      );
     }
   },
 };

@@ -9,6 +9,7 @@ import {
   markStripeEventProcessed,
 } from "../services/stripe/stripeIdempotency";
 import { normalizePlan } from "../domain/plan"; // ✅ MODIF: helper unique
+import { sendError } from "../utils/apiError";
 
 const router = Router();
 
@@ -27,20 +28,18 @@ router.post("/", async (req: Request, res: Response) => {
     : signatureHeader;
 
   if (!signature) {
-    return res.status(400).json({
-      received: false,
-      error: "missing_stripe_signature",
-      message: "Missing stripe-signature header",
-    });
+    return sendError(
+      req,
+      res,
+      400,
+      "missing_stripe_signature",
+      "Missing stripe-signature header"
+    );
   }
 
   if (!Buffer.isBuffer(req.body)) {
     logger.error("Stripe webhook requires raw body (Buffer)");
-    return res.status(400).json({
-      received: false,
-      error: "raw_body_required",
-      message: "Webhook raw body required",
-    });
+    return sendError(req, res, 400, "raw_body_required", "Webhook raw body required");
   }
 
   let event: Stripe.Event;
@@ -54,11 +53,13 @@ router.post("/", async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     logger.error("Stripe signature verification failed", { message });
-    return res.status(400).json({
-      received: false,
-      error: "invalid_signature",
-      message: "Stripe webhook signature verification failed",
-    });
+    return sendError(
+      req,
+      res,
+      400,
+      "invalid_signature",
+      "Stripe webhook signature verification failed"
+    );
   }
 
   const eventId = event.id;
@@ -96,11 +97,7 @@ router.post("/", async (req: Request, res: Response) => {
       eventType,
       message: err instanceof Error ? err.message : String(err),
     });
-    return res.status(500).json({
-      received: false,
-      error: "idempotency_storage_error",
-      message: "Internal Server Error",
-    });
+    return sendError(req, res, 500, "idempotency_storage_error", "Internal Server Error");
   }
 
   logger.info("Stripe event received", { eventType, eventId });
@@ -172,10 +169,13 @@ router.post("/", async (req: Request, res: Response) => {
         const userId = subscription.metadata?.userId;
 
         if (!userId) {
-          logger.warn("No userId found in subscription metadata (subscription.updated)", {
-            eventId,
-            subscriptionId: subscription.id,
-          });
+          logger.warn(
+            "No userId found in subscription metadata (subscription.updated)",
+            {
+              eventId,
+              subscriptionId: subscription.id,
+            }
+          );
           break;
         }
 
@@ -233,11 +233,7 @@ router.post("/", async (req: Request, res: Response) => {
       eventType,
       message: err instanceof Error ? err.message : String(err),
     });
-    return res.status(500).json({
-      received: false,
-      error: "processing_error",
-      message: "Internal Server Error",
-    });
+    return sendError(req, res, 500, "processing_error", "Internal Server Error");
   }
 });
 

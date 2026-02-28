@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import type { UserRole } from "@auth/permissions";
 import { logger } from "@utils/logger";
+import { sendError } from "@utils/apiError";
 
 /**
  * requireRole
@@ -12,10 +13,7 @@ export const requireRole = (allowedRole: UserRole | readonly UserRole[]) => {
 
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        error: "Authentification requise",
-      });
+      return sendError(req, res, 401, "unauthorized", "Authentification requise");
     }
 
     const userRole = req.user.role;
@@ -29,10 +27,14 @@ export const requireRole = (allowedRole: UserRole | readonly UserRole[]) => {
         method: req.method,
       });
 
-      return res.status(403).json({
-        success: false,
-        error: "Accès interdit (droits insuffisants)",
-      });
+      return sendError(
+        req,
+        res,
+        403,
+        "forbidden",
+        "Accès interdit (droits insuffisants)",
+        { requiredRoles: roles, userRole }
+      );
     }
 
     return next();

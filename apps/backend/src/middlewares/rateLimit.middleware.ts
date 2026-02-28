@@ -1,5 +1,6 @@
 import rateLimit from "express-rate-limit";
-import type { Request } from "express";
+import type { Request, Response } from "express";
+import { sendError } from "../utils/apiError";
 
 /**
  * ===============================
@@ -31,9 +32,14 @@ export const globalRateLimit = rateLimit({
 
   skip: shouldSkipRateLimit,
 
-  message: {
-    success: false,
-    error: "Trop de requêtes globales, réessayez plus tard.",
+  handler: (req: Request, res: Response) => {
+    return sendError(
+      req,
+      res,
+      429,
+      "rate_limited_global",
+      "Trop de requêtes globales, réessayez plus tard."
+    );
   },
 });
 
@@ -53,10 +59,13 @@ export const aiRateLimit = rateLimit({
 
   skip: shouldSkipRateLimit,
 
-  handler: (_req, res) => {
-    return res.status(429).json({
-      success: false,
-      error: "Limite d'utilisation de l'IA atteinte pour cette minute.",
-    });
+  handler: (req: Request, res: Response) => {
+    return sendError(
+      req,
+      res,
+      429,
+      "rate_limited_ai",
+      "Limite d'utilisation de l'IA atteinte pour cette minute."
+    );
   },
 });

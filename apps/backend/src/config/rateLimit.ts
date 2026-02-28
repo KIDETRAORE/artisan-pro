@@ -1,6 +1,7 @@
 import rateLimit from "express-rate-limit";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { ENV } from "../config/env";
+import { sendError } from "../utils/apiError";
 
 /**
  * Génère une clé unique de rate limit
@@ -29,10 +30,13 @@ export const rateLimitMiddleware = rateLimit({
 
   keyGenerator,
 
-  handler: (_req, res) => {
-    res.status(429).json({
-      error: "TOO_MANY_REQUESTS",
-      message: "Trop de requêtes. Merci de réessayer plus tard."
-    });
+  handler: (req: Request, res: Response) => {
+    return sendError(
+      req,
+      res,
+      429,
+      "rate_limited",
+      "Trop de requêtes, réessaie plus tard."
+    );
   }
 });

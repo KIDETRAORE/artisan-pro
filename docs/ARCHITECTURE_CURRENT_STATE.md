@@ -111,3 +111,333 @@ Quota / Usage
 GET /quota (si tu exposes l’état)
 
 RPC DB : consume_ai_quota(uid, amt) (source de vérité conso)
+
+---
+
+# 🚨 NON-NEGOTIABLE BACKEND CONSTRAINTS (ANTI-REGRESSION RULES)
+
+These rules MUST NEVER be violated in future refactors, file rewrites, or new feature additions.
+
+If a future change contradicts these rules, it is considered a regression.
+
+---
+
+## 1️⃣ Unified Error Response Format (MANDATORY)
+
+All API errors MUST follow this structure:
+
+{
+  "success": false,
+  "error": {
+    "code": "string_code",
+    "message": "Human readable message"
+  },
+  "details": optional
+}
+
+### ❌ Forbidden patterns
+
+res.json({ success:false, error:"..." })
+res.status(...).json({ error:"..." })
+res.json({ success:false, message:"..." })
+
+### ✅ Allowed patterns only
+
+return sendError(req, res, status, code, message, details?)
+
+OR
+
+throw new HttpError(status, code, message, details)
+
+Handled centrally by error.middleware.ts.
+
+No exception.
+
+---
+
+## 2️⃣ profiles Table Is NOT A Cache
+
+The table public.profiles contains ONLY:
+
+- id
+- full_name
+- role
+- created_at
+
+It MUST NEVER contain:
+- plan
+- subscription_status
+- email
+- quota fields
+- monthly counters
+
+All subscription logic → public.subscriptions
+All quota logic → public.ai_quota + RPC consume_ai_quota
+
+Any reference to:
+- profiles.plan
+- profiles.email
+- monthly_quota_*
+- quota_reset_at
+- subscription_status
+
+is a regression.
+
+---
+
+## 3️⃣ Quota Architecture Rules
+
+Quota check:
+- Performed by quotaMiddleware
+- READ-ONLY
+- Never writes to DB
+
+Quota consumption:
+- ONLY via RPC: consume_ai_quota(uid, amt)
+- Called AFTER successful AI execution
+
+Never manually UPDATE ai_quota.used outside RPC.
+
+---
+
+## 4️⃣ Stripe v20 Constraints
+
+When accessing Stripe runtime-only fields:
+- (obj as any).current_period_end
+- (invoice as any).subscription
+
+No @ts-ignore allowed.
+
+No custom Stripe type overrides.
+
+---
+
+## 5️⃣ Single Source of Truth
+
+Subscriptions:
+→ public.subscriptions
+
+Quota:
+→ public.ai_quota
+
+Authentication:
+→ Supabase Auth
+
+profiles is NOT business logic storage.
+
+---
+
+## 6️⃣ Regression Detection
+
+Before merging:
+- No usage of forbidden error shapes
+- No UPDATE profiles for business logic
+- No quota write outside RPC
+
+Search commands:
+
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'success\s*:\s*false\s*,\s*error\s*:\s*["'']'
+
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles\.plan|monthly_quota_|quota_reset_|subscription_status'
+
+If any result appears → fix required.
+
+---
+
+# 🔐 ARCHITECTURAL IMMUTABILITY PROTOCOL
+## (Mandatory Workflow For Every New Session)
+
+This protocol defines how the project must evolve without introducing regressions.
+
+It applies to:
+- New features
+- Refactors
+- File rewrites
+- Hotfixes
+- Stripe updates
+- Quota updates
+- Error handling changes
+
+If this protocol is not followed, the architecture is considered unstable.
+
+---
+
+# 1️⃣ Session Boot Sequence (MANDATORY)
+
+At the beginning of every new ChatGPT session:
+
+1. Upload FULL project ZIP
+2. Require a complete scan of ALL files
+3. Require reading of:
+   - ARCHITECTURE_CURRENT_STATE.md
+   - Database schema (schema.sql or Supabase dump)
+
+No assumptions allowed.
+No partial memory allowed.
+No inferred structure allowed.
+
+All decisions must be based on the uploaded code only.
+
+---
+
+# 2️⃣ No Full File Regeneration Without Justification
+
+Rule:
+
+Full file rewrites are forbidden unless:
+- The file is fundamentally broken
+- The architecture requires structural redesign
+- Explicitly requested
+
+Preferred method:
+- Provide targeted patches
+- Replace specific blocks only
+- Preserve untouched logic
+
+Reason:
+Full rewrites increase regression risk.
+
+---
+
+# 3️⃣ Mandatory Post-Modification Verification
+
+After any backend modification, the following checks MUST be run:
+
+### Error shape validation
+Search:
+
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'success\s*:\s*false\s*,\s*error\s*:\s*["'']'
+
+Expected result: NONE
+
+---
+
+### profiles misuse validation
+
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles\.plan|monthly_quota_|quota_reset_|subscription_status'
+
+Expected result: NONE
+
+---
+
+### Quota write validation
+
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'update\("ai_quota"\)|\.update\({[^}]*used'
+
+Expected result:
+Only inside RPC definition (if present)
+Never inside middleware or controller.
+
+---
+
+If any violation appears → modification is rejected.
+
+---
+
+# 4️⃣ Error Handling Architecture Is Immutable
+
+All errors MUST follow:
+
+{
+  "success": false,
+  "error": {
+    "code": "...",
+    "message": "..."
+  },
+  "details": optional
+}
+
+Allowed mechanisms:
+
+- return sendError(...)
+- throw new HttpError(...)
+
+Forbidden:
+
+res.json({ success:false, error:"..." })
+res.json({ error:"..." })
+res.json({ success:false, message:"..." })
+
+---
+
+# 5️⃣ Quota System Rules (Immutable)
+
+Pre-check:
+- checkQuota (or quotaMiddleware)
+- READ-ONLY
+- No DB writes
+
+Consumption:
+- Only via RPC consume_ai_quota(uid, amt)
+- Only after successful AI execution
+
+No manual increment of ai_quota.used allowed.
+
+---
+
+# 6️⃣ profiles Table Is Structural Only
+
+profiles contains only:
+- id
+- full_name
+- role
+- created_at
+
+It is NOT:
+- a cache
+- a subscription store
+- a quota store
+- an email store
+
+All subscription logic → subscriptions
+All quota logic → ai_quota
+
+---
+
+# 7️⃣ Stripe Integration Rules
+
+- Stripe v20 only
+- Runtime-only fields accessed via (obj as any)
+- No @ts-ignore
+- subscriptions table is single source of truth
+
+---
+
+# 8️⃣ Decision Hierarchy
+
+When in doubt:
+
+1. ARCHITECTURE_CURRENT_STATE.md
+2. Database schema
+3. Existing production logic
+4. Minimal change principle
+
+Never redesign unless explicitly requested.
+
+---
+
+# 9️⃣ Stability Principle
+
+The system must evolve by:
+
+- Adding layers
+- Improving modules
+- Refactoring internally
+
+But never by breaking invariants defined in this document.
+
+---
+
+# 🔟 Definition of Regression
+
+A regression is:
+
+- Reintroducing forbidden error shapes
+- Writing business logic into profiles
+- Writing quota outside RPC
+- Creating duplicate middleware logic
+- Breaking unified response format
+
+Any regression invalidates the change.
+
+---

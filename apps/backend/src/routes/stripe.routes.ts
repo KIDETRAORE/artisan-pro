@@ -5,6 +5,7 @@ import { ENV } from "../config/env";
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
+import { sendError } from "../utils/apiError";
 
 const router = Router();
 
@@ -18,12 +19,12 @@ const stripe = new Stripe(ENV.STRIPE_SECRET_KEY, {
 router.post("/create-checkout-session", authMiddleware, async (req, res) => {
   try {
     const user = req.user;
-    if (!user?.id)
-      return res.status(401).json({ success: false, error: "Non authentifié" });
-    if (!user.email)
-      return res
-        .status(400)
-        .json({ success: false, error: "Email utilisateur manquant" });
+    if (!user?.id) {
+      return sendError(req, res, 401, "unauthorized", "Non authentifié");
+    }
+    if (!user.email) {
+      return sendError(req, res, 400, "missing_email", "Email utilisateur manquant");
+    }
 
     // ✅ Source of truth: subscriptions.stripe_customer_id (no profiles fallback)
     const { data: sub } = await supabaseAdmin
@@ -52,9 +53,13 @@ router.post("/create-checkout-session", authMiddleware, async (req, res) => {
     return res.status(200).json({ success: true, url: session.url });
   } catch (error: any) {
     logger.error("Stripe checkout error", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Erreur création session Stripe" });
+    return sendError(
+      req,
+      res,
+      500,
+      "stripe_checkout_failed",
+      "Erreur création session Stripe"
+    );
   }
 });
 
@@ -65,8 +70,9 @@ router.post("/create-checkout-session", authMiddleware, async (req, res) => {
 router.post("/portal", authMiddleware, async (req, res) => {
   try {
     const user = req.user;
-    if (!user?.id)
-      return res.status(401).json({ success: false, error: "Non authentifié" });
+    if (!user?.id) {
+      return sendError(req, res, 401, "unauthorized", "Non authentifié");
+    }
 
     const { data: sub } = await supabaseAdmin
       .from("subscriptions")
@@ -77,9 +83,13 @@ router.post("/portal", authMiddleware, async (req, res) => {
     const customerId = sub?.stripe_customer_id ?? null;
 
     if (!customerId) {
-      return res.status(404).json({
-        error: "stripe_customer_not_found",
-      });
+      return sendError(
+        req,
+        res,
+        404,
+        "stripe_customer_not_found",
+        "stripe_customer_not_found"
+      );
     }
 
     const portalSession = await stripe.billingPortal.sessions.create({
@@ -90,9 +100,13 @@ router.post("/portal", authMiddleware, async (req, res) => {
     return res.status(200).json({ success: true, url: portalSession.url });
   } catch (error: any) {
     logger.error("Stripe portal error", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Erreur création portail Stripe" });
+    return sendError(
+      req,
+      res,
+      500,
+      "stripe_portal_failed",
+      "Erreur création portail Stripe"
+    );
   }
 });
 

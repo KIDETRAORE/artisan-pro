@@ -11,6 +11,7 @@ import { globalRateLimit } from "./middlewares/rateLimit.middleware";
 import { logger } from "./utils/logger";
 import { applySecurity } from "./middlewares/security.middleware";
 import { observabilityMiddleware } from "./middlewares/observability.middleware";
+import { sendError } from "./utils/apiError";
 
 // ✅ Central router (toutes les routes business)
 import router from "./routes";
@@ -142,12 +143,12 @@ app.use(cors(corsOptions));
 app.use(
   (
     err: unknown,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
     next: express.NextFunction
   ) => {
     if (err instanceof Error && err.message === "CORS_NOT_ALLOWED") {
-      return res.status(403).json({ success: false, error: "CORS not allowed" });
+      return sendError(req, res, 403, "cors_forbidden", "Origine non autorisée");
     }
     return next(err);
   }
@@ -183,8 +184,11 @@ app.use("/", router);
  * 404
  * ======================
  */
-app.use((_req, res) => {
-  res.status(404).json({ success: false, error: "Route not found" });
+app.use((req, res) => {
+  return sendError(req, res, 404, "not_found", "Route introuvable", {
+    method: req.method,
+    path: req.originalUrl,
+  });
 });
 
 /**

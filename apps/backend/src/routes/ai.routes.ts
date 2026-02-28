@@ -1,10 +1,10 @@
-// apps/backend/src/routes/ai.routes.ts
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { fileTypeFromBuffer } from "file-type";
 import { aiQueue } from "../queues/ai.queue";
 import { logger } from "../utils/logger";
 import { supabaseAdmin } from "../lib/supabaseAdmin"; // ✅ AJOUTÉ
+import { sendError } from "../utils/apiError";
 
 const router = Router();
 
@@ -22,10 +22,7 @@ const upload = multer({
 const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => void) => {
   upload.single("file")(req, res, async (err: unknown) => {
     if (err) {
-      return res.status(413).json({
-        success: false,
-        error: "Fichier trop volumineux (max 15MB).",
-      });
+      return sendError(req, res, 413, "file_too_large", "Fichier trop volumineux (max 15MB).");
     }
 
     const file = (req as Request & { file?: Express.Multer.File }).file;
@@ -60,10 +57,7 @@ const uploadMiddleware = (req: Request, res: Response, next: (err?: unknown) => 
       (detectedMime === "application/zip" && isXlsx);
 
     if (!isAllowed) {
-      return res.status(415).json({
-        success: false,
-        error: "Type de fichier non supporté.",
-      });
+      return sendError(req, res, 415, "unsupported_media_type", "Type de fichier non supporté.");
     }
 
     return next();
@@ -82,12 +76,12 @@ router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
 
     if (!req.user?.id) {
       logger.warn("[AI-ROUTE] /run unauthorized (missing req.user.id)");
-      return res.status(401).json({ success: false, error: "Non authentifié" });
+      return sendError(req, res, 401, "unauthorized", "Non authentifié");
     }
 
     if (!file) {
       logger.warn("[AI-ROUTE] /run missing file");
-      return res.status(400).json({ success: false, error: "Aucun fichier reçu" });
+      return sendError(req, res, 400, "missing_file", "Aucun fichier reçu");
     }
 
     const fileBase64 = file.buffer.toString("base64");
@@ -117,7 +111,7 @@ router.post("/run", uploadMiddleware, async (req: Request, res: Response) => {
     logger.error("[AI-ROUTE] /run failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-    return res.status(500).json({ success: false, error: "Internal Server Error" });
+    return sendError(req, res, 500, "internal_error", "Internal Server Error");
   }
 });
 
@@ -136,12 +130,12 @@ router.post("/chat", async (req: Request, res: Response) => {
 
     if (!req.user?.id) {
       logger.warn("[AI-ROUTE] /chat unauthorized (missing req.user.id)");
-      return res.status(401).json({ success: false, error: "Non authentifié" });
+      return sendError(req, res, 401, "unauthorized", "Non authentifié");
     }
 
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
       logger.warn("[AI-ROUTE] /chat missing prompt");
-      return res.status(400).json({ success: false, error: "Prompt manquant" });
+      return sendError(req, res, 400, "missing_prompt", "Prompt manquant");
     }
 
     const job = await aiQueue.add(
@@ -168,7 +162,7 @@ router.post("/chat", async (req: Request, res: Response) => {
     logger.error("[AI-ROUTE] /chat failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-    return res.status(500).json({ success: false, error: "Internal Server Error" });
+    return sendError(req, res, 500, "internal_error", "Internal Server Error");
   }
 });
 
@@ -180,18 +174,18 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
     const jobId = String(req.params.jobId);
 
     if (!jobId || jobId === "undefined") {
-      return res.status(400).json({ success: false, error: "ID de job invalide" });
+      return sendError(req, res, 400, "invalid_job_id", "ID de job invalide");
     }
 
     const job = await aiQueue.getJob(jobId);
 
     if (!job) {
-      return res.status(404).json({ success: false, error: "Analyse introuvable" });
+      return sendError(req, res, 404, "not_found", "Analyse introuvable");
     }
 
     const ownerId = (job.data as any)?.userId as string | undefined;
     if (ownerId && req.user?.id && ownerId !== req.user.id) {
-      return res.status(403).json({ success: false, error: "Forbidden" });
+      return sendError(req, res, 403, "forbidden", "Forbidden");
     }
 
     const state = await job.getState();
@@ -206,7 +200,7 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
     logger.error("[AI-ROUTE] /status failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-    return res.status(500).json({ success: false, error: "Internal Server Error" });
+    return sendError(req, res, 500, "internal_error", "Internal Server Error");
   }
 });
 
@@ -217,7 +211,7 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
 router.get("/compta/latest", async (req: Request, res: Response) => {
   try {
     if (!req.user?.id) {
-      return res.status(401).json({ success: false, error: "Non authentifié" });
+      return sendError(req, res, 401, "unauthorized", "Non authentifié");
     }
 
     const { data, error } = await supabaseAdmin
@@ -230,7 +224,7 @@ router.get("/compta/latest", async (req: Request, res: Response) => {
       .limit(1);
 
     if (error) {
-      return res.status(500).json({ success: false, error: "DB error" });
+      return sendError(req, res, 500, "db_error", "DB error");
     }
 
     const row = data?.[0];
@@ -242,10 +236,7 @@ router.get("/compta/latest", async (req: Request, res: Response) => {
       id: row?.id ?? null,
     });
   } catch {
-    return res.status(500).json({
-      success: false,
-      error: "Internal Server Error",
-    });
+    return sendError(req, res, 500, "internal_error", "Internal Server Error");
   }
 });
 
