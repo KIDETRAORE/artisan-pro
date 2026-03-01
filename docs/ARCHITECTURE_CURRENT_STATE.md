@@ -16,7 +16,8 @@
 - Added **lint-staged** config (root `package.json`) to block regressions on staged files:
   - Backend guards:
     - `node scripts/guards/guard-error-shape.mjs`
-    - `node scripts/guards/guard-profiles-misuse.mjs` (profiles can only be queried for `id, role, full_name, created_at`)
+    - `node scripts/guards/guard-profiles-misuse.mjs` (profiles can only be queried for `id, role, full_name, company_name, email, created_at`) 
+    (no business fields allowed)
     - `node scripts/guards/guard-quota-writes.mjs`
   - Frontend guard:
     - `node scripts/guards/guard-no-console.mjs`
@@ -57,12 +58,21 @@ Source de vérité quota : table `ai_quota` (`monthly_limit`, `used`, `reset_at`
   - `public.consume_ai_quota(uid uuid, amt int)`
   - (transaction + `FOR UPDATE` + reset mensuel + incrément)
 
-➡️ Interdit : tout `UPDATE ai_quota SET used = ...` en dehors de cette RPC.
+➡️ Interdit :
+- tout `UPDATE ai_quota SET used = ...` en dehors de cette RPC
+- tout `INSERT INTO ai_quota` depuis le code Node runtime
+- toute requête SQL directe (`pool.query`) modifiant `ai_quota.used`
 
 ## Autorisé & contrôlé (init / paramétrage)
-- La création de la ligne `ai_quota` (si absente) et l’ajustement de **`monthly_limit` / `reset_at`** sont autorisés **uniquement via un mécanisme contrôlé** :
-  - **RPC recommandée :** `public.ensure_ai_quota(uid uuid)` (crée la row si absente, réaligne `reset_at` si nécessaire, ne touche jamais `used`)
-  - Appelée au moment de l’init (ex: login/dashboard), et/ou au début de `consume_ai_quota` pour garantir la row.
+- La création de la ligne `ai_quota` (si absente) et l’ajustement de **`monthly_limit` / `reset_at`** sont autorisés **uniquement via des RPC dédiées et contrôlées** :
+  - `public.ensure_ai_quota(uid uuid)`  
+    (crée la row si absente, réaligne `reset_at` si nécessaire, ne touche jamais `used`)
+  - `public.set_ai_quota_limit(uid uuid, new_limit int)` (si implémentée)  
+    (modifie `monthly_limit` de manière contrôlée)
+
+➡️ Interdit :
+- tout `UPDATE ai_quota.monthly_limit` depuis Node
+- tout `UPDATE ai_quota.reset_at` depuis Node
 
 ## Pré-check (avant appel IA) : middleware `checkQuota` (lecture-only)
 - lit `subscriptions` → si PRO active : bypass
@@ -70,12 +80,11 @@ Source de vérité quota : table `ai_quota` (`monthly_limit`, `used`, `reset_at`
 - ne fait aucun reset, aucune écriture DB.
 
 ## Consommation réelle (après succès IA)
-- `quotaService.recordUsage(...)` appelle `consume_ai_quota`.
+- `quotaService.recordUsage(...)` appelle exclusivement `consume_ai_quota`.
 
 Suppression cache UI : aucune écriture quota/plan dans `profiles` (pas de `monthly_quota_*`, `quota_reset_at`, etc.).
 
 Poids : `FEATURE_WEIGHTS` (ex: vision, compta…) → `amt >= 1` garanti.
-
 ---
 
 # Choix plan
@@ -227,9 +236,11 @@ The table `public.profiles` contains ONLY:
 It MUST NEVER contain:
 - plan
 - subscription_status
-- email
 - quota fields
 - monthly counters
+Note:
+The `email` column is allowed for read purposes only.
+It must never be logged or used as a business logic source.
 
 All subscription logic → `public.subscriptions`  
 All quota logic → `public.ai_quota` + RPC `consume_ai_quota`

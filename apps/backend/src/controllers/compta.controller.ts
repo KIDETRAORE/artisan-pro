@@ -9,6 +9,7 @@ import { HttpError } from "@utils/httpError";
 import { sendError } from "@utils/apiError";
 
 import { ComptaBodySchema } from "@validators/compta.schema";
+import { incrementMonthlyAnalyses } from "../services/userUsage.service";
 
 type AuthedRequest = Request & {
   user?: { id?: string };
@@ -57,6 +58,8 @@ export const comptaController = {
 
         throw new HttpError(500, "Erreur interne (quota)");
       }
+
+      await incrementMonthlyAnalyses(req.user!.id, 1);
 
       return res.status(200).json({
         success: true,

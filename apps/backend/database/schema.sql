@@ -1,3 +1,21 @@
+-- =====================================================================
+-- ⚠️ LEGACY SNAPSHOT (NOT SOURCE OF TRUTH)
+--
+-- This file is kept as a human-readable snapshot / reference only.
+-- It is NOT used for provisioning the production schema.
+--
+-- ✅ Source of truth for schema provisioning:
+--    apps/backend/supabase/migrations/*.sql
+--
+-- Notes:
+-- - This file may contain legacy objects (e.g. public.plans) not present in prod.
+-- - Stripe columns on subscriptions, quota reset logic, and auth bootstrap logic
+--   are defined/maintained via Supabase migrations + RPCs.
+--
+-- If you need to change the DB schema, do it by adding a new migration under:
+--    apps/backend/supabase/migrations/
+-- =====================================================================
+
 -- =====================================================
 -- ARTISANPRO SAAS V2 - FULL DATABASE SETUP
 -- =====================================================

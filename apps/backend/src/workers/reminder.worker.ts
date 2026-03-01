@@ -9,6 +9,7 @@ import { EventType } from "../events/event.types";
 import { runAI } from "../services/ai/gemini.service";
 import { quotaService } from "../services/quota.service";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
+import { incrementMonthlyAnalyses } from "../services/userUsage.service";
 
 const PayloadSchema = z.object({
   invoiceId: z.string().min(1),
@@ -176,6 +177,8 @@ export const reminderWorker = new Worker(
       15_000,
       "sendReminderEmail"
     );
+
+    await incrementMonthlyAnalyses(userId, 1);
 
     // ===============================
     // 3️⃣ PHASE DB — update via RPC

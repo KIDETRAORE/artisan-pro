@@ -13,16 +13,14 @@ import { requireUser } from "../utils/requireUser";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
 import { sendError } from "@utils/apiError"; // ✅ AJOUT
+import { incrementMonthlyAnalyses } from "../services/userUsage.service";
 
 /**
  * =====================================
  * POST /vision/analyze (multipart/form-data)
  * =====================================
  */
-export async function analyzeVisionController(
-  req: Request,
-  res: Response
-) {
+export async function analyzeVisionController(req: Request, res: Response) {
   const user = requireUser(req);
   const userId = user.id;
 
@@ -94,6 +92,8 @@ export async function analyzeVisionController(
     throw new HttpError(403, "Quota mensuel IA dépassé. Passez au plan PRO.");
   }
 
+  await incrementMonthlyAnalyses(req.user!.id, 1);
+
   return res.status(200).json({
     analysis: savedAnalysis,
     metadata: {
@@ -146,13 +146,7 @@ export async function getVisionByIdController(req: Request, res: Response) {
 
   if (error || !data) {
     // ✅ MODIFICATION : utilisation de sendError
-    return sendError(
-      req,
-      res,
-      404,
-      "not_found",
-      "Analyse non trouvée"
-    );
+    return sendError(req, res, 404, "not_found", "Analyse non trouvée");
   }
 
   return res.status(200).json(data);
