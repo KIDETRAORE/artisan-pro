@@ -1,23 +1,13 @@
-import pool from "../../config/db";
+import { supabaseAdmin } from "../../lib/supabaseAdmin";
 import { logger } from "../../utils/logger";
 
 /**
- * Interface pour la structure de données envoyée par Gemini
- */
-interface AIActionPayload {
-  action: string;
-  data: {
-    projectName?: string;
-    address?: string;
-    details?: string;
-  };
-}
-
-/**
- * Exécute les actions SQL basées sur l'analyse de l'IA
+ * Exécute les actions basées sur l'analyse de l'IA
+ * ✅ Aucune exécution SQL arbitraire côté Node
+ * ✅ Liste blanche d'actions -> RPC dédiées
  */
 export async function executeAIAction(userId: string, aiPayload: any) {
-  // 1. Normalisation de l'action (majuscules) pour éviter les erreurs de l'IA
+  // 1) Normalisation de l'action (majuscules) pour éviter les erreurs de l'IA
   const action = (aiPayload.action || "").toUpperCase();
   const data = aiPayload.data || {};
 
@@ -37,7 +27,7 @@ export async function executeAIAction(userId: string, aiPayload: any) {
 }
 
 /**
- * Action spécifique : Création d'un projet dans la table 'projects'
+ * Action spécifique : Création d'un projet via RPC `create_project`
  */
 async function createProjectAction(userId: string, data: any) {
   try {
@@ -46,39 +36,34 @@ async function createProjectAction(userId: string, data: any) {
     // Validation : 'name' est obligatoire (is_nullable: NO)
     const finalName = projectName || "Nouveau Chantier (IA)";
 
-    /**
-     * Note sur le schéma : 
-     * id -> généré par gen_random_uuid() par défaut
-     * created_at -> généré par now() par défaut
-     */
-    const query = `
-      INSERT INTO projects (user_id, name, address)
-      VALUES ($1, $2, $3)
-      RETURNING *;
-    `;
-
-    const values = [
-      userId, 
-      finalName, 
-      address || null // On envoie null si l'IA n'a pas trouvé d'adresse
-    ];
-
-    const result = await pool.query(query, values);
-    
-    logger.info(`✅ [SQL SUCCESS] Projet créé avec ID : ${result.rows[0].id}`);
-    
-    return result.rows[0];
-
-  } catch (error: any) {
-    logger.error("❌ [SQL ERROR] Échec de l'insertion du projet", {
-      message: error.message,
-      detail: error.detail,
-      userId
+    const { data: rpcData, error } = await supabaseAdmin.rpc("create_project", {
+      uid: userId,
+      name: finalName,
+      address: address || null,
     });
-    
-    return { 
-      error: "Erreur lors de l'insertion en base de données",
-      message: error.message 
+
+    if (error) {
+      throw error;
+    }
+
+    const created = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+
+    logger.info(`✅ [RPC SUCCESS] Projet créé`, {
+      projectId: created?.id ?? null,
+      userId,
+    });
+
+    return created ?? null;
+  } catch (error: any) {
+    logger.error("❌ [RPC ERROR] Échec de la création du projet", {
+      message: error?.message ?? String(error),
+      detail: error?.detail,
+      userId,
+    });
+
+    return {
+      error: "Erreur lors de la création du projet",
+      message: error?.message ?? String(error),
     };
   }
 }

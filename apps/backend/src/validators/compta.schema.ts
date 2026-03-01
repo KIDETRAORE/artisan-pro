@@ -1,13 +1,8 @@
 import { z } from "zod";
 
-/**
- * Validation des entrées pour l'analyse comptable IA
- */
-export const comptaSchema = z.object({
-  body: z.object({
-    data: z
-      .string()
-      .min(10, "Les données comptables sont insuffisantes")
-      .max(50_000, "Les données comptables sont trop volumineuses"),
-  }),
+export const ComptaBodySchema = z.object({
+  prompt: z.string().min(1).max(10_000),
 });
+
+// Optionnel (si tu utilises le type ailleurs)
+export type ComptaBody = z.infer<typeof ComptaBodySchema>;

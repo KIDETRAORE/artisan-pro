@@ -2,18 +2,21 @@
 import { Worker, type Job } from "bullmq";
 import { z } from "zod";
 import { redisOptions } from "../config/redis";
-import pool from "../config/db";
 import { logger } from "../utils/logger";
 import { sendReminderEmail } from "../services/email.service";
 import { emitEvent } from "../events/event.bus";
 import { EventType } from "../events/event.types";
 import { runAI } from "../services/ai/gemini.service";
 import { quotaService } from "../services/quota.service";
+import { supabaseAdmin } from "../lib/supabaseAdmin";
 
 const PayloadSchema = z.object({
   invoiceId: z.string().min(1),
   userId: z.string().min(1),
 });
+
+// ✅ NEW: validate client_email with Zod
+const ClientEmailSchema = z.string().email();
 
 type InvoiceRow = {
   id: string;
@@ -82,58 +85,43 @@ export const reminderWorker = new Worker(
     const { invoiceId, userId } = parsed.data;
 
     // ===============================
-    // 1️⃣ PHASE DB — lock + fetch
+    // 1️⃣ PHASE DB — take job via RPC (no pool / no transaction in Node)
     // ===============================
-    const client = await pool.getClient();
-    let invoice: InvoiceRow;
+    // ✅ cooldown configurable (already aligned with REMINDER_COOLDOWN_DAYS)
+    const cooldownDays = Number(process.env.REMINDER_COOLDOWN_DAYS ?? "7");
 
-    try {
-      await client.query("BEGIN");
-
-      const res = await client.query(
-        `
-        SELECT
-          i.id,
-          i.user_id,
-          i.client_name,
-          i.client_email,
-          i.total_amount,
-          i.last_reminder_at,
-          p.company_name
-        FROM invoices i
-        JOIN profiles p ON p.id = i.user_id
-        WHERE i.id = $1
-          AND i.user_id = $2
-          AND i.status = 'unpaid'
-        FOR UPDATE SKIP LOCKED
-        `,
-        [invoiceId, userId]
-      );
-
-      if (!res.rows.length) {
-        await client.query("ROLLBACK");
-        return;
+    const { data, error } = await supabaseAdmin.rpc(
+      "take_next_invoice_to_remind",
+      {
+        now_ts: new Date().toISOString(),
+        cooldown_days: cooldownDays,
       }
+    );
+    if (error) throw error;
 
-      invoice = res.rows[0];
+    const jobRow = data?.[0];
+    if (!jobRow) return; // nothing to do
 
-      const canSend = await client.query(
-        `SELECT 1 WHERE ($1::timestamptz IS NULL OR $1::timestamptz < NOW() - INTERVAL '7 days')`,
-        [invoice.last_reminder_at]
-      );
+    const invoice: InvoiceRow = {
+      id: jobRow.invoice_id,
+      user_id: jobRow.user_id,
+      client_name: jobRow.client_name ?? null,
+      client_email: jobRow.client_email ?? null,
+      total_amount: null,
+      last_reminder_at: null,
+      company_name: null,
+    };
 
-      if (!canSend.rows.length || !invoice.client_email) {
-        await client.query("ROLLBACK");
-        return;
-      }
-
-      await client.query("COMMIT");
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
+    // ✅ NEW: validate client_email with Zod .email()
+    const emailParsed = ClientEmailSchema.safeParse(invoice.client_email);
+    if (!emailParsed.success) {
+      logger.warn("🚫 Relance ignorée (email client invalide)", {
+        invoiceId,
+        userId,
+      });
+      return;
     }
+    const clientEmail = emailParsed.data;
 
     // ===============================
     // 2️⃣ PHASE EXTERNE — QUOTA (pré-check) + IA + EMAIL
@@ -156,7 +144,11 @@ export const reminderWorker = new Worker(
       companyName: invoice.company_name ?? "",
     });
 
-    const aiText = await withTimeout(runAI("relance", { prompt, userId }), 20_000, "runAI");
+    const aiText = await withTimeout(
+      runAI("relance", { prompt, userId }),
+      20_000,
+      "runAI"
+    );
 
     try {
       await withTimeout(
@@ -180,24 +172,18 @@ export const reminderWorker = new Worker(
     )}`;
 
     await withTimeout(
-      sendReminderEmail(invoice.client_email!, subject, body),
+      sendReminderEmail(clientEmail, subject, body),
       15_000,
       "sendReminderEmail"
     );
 
     // ===============================
-    // 3️⃣ PHASE DB — update + event
+    // 3️⃣ PHASE DB — update via RPC
     // ===============================
-    await pool.query(
-      `
-      UPDATE invoices
-      SET last_reminder_at = NOW(),
-          reminder_count = COALESCE(reminder_count, 0) + 1
-      WHERE id = $1
-        AND (last_reminder_at IS NULL OR last_reminder_at < NOW() - INTERVAL '7 days')
-      `,
-      [invoiceId]
-    );
+    await supabaseAdmin.rpc("mark_invoice_reminded", {
+      invoice_id: jobRow.invoice_id,
+      now_ts: new Date().toISOString(),
+    });
 
     await emitEvent(EventType.REMINDER_SENT, { invoiceId, userId });
 

@@ -219,6 +219,8 @@ The table `public.profiles` contains ONLY:
 
 - `id`
 - `full_name`
+- `company_name`
+- `email`
 - `role`
 - `created_at`
 
@@ -359,11 +361,21 @@ No manual increments
 
 ## 6️⃣ profiles Table Is Structural Only
 
-Contains only:
+`profiles` contains only:
 - `id`
 - `full_name`
+- `company_name`
+- `email`
 - `role`
 - `created_at`
+
+It is NOT:
+- a cache
+- a subscription store
+- a quota store
+
+PII rule:
+- `profiles.email` MUST NEVER be logged.
 
 Never business logic.
 

@@ -1,6 +1,8 @@
+// apps/backend/src/services/email.service.ts
 import { Resend } from "resend";
 import { logger } from "../utils/logger";
 import { ENV } from "../config/env";
+import { redactEmail } from "../utils/redact";
 
 // Initialisation Resend via ENV (centralisé + validé en prod)
 const resend = new Resend(ENV.RESEND_API_KEY);
@@ -17,15 +19,17 @@ export async function sendReminderEmail(
 ): Promise<SendReminderResult> {
   try {
     if (!ENV.RESEND_API_KEY) {
-      // En dev/test, si la clé est absente, on évite un crash incompréhensible
-      // (en prod elle est déjà forcée par env.ts)
       throw new Error("RESEND_API_KEY is not configured");
     }
 
-    logger.info("[RESEND] Sending email", { to });
+    const toSafe = redactEmail(to);
+    logger.info("[RESEND] Sending email", {
+      toMasked: toSafe.masked,
+      toDomain: toSafe.domain,
+      toHash: toSafe.hash,
+    });
 
     const { data, error } = await resend.emails.send({
-      // ⚠️ IMPORTANT : en mode test/gratuit, utilise onboarding@resend.dev
       from: "ArtisanPro <onboarding@resend.dev>",
       to,
       subject,
@@ -37,21 +41,44 @@ export async function sendReminderEmail(
     });
 
     if (error) {
-      // Ne pas logger l'objet brut (peut contenir détails internes)
       const message =
         typeof (error as any)?.message === "string"
           ? (error as any).message
           : "Unknown Resend error";
 
-      logger.error("[RESEND] API error", { to, message });
+      // ✅ MODIF UNIQUE DEMANDÉE: ne plus logger `to` en clair
+      const toSafeApiError = redactEmail(to);
+      logger.error("[RESEND] API error", {
+        message,
+        toMasked: toSafeApiError.masked,
+        toDomain: toSafeApiError.domain,
+        toHash: toSafeApiError.hash,
+      });
+
       throw new Error(message);
     }
 
-    logger.info("[RESEND] Email sent", { to, id: data?.id });
+    const toSafeSent = redactEmail(to);
+    logger.info("[RESEND] Email sent", {
+      id: data?.id,
+      toMasked: toSafeSent.masked,
+      toDomain: toSafeSent.domain,
+      toHash: toSafeSent.hash,
+    });
+
     return { success: true, id: data?.id };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.error("[RESEND] Email send failed", { to, message });
+
+    // ✅ MODIF UNIQUE DEMANDÉE: ne plus logger `to` en clair
+    const toSafeFail = redactEmail(to);
+    logger.error("[RESEND] Email send failed", {
+      message,
+      toMasked: toSafeFail.masked,
+      toDomain: toSafeFail.domain,
+      toHash: toSafeFail.hash,
+    });
+
     throw err instanceof Error ? err : new Error(message);
   }
 }

@@ -1,5 +1,5 @@
 // apps/backend/src/controllers/compta.controller.ts
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 
 import { runAI } from "@services/ai/gemini.service";
@@ -7,37 +7,26 @@ import { quotaService } from "@services/quota.service";
 import { logger } from "@utils/logger";
 import { HttpError } from "@utils/httpError";
 import { sendError } from "@utils/apiError";
-import { validateStrip } from "@middlewares/validate.middleware";
+
+import { ComptaBodySchema } from "@validators/compta.schema";
 
 type AuthedRequest = Request & {
   user?: { id?: string };
 };
 
-// ✅ Zod schema (obligatoire)
-const ComptaBodySchema = z.object({
-  prompt: z.string().min(1).max(10_000),
-});
-
 export const comptaController = {
-  async analyze(req: Request, res: Response) {
-    const r = req as AuthedRequest;
-    const userId = r.user?.id;
-
-    if (!userId) {
-      throw new HttpError(401, "Non authentifié");
-    }
-
-    // ✅ Données validées uniquement
-    const parsed = ComptaBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      return sendError(req, res, 400, "validation_error", "Payload invalide", {
-        issues: parsed.error.issues,
-      });
-    }
-
-    const { prompt } = parsed.data;
-
+  async analyze(req: Request, res: Response, next: NextFunction) {
     try {
+      const r = req as AuthedRequest;
+      const userId = r.user?.id;
+
+      if (!userId) {
+        throw new HttpError(401, "Non authentifié");
+      }
+
+      // ✅ body déjà validé par validateStrip(ComptaBodySchema, "body")
+      const { prompt } = req.body as z.infer<typeof ComptaBodySchema>;
+
       // ======================
       // ÉTAPE A : IA
       // ======================
@@ -73,15 +62,17 @@ export const comptaController = {
         success: true,
         response,
       });
-    } catch (err: unknown) {
-      logger.error("Compta: erreur analyse", {
-        userId,
-        message: err instanceof Error ? err.message : String(err),
-      });
-
-      if (err instanceof HttpError) {
-        return sendError(req, res, err.statusCode, "http_error", err.message);
+    } catch (e) {
+      // ✅ On laisse le middleware global gérer (HttpError, ZodError, fallback)
+      // mais on garde une compat locale pour respecter le format d'erreur unifié si besoin.
+      if (e instanceof HttpError) {
+        return sendError(req, res, e.statusCode, "http_error", e.message);
       }
+
+      logger.error("Compta: erreur analyse", {
+        userId: (req as AuthedRequest).user?.id,
+        message: e instanceof Error ? e.message : String(e),
+      });
 
       return sendError(
         req,

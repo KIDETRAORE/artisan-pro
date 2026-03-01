@@ -6,17 +6,26 @@ const files = process.argv.slice(2);
 if (!files.length) process.exit(0);
 
 /**
- * ✅ ONLY ALLOWED profiles columns
+ * ✅ ONLY ALLOWED profiles columns (DB-aligned)
+ * profiles may contain identity/contact fields, but NEVER business cache fields.
  */
-const ALLOWED_PROFILE_COLS = new Set(["id", "full_name", "role", "created_at"]);
+const ALLOWED_PROFILE_COLS = new Set([
+  "id",
+  "full_name",
+  "company_name",
+  "email",
+  "role",
+  "created_at",
+]);
 
 /**
  * ❌ Forbidden “business cache” tokens anywhere
  * (explicitly disallow these even outside select strings)
+ *
+ * NOTE: profiles.email is allowed (DB-aligned), but MUST NEVER be logged (PII rule).
  */
 const forbiddenTokens = [
   /\bprofiles\.plan\b/m,
-  /\bprofiles\.email\b/m,
   /\bsubscription_status\b/m,
   /\bmonthly_quota_\w+\b/m,
   /\bquota_reset_at\b/m,
@@ -24,8 +33,7 @@ const forbiddenTokens = [
 
 /**
  * Find + parse .from("profiles").select("...")
- * We allow only: id, full_name, role, created_at
- * Any other column name inside the select string is forbidden.
+ * We allow only a strict allowlist of columns (no "*" / no aliases).
  */
 const fromProfilesSelectRegex =
   /from\(\s*["'`]profiles["'`]\s*\)[\s\S]{0,400}?select\(\s*["'`]([^"'`]*)["'`]\s*\)/gm;
@@ -67,7 +75,7 @@ function isSelectAllowed(cols) {
   // (we also block things like "role as r" by rejecting spaces)
   for (const c of cols) {
     if (!c) return false;
-    if (/\s/.test(c)) return false; // blocks "role as x", "role, full_name" handled by split
+    if (/\s/.test(c)) return false; // blocks "role as x", etc.
     if (!ALLOWED_PROFILE_COLS.has(c)) return false;
   }
   return true;
@@ -128,7 +136,8 @@ for (const f of files) {
 
 if (bad) {
   console.error(
-    "\n✅ Fix: profiles is ONLY {id, full_name, role, created_at}. Use subscriptions + ai_quota instead.\n"
+    "\n✅ Fix: profiles may contain ONLY identity/contact fields (id, full_name, company_name, email, role, created_at). " +
+      "Never store plan/status/quota in profiles. Use subscriptions + ai_quota instead.\n"
   );
   process.exit(1);
 }

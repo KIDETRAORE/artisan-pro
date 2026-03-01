@@ -7,9 +7,9 @@ import { PERMISSIONS } from "@auth/permissions";
 
 import { aiRateLimit } from "@middlewares/rateLimit.middleware";
 import { quotaMiddleware } from "@middlewares/quota.middleware";
-import { validate } from "@middlewares/validate.middleware";
+import { validateStrip } from "@middlewares/validate.middleware";
 
-import { comptaSchema } from "@validators/compta.schema";
+import { ComptaBodySchema } from "@validators/compta.schema";
 import { comptaController } from "@controllers/compta.controller";
 
 const router = Router();
@@ -28,7 +28,7 @@ router.post(
   requirePermission(PERMISSIONS.AI_USE),
   aiRateLimit,
   quotaMiddleware,
-  validate(comptaSchema),
+  validateStrip(ComptaBodySchema, "body"),
   comptaController.analyze
 );
 
