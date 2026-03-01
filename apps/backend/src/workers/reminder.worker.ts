@@ -104,7 +104,7 @@ export const reminderWorker = new Worker(
         JOIN profiles p ON p.id = i.user_id
         WHERE i.id = $1
           AND i.user_id = $2
-          AND i.status = 'UNPAID'
+          AND i.status = 'unpaid'
         FOR UPDATE SKIP LOCKED
         `,
         [invoiceId, userId]
@@ -117,7 +117,6 @@ export const reminderWorker = new Worker(
 
       invoice = res.rows[0];
 
-      // règle idempotence
       const canSend = await client.query(
         `SELECT 1 WHERE ($1::timestamptz IS NULL OR $1::timestamptz < NOW() - INTERVAL '7 days')`,
         [invoice.last_reminder_at]
@@ -139,9 +138,8 @@ export const reminderWorker = new Worker(
     // ===============================
     // 2️⃣ PHASE EXTERNE — QUOTA (pré-check) + IA + EMAIL
     // ===============================
-    // ✅ Pré-check quota AVANT coût IA
     const quotaCheck = await quotaService.checkQuota(userId, "relance");
-    // ✅ MODIF UNIQUE : allowed -> ok
+
     if (!quotaCheck.ok) {
       logger.warn("🚫 Relance bloquée (quota)", {
         invoiceId,
@@ -160,7 +158,6 @@ export const reminderWorker = new Worker(
 
     const aiText = await withTimeout(runAI("relance", { prompt, userId }), 20_000, "runAI");
 
-    // ✅ Consommation quota APRÈS succès IA (bloquant)
     try {
       await withTimeout(
         quotaService.recordUsage(userId, "relance", prompt, String(aiText)),
@@ -173,7 +170,6 @@ export const reminderWorker = new Worker(
         userId,
         message: err instanceof Error ? err.message : String(err),
       });
-      // On n'envoie pas l'email si on n'arrive pas à consommer le quota
       return;
     }
 

@@ -27,7 +27,7 @@ export async function runReminderAutomation() {
     `
     SELECT i.id
     FROM invoices i
-    WHERE i.status = 'UNPAID'
+    WHERE i.status = 'unpaid'
       AND i.due_date < NOW()
       AND (i.last_reminder_at IS NULL OR i.last_reminder_at < NOW() - INTERVAL '7 days')
     ORDER BY i.due_date ASC
@@ -59,7 +59,7 @@ export async function runReminderAutomation() {
           i.user_id
         FROM invoices i
         WHERE i.id = $1
-          AND i.status = 'UNPAID'
+          AND i.status = 'unpaid'
           AND i.due_date < NOW()
           AND (i.last_reminder_at IS NULL OR i.last_reminder_at < NOW() - INTERVAL '7 days')
         FOR UPDATE SKIP LOCKED

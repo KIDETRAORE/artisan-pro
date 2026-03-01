@@ -73,7 +73,21 @@ export const quotaService = {
     return data ?? null;
   },
 
+  // ✅ MODIF UNIQUE: ensureQuotaRow() appelle uniquement la RPC ensure_ai_quota
+  // (aucun insert/update direct sur ai_quota côté Node)
   async ensureQuotaRow(userId: string) {
+    const { error } = await supabaseAdmin.rpc("ensure_ai_quota", { uid: userId });
+
+    if (error) {
+      logger.error("[QuotaService] ensure_ai_quota failed", {
+        userId,
+        message: error.message,
+      });
+      throw new Error(`ensure_ai_quota failed: ${error.message}`);
+    }
+
+    // On garde la signature/retour existant au maximum (sans changer le reste du fichier) :
+    // on relit ensuite l'état (read-only) pour renvoyer la même shape qu'avant.
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
       .select("plan,status")
@@ -93,6 +107,7 @@ export const quotaService = {
     const pro = isProActive(plan, status);
 
     const planLimit = PLAN_LIMITS[pro ? "pro" : "free"];
+    const defaultResetAt = nextResetDate().toISOString();
 
     const { data: quota, error: quotaErr } = await supabaseAdmin
       .from("ai_quota")
@@ -108,52 +123,13 @@ export const quotaService = {
       throw new Error("ai_quota_lookup_error");
     }
 
-    const defaultResetAt = nextResetDate().toISOString();
-
     if (!quota) {
-      const { error: insertErr } = await supabaseAdmin.from("ai_quota").insert({
-        user_id: userId,
-        monthly_limit: planLimit,
-        used: 0,
-        reset_at: defaultResetAt,
-      });
-
-      if (insertErr) {
-        logger.error("[QuotaService] ai_quota insert error", {
-          userId,
-          message: insertErr.message,
-        });
-        throw new Error("ai_quota_insert_error");
-      }
-
-      return { monthly_limit: planLimit, used: 0, reset_at: defaultResetAt, pro };
-    }
-
-    const updates: Record<string, unknown> = {};
-    if (Number(quota.monthly_limit) !== planLimit) {
-      updates.monthly_limit = planLimit;
-    }
-    if (!quota.reset_at) {
-      updates.reset_at = defaultResetAt;
-    }
-
-    if (Object.keys(updates).length > 0) {
-      const { error: updErr } = await supabaseAdmin
-        .from("ai_quota")
-        .update(updates)
-        .eq("user_id", userId);
-
-      if (updErr) {
-        logger.error("[QuotaService] ai_quota update error", {
-          userId,
-          message: updErr.message,
-        });
-        throw new Error("ai_quota_update_error");
-      }
+      // Théoriquement impossible après ensure_ai_quota, mais on garde un fallback sûr.
+      throw new Error("quota_row_missing_after_ensure");
     }
 
     return {
-      monthly_limit: planLimit,
+      monthly_limit: Number(quota.monthly_limit ?? planLimit),
       used: Number(quota.used ?? 0),
       reset_at: (quota.reset_at as string) ?? defaultResetAt,
       pro,

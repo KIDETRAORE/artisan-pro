@@ -13,6 +13,9 @@ declare
   v_reset_at timestamptz;
   v_now timestamptz := now();
 begin
+  -- ✅ AJOUT (self-contained): garantit la row quota avant toute lecture/lock
+  perform public.ensure_ai_quota(uid);
+
   if uid is null or amt is null or amt < 1 then
     -- invalid input
     ok := false;

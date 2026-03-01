@@ -1,15 +1,22 @@
 // apps/backend/src/controllers/compta.controller.ts
 import type { Request, Response } from "express";
+import { z } from "zod";
 
 import { runAI } from "@services/ai/gemini.service";
 import { quotaService } from "@services/quota.service";
 import { logger } from "@utils/logger";
 import { HttpError } from "@utils/httpError";
 import { sendError } from "@utils/apiError";
+import { validateStrip } from "@middlewares/validate.middleware";
 
 type AuthedRequest = Request & {
   user?: { id?: string };
 };
+
+// ✅ Zod schema (obligatoire)
+const ComptaBodySchema = z.object({
+  prompt: z.string().min(1).max(10_000),
+});
 
 export const comptaController = {
   async analyze(req: Request, res: Response) {
@@ -20,7 +27,15 @@ export const comptaController = {
       throw new HttpError(401, "Non authentifié");
     }
 
-    const { prompt } = req.body as { prompt: string };
+    // ✅ Données validées uniquement
+    const parsed = ComptaBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return sendError(req, res, 400, "validation_error", "Payload invalide", {
+        issues: parsed.error.issues,
+      });
+    }
+
+    const { prompt } = parsed.data;
 
     try {
       // ======================
