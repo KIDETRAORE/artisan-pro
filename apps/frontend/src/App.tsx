@@ -1,4 +1,5 @@
-import React, { useEffect, Suspense, lazy } from "react";
+// apps/frontend/src/App.tsx
+import React, { useEffect, Suspense, lazy, useRef } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./store/auth.store";
 import {
@@ -22,27 +23,41 @@ const Assistant = lazy(() => import("./pages/Assistant"));
 type DashboardResponse = {
   user?: { id: string; email?: string | null };
   subscription?: {
-    plan?: string; // ✅ MODIF: backend truth is "free"|"pro" (we normalize)
+    plan?: string;
     status?: string;
     currentPeriodEnd?: any;
   };
-  quota?: { used: number; limit: number; percent?: number; resetAt?: string | null };
+  quota?: {
+    used: number;
+    limit: number;
+    percent?: number;
+    resetAt?: string | null;
+  };
 };
 
 export default function App() {
   const { user, accessToken } = useAuth();
   const { setUserData, clearUserData } = useUser();
 
+  // ✅ MODIF: évite multi-fetch /dashboard en boucle
+  const dashboardFetchInFlightRef = useRef(false);
+
+  // ✅ MODIF: dépendance stable (évite boucle si `user` change de référence)
+  const userEmail = user?.email ?? null;
+
   useEffect(() => {
     const run = async () => {
-      if (!accessToken || !user?.email) return;
+      if (!accessToken || !userEmail) return;
+      if (dashboardFetchInFlightRef.current) return;
+
+      dashboardFetchInFlightRef.current = true;
 
       try {
         const data = await fetchWithAuth<DashboardResponse>("/dashboard", {
           method: "GET",
         });
 
-        const emailName = user.email.split("@")[0] || "Artisan";
+        const emailName = userEmail.split("@")[0] || "Artisan";
         const formattedName =
           emailName.charAt(0).toUpperCase() + emailName.slice(1);
 
@@ -52,10 +67,9 @@ export default function App() {
 
         setUserData({
           name: formattedName,
-          email: user.email,
+          email: userEmail,
           plan,
           status,
-          // ✅ UI: quota undefined => illimité (comme ton Topbar/Layout)
           quota: proActive
             ? undefined
             : {
@@ -64,25 +78,23 @@ export default function App() {
               },
         });
       } catch {
-        // si ça fail, on évite de casser l'app
         clearUserData();
+      } finally {
+        dashboardFetchInFlightRef.current = false;
       }
     };
 
     run();
-  }, [user, accessToken, setUserData, clearUserData]);
+  }, [userEmail, accessToken, setUserData, clearUserData]);
 
   return (
-    // ✅ MODIF (Option B): Suspense autour des routes
     <Suspense fallback={<div className="p-4">Chargement…</div>}>
       <Routes>
-        {/* 1. Route Publique */}
         <Route
           path="/login"
           element={!accessToken ? <Login /> : <Navigate to="/vision" replace />}
         />
 
-        {/* 2. Groupe de Routes Protégées */}
         <Route
           element={accessToken ? <Layout /> : <Navigate to="/login" replace />}
         >
@@ -92,15 +104,10 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
-          {/* ✅ MODIF: route /assistant lazy-load au lieu de redirect */}
           <Route path="/assistant" element={<Assistant />} />
-
-          {/* inchangé */}
           <Route path="/factures" element={<Navigate to="/devis" replace />} />
         </Route>
 
-        {/* 3. Fallback */}
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </Suspense>

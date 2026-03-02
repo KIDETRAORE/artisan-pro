@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FileBarChart,
@@ -165,6 +165,18 @@ export default function Compta() {
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  // ✅ MODIF: anti multi-poll + cleanup unmount
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, []);
+
   const safeParseResult = (value: any) => {
     if (!value) return value;
     if (typeof value === "string") {
@@ -179,7 +191,10 @@ export default function Compta() {
   };
 
   const startPolling = (id: string) => {
-    const pollInterval = setInterval(async () => {
+    // ✅ MODIF: éviter plusieurs polls simultanés
+    if (pollRef.current) return;
+
+    pollRef.current = setInterval(async () => {
       try {
         const response = await fetch(`${API_URL}/status/${id}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -190,10 +205,16 @@ export default function Compta() {
         const data = await response.json();
 
         if (data.status === "completed") {
-          clearInterval(pollInterval);
+          // ✅ MODIF: clearInterval via ref (safe)
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+
           setIsProcessing(false);
 
           const parsed = safeParseResult(data.result);
+
           setRawResult(parsed);
 
           const validated = ComptaReportSchema.safeParse(parsed);
@@ -208,12 +229,17 @@ export default function Compta() {
           setSchemaError(null);
           setReport(validated.data);
 
-          // ✅ MODIF: injecte le report dans le store Dashboard (mise à jour à chaque upload)
+          // ✅ injecte le report dans le store Dashboard (inchangé)
           setDashboardReport(validated.data);
         }
 
         if (data.status === "failed") {
-          clearInterval(pollInterval);
+          // ✅ MODIF: clearInterval via ref (safe)
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+
           setIsProcessing(false);
           setReport(null);
           setSchemaError(null);
@@ -221,7 +247,11 @@ export default function Compta() {
           alert(data.error || "L'analyse comptable a échoué.");
         }
       } catch {
-        clearInterval(pollInterval);
+        // ✅ MODIF: clearInterval + setIsProcessing(false) dans le catch
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
         setIsProcessing(false);
       }
     }, 2000);
@@ -230,6 +260,12 @@ export default function Compta() {
   const handleUpload = async () => {
     if (!file) return;
     if (!accessToken) return alert("Vous devez être connecté.");
+
+    // ✅ MODIF: stop ancien poll si existant
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
 
     setIsProcessing(true);
     setReport(null);
@@ -503,10 +539,7 @@ export default function Compta() {
                       </thead>
                       <tbody className="bg-white">
                         {s.rows.slice(0, 10).map((row, rIdx) => (
-                          <tr
-                            key={rIdx}
-                            className="border-t border-slate-100"
-                          >
+                          <tr key={rIdx} className="border-t border-slate-100">
                             {row.map((cell, cIdx) => (
                               <td
                                 key={cIdx}

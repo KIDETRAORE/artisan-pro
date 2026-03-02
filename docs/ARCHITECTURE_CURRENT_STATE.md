@@ -16,12 +16,9 @@
 - Added **lint-staged** config (root `package.json`) to block regressions on staged files:
   - Backend guards:
     - `node scripts/guards/guard-error-shape.mjs`
-    - `node scripts/guards/guard-profiles-misuse.mjs` (profiles can only be queried for `id, role, full_name, company_name, email, created_at`) 
-    (no business fields allowed)
+    - `node scripts/guards/guard-profiles-misuse.mjs`
     - `node scripts/guards/guard-quota-writes.mjs`
-  - Frontend guard:
-    - `node scripts/guards/guard-no-console.mjs`
-  - Note: `scripts/guards/guard-no-ts-ignore.mjs` exists in the repo (no `@ts-ignore`) but is not currently wired into `guards:all`.
+  - Frontend guard: currently **no ESLint** in hooks (ESLint temporarily removed because `eslint` was not installed).
 - Added script: `npm run guards:all` → `node scripts/guards/run-all.mjs`
 
 ### 2) Error response format regression fixed on key backend files
@@ -33,14 +30,15 @@ Replaced remaining forbidden patterns (`{ success:false, error:"..." }`) with **
 - `apps/backend/src/controllers/vision.controller.ts` (GET /vision/:id)
 - `apps/backend/src/controllers/vocal.controller.ts` (413/415 in upload middleware)
 
-### 3) DB ↔ code alignment for Stripe subscriptions
-- The live DB table `public.subscriptions` is expected to include Stripe fields (source of truth for billing):
-  - `stripe_customer_id`, `stripe_subscription_id`, `current_period_end`, `updated_at` (+ base fields)
-- In the repo, this alignment is now captured via SQL migrations:
-  - `apps/backend/database/migrations/2026-02-28_add_subscriptions_stripe_fields.sql`
-  - `apps/backend/database/migrations/2026-02-28_create_consume_ai_quota_rpc.sql`
-
-> Note: `apps/backend/database/schema.sql` still contains the earlier baseline schema. The effective schema is: `schema.sql` + migrations.
+### 3) DB schema is now provisioned via Supabase migrations (source of truth)
+- ✅ **Source of truth (provisioning):** `apps/backend/supabase/migrations/*.sql`
+  - Core tables: `20260302110000_create_core_tables.sql`
+  - Quota RPCs: `ensure_ai_quota`, `consume_ai_quota`
+  - Automation RPCs: `take_next_invoice_to_remind`, `mark_invoice_reminded`
+  - DB guardrails: constraints/indexes/FKs via `20260302120300_audit_db_constraints_indexes_fk.sql`
+  - Monthly analytics guardrails (optional): `user_usage` uniqueness + view (via dedicated migration if present)
+- ⚠️ `apps/backend/database/schema.sql` is kept as a **legacy snapshot** (not used for provisioning).
+- ⚠️ `apps/backend/database/migrations/*` are **legacy/manual SQL** (not applied by Supabase CLI unless ported into `supabase/migrations`).
 
 ### 4) Frontend plan normalization fixes (lowercase only)
 - Frontend now treats plan as **lowercase** (`"free" | "pro"`) and normalizes API values:
@@ -85,6 +83,7 @@ Source de vérité quota : table `ai_quota` (`monthly_limit`, `used`, `reset_at`
 Suppression cache UI : aucune écriture quota/plan dans `profiles` (pas de `monthly_quota_*`, `quota_reset_at`, etc.).
 
 Poids : `FEATURE_WEIGHTS` (ex: vision, compta…) → `amt >= 1` garanti.
+
 ---
 
 # Choix plan
@@ -99,102 +98,107 @@ Eligibilité PRO : `isProActive(plan, status)` (`pro` + `active/trialing`).
 
 Règle : toute comparaison/écriture plan passe par `normalizePlan` (pas de `.toUpperCase()` / `.toLowerCase()` dispersés).
 
-Note : le backend peut encore contenir un type legacy en uppercase (ex: `"FREE" | "PRO"`), mais **toute logique** (comparaison/écriture/persistance) doit passer par `normalizePlan()` et ne doit jamais persister autre chose que lowercase en DB.
-
 ---
 
 # Choix auth
 
 Format unique `req.user` (backend) :
 
-`{ id: string; email?: string; role: "user" | "admin"; permissions: Permission[] }`
+```ts
+{
+  id: string;
+  email?: string;
+  role: "user" | "admin";
+  permissions: Permission[];
+}
 
-Injection : `authMiddleware` :
+Injection : authMiddleware :
 
-- valide le Bearer token via Supabase
-- récupère `role` depuis `profiles.role` (fallback `"user"`)
-- récupère permissions depuis `user.app_metadata.permissions` (filtrées via union)
+valide le Bearer token via Supabase
 
-Typing : augmentation Express dans `apps/backend/src/types/express/index.d.ts`:
+récupère role depuis profiles.role (fallback "user")
 
-`declare global namespace Express { interface Request { user?: AuthUser } }`
+récupère permissions depuis user.app_metadata.permissions (filtrées via union)
 
-Règle : aucun `req as any` pour `req.user` en dehors de cas exceptionnels (Stripe runtime typing ok).
+Typing : augmentation Express dans apps/backend/src/types/express/index.d.ts:
+declare global namespace Express { interface Request { user?: AuthUser } }
 
----
+Règle : aucun req as any pour req.user en dehors de cas exceptionnels (Stripe runtime typing ok).
 
-# Format erreurs
+Format erreurs
 
 Format unique pour toutes les erreurs API :
 
-```
 {
   "success": false,
   "error": { "code": "string", "message": "string" },
   "details": {},
   "requestId": "string"
 }
-```
 
-Helper unique : `sendError(req, res, status, code, message, details?)`.
+Helper unique : sendError(req, res, status, code, message, details?).
 
-Middleware global : `error.middleware.ts` :
+Middleware global : error.middleware.ts :
 
-- gère `ZodError` → 400 + `validation_error` + `details.issues`
-- gère `QuotaError` → 403/429 selon mapping + meta en details
-- gère `HttpError` → status + code/message
-- fallback → 500 `internal_error`
+gère ZodError → 400 + validation_error + details.issues
 
-Règle : `validate.middleware`, `auth.middleware`, `cors`, `404`, `checkQuota` doivent tous utiliser `sendError` (pas de `{ message }` ou `{ success:false, error:"..." }`).
+gère QuotaError → 403/429 selon mapping + meta en details
 
----
+gère HttpError → status + code/message
 
-# Endpoints clés (routes réellement montées)
+fallback → 500 internal_error
 
-## Public
-- `GET /health/*`
-- `POST /stripe/webhook` — raw body (AVANT `express.json`)
+Règle : validate.middleware, auth.middleware, cors, 404, checkQuota doivent tous utiliser sendError (pas de { message } ou { success:false, error:"..." }).
 
-## Auth (via Supabase Bearer token / `authMiddleware`)
-- `POST /stripe/*`
-- `GET|POST /dashboard/*`
-- `POST /devis/*`
+Endpoints clés
+Auth
 
-## IA (auth + permission AI_USE + quota pre-check)
-- `/ai/*`
-- `/assistant/*`
-- `/compta/*`
-- `/vision/*`
-- `/vocal/*`
+POST /auth/register
 
-## Admin
-- `/automation/*` — `requireRole("admin")` + permissions + quota
+POST /auth/login
 
----
+POST /auth/refresh
 
-# Known debt / Orphans (non montés)
+POST /auth/logout
 
-- `user.routes.ts`
-- `usage.routes.ts`
-- `relance.routes.ts`
+GET /auth/me
 
-Ces routes existent dans `apps/backend/src/routes/` mais ne sont pas montées dans le router principal.
+Vision (multipart)
 
----
+POST /vision/analyze — multipart/form-data, champ fichier image, auth + precheck quota, consommation quota après succès.
 
-# 🚨 NON-NEGOTIABLE BACKEND CONSTRAINTS (ANTI-REGRESSION RULES)
+GET /vision/history
+
+GET /vision/:id
+
+Devis / Vocal (si présents)
+
+POST /devis/... (selon ton routing)
+
+POST /vocal/... (upload audio en multipart)
+
+Billing / Stripe
+
+POST /stripe/webhook — raw body (AVANT express.json)
+
+endpoints checkout/portal si présents (ex: /stripe/checkout, /stripe/portal)
+
+Quota / Usage
+
+GET /quota (si exposé)
+
+RPC DB : consume_ai_quota(uid, amt) (source de vérité conso)
+
+🚨 NON-NEGOTIABLE BACKEND CONSTRAINTS (ANTI-REGRESSION RULES)
 
 These rules MUST NEVER be violated in future refactors, file rewrites, or new feature additions.
 
 If a future change contradicts these rules, it is considered a regression.
 
----
+1️⃣ Unified Error Response Format (MANDATORY)
 
-## 1️⃣ Unified Error Response Format (MANDATORY)
+All API errors MUST follow this structure:
 
-All API errors MUST follow:
-
-```
 {
   "success": false,
   "error": {
@@ -203,262 +207,428 @@ All API errors MUST follow:
   },
   "details": "optional"
 }
-```
+❌ Forbidden patterns
 
-### ❌ Forbidden patterns
+res.json({ success:false, error:"..." })
 
-- `res.json({ success:false, error:"..." })`
-- `res.status(...).json({ error:"..." })`
-- `res.json({ success:false, message:"..." })`
+res.status(...).json({ error:"..." })
 
-### ✅ Allowed patterns only
+res.json({ success:false, message:"..." })
 
-- `return sendError(req, res, status, code, message, details?)`
-- `throw new HttpError(status, code, message, details)`
+✅ Allowed patterns only
 
-Handled centrally by `error.middleware.ts`.
+return sendError(req, res, status, code, message, details?)
+
+OR throw new HttpError(status, code, message, details)
+
+Handled centrally by error.middleware.ts.
 
 No exception.
 
----
+2️⃣ profiles Table Is NOT A Cache
 
-## 2️⃣ profiles Table Is NOT A Cache
+The table public.profiles contains ONLY:
 
-The table `public.profiles` contains ONLY:
+id
 
-- `id`
-- `full_name`
-- `company_name`
-- `email`
-- `role`
-- `created_at`
+full_name
+
+company_name
+
+email
+
+role
+
+created_at
 
 It MUST NEVER contain:
-- plan
-- subscription_status
-- quota fields
-- monthly counters
+
+plan
+
+subscription_status
+
+quota fields
+
+monthly counters
+
 Note:
-The `email` column is allowed for read purposes only.
-It must never be logged or used as a business logic source.
 
-All subscription logic → `public.subscriptions`  
-All quota logic → `public.ai_quota` + RPC `consume_ai_quota`
+email is allowed for read purposes only.
 
----
+email must never be logged.
 
-## 3️⃣ Quota Architecture Rules
+plan/status/quota must never be sourced from profiles.
+
+All subscription logic → public.subscriptions
+All quota logic → public.ai_quota + RPC consume_ai_quota
+
+Any reference to:
+
+profiles.plan
+
+subscription_status
+
+monthly_quota_*
+
+quota_reset_at
+
+is a regression.
+
+3️⃣ Quota Architecture Rules
 
 Quota check:
-- Performed by `quotaMiddleware` / `checkQuota`
-- **READ-ONLY**
-- Never writes to DB
+
+Performed by quotaMiddleware / checkQuota
+
+READ-ONLY
+
+Never writes to DB
 
 Quota consumption:
-- **ONLY** via RPC: `consume_ai_quota(uid, amt)`
-- Called **AFTER** successful AI execution
 
-Never manually `UPDATE ai_quota.used` outside RPC.
+ONLY via RPC: consume_ai_quota(uid, amt)
 
----
+Called AFTER successful AI execution
 
-## 4️⃣ Stripe v20 Constraints
+Never manually UPDATE ai_quota.used outside RPC.
 
-- Stripe v20 only
-- Runtime-only fields accessed via `(obj as any)`
-- No `@ts-ignore`
-- No custom Stripe type overrides
+4️⃣ Stripe v20 Constraints
 
----
+When accessing Stripe runtime-only fields:
 
-## 5️⃣ Single Source of Truth
+(obj as any).current_period_end
 
-Subscriptions → `public.subscriptions`  
-Quota → `public.ai_quota`  
-Authentication → Supabase Auth  
+(invoice as any).subscription
 
-`profiles` is NOT business logic storage.
+No @ts-ignore allowed.
+No custom Stripe type overrides.
 
----
+5️⃣ Single Source of Truth
 
-## 6️⃣ Regression Detection
+Subscriptions → public.subscriptions
+Quota → public.ai_quota
+Authentication → Supabase Auth
 
-### Automated
-- `npm run guards:all`
-- Git hooks (pre-commit / pre-push)
-- GitHub Actions: `.github/workflows/guards.yml`
+AI usage events (runtime) → public.ai_usage
 
-### Manual searches
+Monthly analytics (optional) → public.user_usage (+ public.user_usage_view)
 
-```
+profiles is NOT business logic storage.
+
+DB provisioning source of truth → apps/backend/supabase/migrations/*
+
+6️⃣ Regression Detection
+Automated (recommended)
+
+npm run guards:all
+
+Git hooks:
+
+pre-commit: lint-staged runs guards on staged files
+
+pre-push: runs guards:all
+
+Manual searches
 Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'success\s*:\s*false\s*,\s*error\s*:\s*["'']'
 
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles\.plan|monthly_quota_|quota_reset_|subscription_status'
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles\.plan|subscription_status|monthly_quota_|quota_reset_at'
 
 Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'update\("ai_quota"\)|\.update\({[^}]*used'
-
-Select-String -Path "apps/frontend/src/**/*.{ts,tsx}" -Pattern "console\."
-
-Select-String -Path "apps/**/*.{ts,tsx}" -Pattern "@ts-ignore"
-```
 
 If any violation appears → fix required.
 
----
+🔐 ARCHITECTURAL IMMUTABILITY PROTOCOL
+(Mandatory Workflow For Every New Session)
 
-# 🔐 ARCHITECTURAL IMMUTABILITY PROTOCOL
+This protocol defines how the project must evolve without introducing regressions.
 
-## 1️⃣ Session Boot Sequence (MANDATORY)
+It applies to:
 
-1. Upload FULL project ZIP  
-2. Require complete scan of ALL files  
-3. Require reading of:
-   - `ARCHITECTURE_CURRENT_STATE.md`
-   - Database schema (`schema.sql` + migrations)
+New features
+
+Refactors
+
+File rewrites
+
+Hotfixes
+
+Stripe updates
+
+Quota updates
+
+Error handling changes
+
+If this protocol is not followed, the architecture is considered unstable.
+
+1️⃣ Session Boot Sequence (MANDATORY)
+
+At the beginning of every new ChatGPT session:
+
+Upload FULL project ZIP
+
+Require a complete scan of ALL files
+
+Require reading of:
+
+ARCHITECTURE_CURRENT_STATE.md
+
+Database schema (Supabase migrations + live DB)
 
 No assumptions allowed.
+No partial memory allowed.
+No inferred structure allowed.
 
----
+All decisions must be based on the uploaded code only.
 
-## 2️⃣ No Full File Regeneration Without Justification
+2️⃣ No Full File Regeneration Without Justification
 
-Full rewrites are forbidden unless:
-- File is fundamentally broken
-- Structural redesign required
-- Explicitly requested
+Rule:
 
-Preferred: targeted patches only.
+Full file rewrites are forbidden unless:
 
----
+The file is fundamentally broken
 
-## 3️⃣ Mandatory Post-Modification Verification
+The architecture requires structural redesign
 
-Run:
+Explicitly requested
 
-```
+Preferred method:
+
+Provide targeted patches
+
+Replace specific blocks only
+
+Preserve untouched logic
+
+Reason:
+Full rewrites increase regression risk.
+
+3️⃣ Mandatory Post-Modification Verification
+
+After any backend modification, the following checks MUST be run:
+
+Error shape validation
 Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'success\s*:\s*false\s*,\s*error\s*:\s*["'']'
-```
 
-```
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles\.plan|monthly_quota_|quota_reset_|subscription_status'
-```
+Expected result: NONE
 
-```
+profiles misuse validation
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles\.plan|subscription_status|monthly_quota_|quota_reset_at'
+
+Expected result: NONE
+
+Quota write validation
 Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'update\("ai_quota"\)|\.update\({[^}]*used'
-```
 
-Expected result: NONE (except RPC definition).
+Expected result:
 
----
+Only inside RPC definition (if present)
 
-## 4️⃣ Error Handling Architecture Is Immutable
+Never inside middleware or controller.
 
-Allowed:
-- `return sendError(...)`
-- `throw new HttpError(...)`
+If any violation appears → modification is rejected.
+
+4️⃣ Error Handling Architecture Is Immutable
+
+All errors MUST follow:
+
+{
+  "success": false,
+  "error": {
+    "code": "...",
+    "message": "..."
+  },
+  "details": "optional"
+}
+
+Allowed mechanisms:
+
+return sendError(...)
+
+throw new HttpError(...)
 
 Forbidden:
-- Any custom error JSON shape
 
----
+res.json({ success:false, error:"..." })
 
-## 5️⃣ Quota System Rules (Immutable)
+res.json({ error:"..." })
 
-Pre-check → read-only  
-Consumption → RPC only  
-No manual increments  
+res.json({ success:false, message:"..." })
 
----
+5️⃣ Quota System Rules (Immutable)
 
-## 6️⃣ profiles Table Is Structural Only
+Pre-check:
 
-`profiles` contains only:
-- `id`
-- `full_name`
-- `company_name`
-- `email`
-- `role`
-- `created_at`
+checkQuota (or quotaMiddleware)
+
+READ-ONLY
+
+No DB writes
+
+Consumption:
+
+Only via RPC consume_ai_quota(uid, amt)
+
+Only after successful AI execution
+
+No manual increment of ai_quota.used allowed.
+
+6️⃣ profiles Table Is Structural Only
+
+profiles contains only:
+
+id
+
+full_name
+
+company_name
+
+email
+
+role
+
+created_at
 
 It is NOT:
-- a cache
-- a subscription store
-- a quota store
 
-PII rule:
-- `profiles.email` MUST NEVER be logged.
+a cache
 
-Never business logic.
+a subscription store
 
----
+a quota store
 
-## 7️⃣ Stripe Integration Rules
+an email business-logic source
 
-- Stripe v20
-- `(obj as any)` for runtime fields
-- No `@ts-ignore`
-- `subscriptions` is source of truth
+All subscription logic → subscriptions
+All quota logic → ai_quota
 
----
+7️⃣ Stripe Integration Rules
 
-## 8️⃣ Decision Hierarchy
+Stripe v20 only
 
-1. `ARCHITECTURE_CURRENT_STATE.md`
-2. Database schema
-3. Production logic
-4. Minimal change principle
+Runtime-only fields accessed via (obj as any)
 
----
+No @ts-ignore
 
-## 9️⃣ Stability Principle
+subscriptions table is single source of truth
 
-Evolve by:
-- Adding layers
-- Improving modules
-- Internal refactor
+8️⃣ Decision Hierarchy
 
-Never break invariants.
+When in doubt:
 
----
+ARCHITECTURE_CURRENT_STATE.md
 
-## 🔟 Definition of Regression
+Database schema (Supabase migrations + live DB)
 
-- Forbidden error shapes
-- Business logic in `profiles`
-- Quota writes outside RPC
-- Duplicate middleware logic
-- Breaking unified response format
+Existing production logic
 
----
+Minimal change principle
 
-# 11 Input Validation Rules (Immutable)
+Never redesign unless explicitly requested.
+
+9️⃣ Stability Principle
+
+The system must evolve by:
+
+Adding layers
+
+Improving modules
+
+Refactoring internally
+
+But never by breaking invariants defined in this document.
+
+🔟 Definition of Regression
+
+A regression is:
+
+Reintroducing forbidden error shapes
+
+Writing business logic into profiles
+
+Writing quota outside RPC
+
+Creating duplicate middleware logic
+
+Breaking unified response format
+
+Any regression invalidates the change.
+
+11 Input Validation Rules (Immutable)
 
 All external inputs must be validated using Zod schemas.
 
-Applies to:
-- req.body
-- req.params
-- req.query
+This applies to:
 
-No controller may access raw request data without prior validation.
+req.body
 
-Mandatory Pattern:
-- Define Zod schema
-- Use `validateStrip(schema, target)`
-- Use only validated data
+req.params
 
-Multipart:
-- Zod for text fields
-- Multer for file
-- Runtime mime-type validation
+req.query
 
-Forbidden:
-- Manual validation without Zod
-- Direct casting from `req.body` without schema
+No controller is allowed to access raw request data without prior validation.
 
-Architectural Objective:
-- Strict API contracts
-- No silent inconsistencies
-- OpenAPI-ready structure
+Mandatory Pattern
+
+Each route must:
+
+Define a Zod schema
+
+Use validateStrip(schema, target)
+
+Only use validated data (no manual casting without schema)
+
+✅ Example (Compliant)
+
+const AiChatBodySchema = z.object({
+  type: z.string().min(1).max(40).optional(),
+  prompt: z.string().min(1).max(10_000),
+  context: z.unknown().optional(),
+});
+
+router.post(
+  "/chat",
+  validateStrip(AiChatBodySchema, "body"),
+  async (req, res) => {
+    const { type, prompt, context } =
+      req.body as z.infer<typeof AiChatBodySchema>;
+  }
+);
+
+Multipart Special Case
+
+For multipart routes:
+
+Zod validates text fields
+
+Multer validates file presence and size
+
+Runtime check validates mime-type
+
+Example:
+
+router.post(
+  "/run",
+  uploadMiddleware,
+  validateStrip(AiRunBodySchema, "body"),
+  async (...)
+);
+
+Forbidden Patterns
+
+const { type } = req.body as { type?: string };
+if (!req.body.prompt) { ... }
+
+Manual validation without Zod schema is not allowed.
+
+Architectural Objective
+
+Enforce strict API contracts
+
+Eliminate manual validation logic
+
+Prevent silent runtime inconsistencies
+
+Prepare for future OpenAPI generation
 
 🔒 This rule is considered architecturally immutable.

@@ -2,6 +2,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { logger } from "../utils/logger";
 import { sendError } from "../utils/apiError";
+// ✅ Harmonisation import quotaService (chemin unique)
 import { quotaService } from "../services/quota.service";
 
 function resolveFeature(req: Request): string {
@@ -11,16 +12,27 @@ function resolveFeature(req: Request): string {
   if (base.startsWith("/compta")) return "compta";
   if (base.startsWith("/vocal")) return "vocal";
   if (base.startsWith("/assistant")) return "assistant";
-  if (base.startsWith("/ai")) return "assistant";
+  // ✅ Ne pas mapper /ai → "assistant"
+  if (base.startsWith("/ai")) return "ai";
   if (base.startsWith("/devis")) return "devis";
 
   return "assistant";
 }
 
-export const quotaMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+export const quotaMiddleware = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const userId = req.user?.id;
   if (!userId) {
-    return sendError(req, res, 401, "unauthorized", "Utilisateur non authentifié");
+    return sendError(
+      req,
+      res,
+      401,
+      "unauthorized",
+      "Utilisateur non authentifié"
+    );
   }
 
   const feature = resolveFeature(req);
@@ -55,13 +67,8 @@ export const quotaMiddleware = async (req: Request, res: Response, next: NextFun
       message: err instanceof Error ? err.message : String(err),
     });
 
-    return sendError(
-      req,
-      res,
-      500,
-      "quota_check_failed",
-      "Impossible de vérifier le quota",
-      { feature }
-    );
+    return sendError(req, res, 500, "quota_check_failed", "Impossible de vérifier le quota", {
+      feature,
+    });
   }
 };

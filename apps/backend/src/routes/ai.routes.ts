@@ -6,9 +6,13 @@ import { z } from "zod";
 import { aiQueue } from "../queues/ai.queue";
 import { logger } from "../utils/logger";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
-import { sendError } from "../utils/apiError";
 import { aiRateLimit } from "../middlewares/rateLimit.middleware";
 import { validateStrip } from "../middlewares/validate.middleware";
+
+// ✅ (1) Imports ajoutés (et sendError déplacé) — comme demandé
+import { quotaService } from "../services/quota.service";
+import { FEATURE_WEIGHTS } from "../config/featureWeights";
+import { sendError } from "../utils/apiError";
 
 const router = Router();
 
@@ -138,12 +142,29 @@ router.post(
         return sendError(req, res, 400, "missing_file", "Aucun fichier reçu");
       }
 
+      // ✅ (2) Pré-check quota (read-only) AVANT aiQueue.add(...)
+      const feature = type || "vision";
+      const weight = FEATURE_WEIGHTS[feature] ?? 1;
+
+      const quotaCheck = await quotaService.checkQuota(req.user!.id, feature);
+
+      // ✅ FIX TS: quotaCheck n'a pas "allowed" → on utilise "ok"
+      if (!quotaCheck.ok) {
+        return sendError(req, res, 403, "quota_exceeded", "Quota mensuel atteint.", {
+          used: (quotaCheck as any).used,
+          limit: (quotaCheck as any).limit,
+          resetAt: (quotaCheck as any).resetAt,
+          weight,
+        });
+      }
+
       const fileBase64 = file.buffer.toString("base64");
 
+      // ✅ (3) Ensuite seulement → enqueue (inchangé, juste déplacé après pré-check)
       const job = await aiQueue.add(
         "ai-task",
         {
-          type: type || "vision",
+          type: feature,
           userId: req.user.id,
           fileBase64,
           mimeType: file.mimetype,
@@ -190,10 +211,26 @@ router.post(
         return sendError(req, res, 401, "unauthorized", "Non authentifié");
       }
 
+      // ✅ Pré-check quota (read-only) AVANT enqueue
+      const feature = type || "expert";
+      const weight = FEATURE_WEIGHTS[feature] ?? 1;
+
+      const quotaCheck = await quotaService.checkQuota(req.user!.id, feature);
+
+      // ✅ FIX TS: quotaCheck n'a pas "allowed" → on utilise "ok"
+      if (!quotaCheck.ok) {
+        return sendError(req, res, 403, "quota_exceeded", "Quota mensuel atteint.", {
+          used: (quotaCheck as any).used,
+          limit: (quotaCheck as any).limit,
+          resetAt: (quotaCheck as any).resetAt,
+          weight,
+        });
+      }
+
       const job = await aiQueue.add(
         "ai-task",
         {
-          type: type || "expert",
+          type: feature, // ✅ utilise feature
           userId: req.user.id,
           prompt,
           context,
