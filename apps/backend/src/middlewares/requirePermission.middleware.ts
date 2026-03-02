@@ -10,6 +10,11 @@ export const requirePermission =
       });
     }
 
+    // ✅ BYPASS ADMIN
+    if ((req.user as any).role === "admin") {
+      return next();
+    }
+
     // ✅ permissions peut être undefined (user Supabase), on sécurise
     const permissions = Array.isArray((req.user as any).permissions)
       ? ((req.user as any).permissions as Permission[])

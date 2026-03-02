@@ -3,7 +3,7 @@ import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
 import type { Permission, UserRole } from "../auth/permissions";
 import { PERMISSIONS } from "../auth/permissions";
-import { sendError } from "../utils/apiError"; // ✅ ajout
+import { sendError } from "../utils/apiError";
 
 export const authMiddleware = async (
   req: Request,
@@ -16,7 +16,13 @@ export const authMiddleware = async (
     // 1) Vérification header Authorization
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       logger.warn("🔐 Tentative d'accès sans token");
-      sendError(req, res, 401, "auth_missing_token", "Non authentifié : Token manquant");
+      sendError(
+        req,
+        res,
+        401,
+        "auth_missing_token",
+        "Non authentifié : Token manquant"
+      );
       return;
     }
 
@@ -29,7 +35,13 @@ export const authMiddleware = async (
       logger.warn(
         `🔐 Token invalide ou expiré : ${error?.message || "User non trouvé"}`
       );
-      sendError(req, res, 401, "auth_invalid_token", "Session invalide ou expirée");
+      sendError(
+        req,
+        res,
+        401,
+        "auth_invalid_token",
+        "Session invalide ou expirée"
+      );
       return;
     }
 
@@ -48,7 +60,6 @@ export const authMiddleware = async (
       .filter((p): p is Permission => allowed.has(p));
 
     // 4) Récupération du role depuis profiles (source de vérité)
-    // ✅ On ne lit QUE des champs existants et autorisés: role (+ full_name si besoin)
     const { data: profile, error: profErr } = await supabaseAdmin
       .from("profiles")
       .select("role,full_name")
@@ -67,6 +78,18 @@ export const authMiddleware = async (
     // Fallbacks sûrs
     const role = (profile?.role ? String(profile.role) : "user") as UserRole;
 
+    // ✅ MODIF : fallback permissions par rôle si vide
+    // (UserRole inclut aussi "free"/"pro" chez toi, donc on les couvre)
+    const DEFAULT_PERMS_BY_ROLE: Record<UserRole, Permission[]> = {
+      user: ["dashboard:read", "ai:use", "vision:use", "devis:read"] as Permission[],
+      admin: Object.values(PERMISSIONS) as Permission[],
+      free: ["dashboard:read", "ai:use", "vision:use", "devis:read"] as Permission[],
+      pro: ["dashboard:read", "ai:use", "vision:use", "devis:read"] as Permission[],
+    };
+
+    const effectivePermissions =
+      permissions.length > 0 ? permissions : DEFAULT_PERMS_BY_ROLE[role] ?? [];
+
     // ✅ Email: uniquement depuis Supabase Auth (pas depuis profiles)
     const email = data.user.email ?? undefined;
 
@@ -75,7 +98,7 @@ export const authMiddleware = async (
       id: userId,
       email,
       role,
-      permissions,
+      permissions: effectivePermissions,
     };
 
     logger.info("✅ Utilisateur authentifié", { userId });

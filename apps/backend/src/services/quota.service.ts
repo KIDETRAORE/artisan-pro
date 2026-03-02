@@ -1,3 +1,4 @@
+// apps/backend/src/services/quota.service.ts
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
 import { consumeAiQuotaOrThrow, QuotaError } from "./quota/consumeQuota";
@@ -37,29 +38,15 @@ export const FEATURE_CAPS: Record<string, number> = {
   compta: 10,
 };
 
-/**
- * ======================
- * UTILS
- * ======================
- */
 function estimateTokens(text?: string): number {
   if (!text) return 0;
   return Math.ceil(text.length / 4);
-}
-
-function firstDayOfMonthISO(d = new Date()): string {
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
 }
 
 function nextResetDate(from = new Date()): Date {
   return new Date(from.getFullYear(), from.getMonth() + 1, 1);
 }
 
-/**
- * ======================
- * QUOTA SERVICE
- * ======================
- */
 export const quotaService = {
   // ✅ READ-ONLY
   async getQuotaRow(userId: string) {
@@ -73,21 +60,13 @@ export const quotaService = {
     return data ?? null;
   },
 
-  // ✅ MODIF UNIQUE: ensureQuotaRow() appelle uniquement la RPC ensure_ai_quota
-  // (aucun insert/update direct sur ai_quota côté Node)
-  async ensureQuotaRow(userId: string) {
-    const { error } = await supabaseAdmin.rpc("ensure_ai_quota", { uid: userId });
-
-    if (error) {
-      logger.error("[QuotaService] ensure_ai_quota failed", {
-        userId,
-        message: error.message,
-      });
-      throw new Error(`ensure_ai_quota failed: ${error.message}`);
-    }
-
-    // On garde la signature/retour existant au maximum (sans changer le reste du fichier) :
-    // on relit ensuite l'état (read-only) pour renvoyer la même shape qu'avant.
+  /**
+   * ✅ DESIGN FINAL: plus de ensure_ai_quota ici.
+   * On suppose que la row ai_quota est créée via trigger (handle_new_user).
+   * Cette fonction renvoie la “shape” utile au dashboard, mais en 100% read-only.
+   */
+  async getQuotaSnapshot(userId: string) {
+    // 1) Subscriptions
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
       .select("plan,status")
@@ -106,9 +85,16 @@ export const quotaService = {
     const status = normalizeStatus(sub?.status);
     const pro = isProActive(plan, status);
 
-    const planLimit = PLAN_LIMITS[pro ? "pro" : "free"];
-    const defaultResetAt = nextResetDate().toISOString();
+    if (pro) {
+      return {
+        pro: true,
+        monthly_limit: PLAN_LIMITS.pro,
+        used: 0,
+        reset_at: nextResetDate().toISOString(),
+      };
+    }
 
+    // 2) Quota row (doit exister)
     const { data: quota, error: quotaErr } = await supabaseAdmin
       .from("ai_quota")
       .select("user_id, monthly_limit, used, reset_at")
@@ -124,21 +110,20 @@ export const quotaService = {
     }
 
     if (!quota) {
-      // Théoriquement impossible après ensure_ai_quota, mais on garde un fallback sûr.
-      throw new Error("quota_row_missing_after_ensure");
+      // Ici: trigger manquant / user créé avant trigger / projet mal migré
+      throw new Error("quota_row_missing");
     }
 
     return {
-      monthly_limit: Number(quota.monthly_limit ?? planLimit),
+      pro: false,
+      monthly_limit: Number(quota.monthly_limit ?? PLAN_LIMITS.free),
       used: Number(quota.used ?? 0),
-      reset_at: (quota.reset_at as string) ?? defaultResetAt,
-      pro,
+      reset_at: (quota.reset_at as string) ?? nextResetDate().toISOString(),
     };
   },
 
-  // ✅ MODIF UNIQUE: checkQuota() devient 100% READ-ONLY (pas de ensureQuotaRow, pas d'UPDATE)
+  // ✅ 100% READ-ONLY
   async checkQuota(userId: string, feature: string) {
-    // 1) PRO bypass (subscriptions)
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
       .select("plan,status")
@@ -156,7 +141,6 @@ export const quotaService = {
       return { ok: true as const, unlimited: true };
     }
 
-    // 2) Read-only quota (ai_quota)
     const { data: quota, error: qErr } = await supabaseAdmin
       .from("ai_quota")
       .select("monthly_limit, used, reset_at")
@@ -177,10 +161,8 @@ export const quotaService = {
     let used = Number(quota.used ?? 0);
     const resetAt = quota.reset_at ? new Date(quota.reset_at) : null;
 
-    // ✅ Reset logique uniquement (sans UPDATE)
     if (resetAt && new Date() >= resetAt) used = 0;
 
-    // 3) Refus si dépassement
     if (limit > 0 && used + weight > limit) {
       return {
         ok: false as const,
@@ -196,7 +178,6 @@ export const quotaService = {
   },
 
   async recordUsage(userId: string, feature: string, input?: string, output?: string) {
-    // ✅ MODIF UNIQUE: recordUsage devient READ-ONLY avant RPC (pas de ensureQuotaRow)
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
       .select("plan,status")
@@ -224,7 +205,7 @@ export const quotaService = {
       return;
     }
 
-    // ✅ En FREE : on exige que la row quota existe déjà (initialisée via dashboard/login)
+    // FREE: row doit exister via trigger
     const { data: quota, error: qErr } = await supabaseAdmin
       .from("ai_quota")
       .select("user_id")
@@ -251,7 +232,6 @@ export const quotaService = {
       await consumeAiQuotaOrThrow(userId, weight);
     } catch (err: any) {
       const msg = String(err?.message ?? "");
-
       if (msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("exceed")) {
         throw new QuotaError("quota_exceeded");
       }

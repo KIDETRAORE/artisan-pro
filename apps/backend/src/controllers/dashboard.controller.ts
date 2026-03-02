@@ -41,13 +41,11 @@ export class DashboardController {
       throw new HttpError(500, "Erreur lors du chargement du dashboard");
     }
 
-    const planNorm = normalizePlan(sub?.plan); // ✅ C
+    const planNorm = normalizePlan(sub?.plan);
     const statusRaw = String(sub?.status ?? "inactive").toLowerCase();
 
-    // Normalisation vers ton type Plan ("FREE" | "PRO")
     const plan: Plan = planNorm === "pro" ? "PRO" : "FREE";
 
-    // (Optionnel) Tu peux exposer status au front si utile
     const subscription = {
       plan,
       status: statusRaw,
@@ -57,7 +55,8 @@ export class DashboardController {
     // ===============================
     // ✅ Source de vérité QUOTA : ai_quota
     // ===============================
-    await quotaService.ensureQuotaRow(user.id); // ✅ garantit la ligne
+    // Design final: on ne crée jamais la row quota côté Node.
+    // La ligne est créée via trigger SQL au signup (auth.users -> profiles/subscriptions/ai_quota).
     const quota = await quotaService.getUserQuota(user.id);
 
     const used = quota?.used ?? 0;
@@ -71,7 +70,7 @@ export class DashboardController {
     // Features (si tu veux les baser sur plan+status)
     // ===============================
     const isProActive =
-      isPro(plan) && (statusRaw === "active" || statusRaw === "trialing"); // ✅ A
+      isPro(plan) && (statusRaw === "active" || statusRaw === "trialing");
 
     const features = {
       generate: true,

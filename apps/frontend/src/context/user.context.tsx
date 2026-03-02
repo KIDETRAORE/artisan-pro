@@ -1,4 +1,11 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useCallback,
+  useMemo,
+} from "react";
 
 /* ============================
     TYPES
@@ -77,15 +84,18 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export function UserProvider({ children }: { children: ReactNode }) {
   const [userData, setUserData] = useState<UserData | null>(null);
 
-  const clearUserData = () => {
+  // ✅ FIX: fonction stable (sinon boucle de useEffect côté App.tsx)
+  const clearUserData = useCallback(() => {
     setUserData(null);
-  };
+  }, []);
 
-  return (
-    <UserContext.Provider value={{ userData, setUserData, clearUserData }}>
-      {children}
-    </UserContext.Provider>
+  // ✅ FIX: value stable (évite rerenders inutiles)
+  const value = useMemo(
+    () => ({ userData, setUserData, clearUserData }),
+    [userData, clearUserData]
   );
+
+  return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
 }
 
 /* ============================

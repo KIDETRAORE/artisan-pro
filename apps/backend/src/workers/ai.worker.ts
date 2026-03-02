@@ -1,3 +1,5 @@
+// apps/backend/src/workers/ai.worker.ts
+
 import { Worker, type Job } from "bullmq";
 import * as XLSX from "xlsx";
 import { redisOptions } from "../config/redis";
@@ -71,6 +73,17 @@ function xlsxBase64ToPromptText(fileBase64: string): string {
   );
 }
 
+/**
+ * ✅ Context Builder (RPC Supabase)
+ * - si get_user_context est manquant / invalide => on throw
+ * - le job sera en failed (via bullmq) au lieu de “success”
+ */
+async function buildUserContext(uid: string) {
+  const { data, error } = await supabaseAdmin.rpc("get_user_context", { uid });
+  if (error) throw error;
+  return data;
+}
+
 export const aiWorker = new Worker(
   "aiQueue",
   async (job: Job) => {
@@ -85,6 +98,8 @@ export const aiWorker = new Worker(
     if (!userId) {
       throw new Error("missing_user_id");
     }
+
+    const jobId = String(job.id);
 
     const aiType = toAIType(type);
     const feature = toQuotaFeature(type);
@@ -109,6 +124,28 @@ export const aiWorker = new Worker(
     }
 
     try {
+      // ✅ MODIF (demandée): Context Builder fail proprement
+      let context: any;
+
+      try {
+        context = await buildUserContext(userId);
+      } catch (err: any) {
+        logger.error("Erreur Context Builder", {
+          error: err,
+          userId,
+          jobId,
+        });
+
+        // ✅ FAIL JOB PROPREMENT (bullmq)
+        throw new Error(
+          err?.message ??
+            "context_builder_failed (get_user_context missing or invalid)."
+        );
+      }
+
+      // (context est construit pour valider la dispo du RPC ; non utilisé ici)
+      void context;
+
       let finalPrompt = prompt;
       let finalFileBase64 = fileBase64;
       let finalMimeType = mimeType;
