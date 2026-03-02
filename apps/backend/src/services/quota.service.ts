@@ -231,8 +231,11 @@ export const quotaService = {
     try {
       await consumeAiQuotaOrThrow(userId, weight);
     } catch (err: any) {
+      // ✅ MODIF UNIQUE : mapping strict (ne pas convertir "quota_rpc_failed" en quota_exceeded)
+      const code = String(err?.code ?? "");
       const msg = String(err?.message ?? "");
-      if (msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("exceed")) {
+
+      if (code === "quota_exceeded" || msg === "quota_exceeded") {
         throw new QuotaError("quota_exceeded");
       }
 
@@ -240,6 +243,7 @@ export const quotaService = {
         userId,
         feature,
         weight,
+        code,
         message: msg,
       });
 

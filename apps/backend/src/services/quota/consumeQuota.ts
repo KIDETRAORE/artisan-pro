@@ -57,9 +57,14 @@ export async function consumeAiQuotaOrThrow(
     throw new QuotaError("quota_rpc_error");
   }
 
-  const result = (Array.isArray(data) ? data[0] : data) as
-    | ConsumeQuotaResult
-    | undefined;
+  // ✅ MODIF UNIQUE : extraction plus stricte du résultat (array non vide ou objet non-null)
+  const result = (Array.isArray(data)
+    ? data.length > 0
+      ? data[0]
+      : undefined
+    : data && typeof data === "object"
+      ? data
+      : undefined) as ConsumeQuotaResult | undefined;
 
   if (!result) {
     throw new QuotaError("quota_rpc_empty");

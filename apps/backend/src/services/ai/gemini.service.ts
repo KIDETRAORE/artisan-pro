@@ -60,6 +60,27 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** ✅ AJOUT UNIQUE : extrait un retryAfter (secondes) si présent dans le message Gemini */
+function extractRetryAfterSeconds(err: unknown): number | null {
+  const msg = err instanceof Error ? err.message : String(err);
+
+  // exemples vus dans tes logs:
+  // "Please retry in 44.64659169s." ou "retryDelay":"44s"
+  const m1 = msg.match(/retry in\s+([0-9]+(?:\.[0-9]+)?)s/i);
+  if (m1?.[1]) {
+    const v = Number(m1[1]);
+    if (Number.isFinite(v) && v > 0) return Math.ceil(v);
+  }
+
+  const m2 = msg.match(/"retryDelay"\s*:\s*"(\d+)s"/i);
+  if (m2?.[1]) {
+    const v = Number(m2[1]);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+
+  return null;
+}
+
 function isRetryableGeminiError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return (
@@ -72,6 +93,12 @@ function isRetryableGeminiError(err: unknown): boolean {
     /internal/i.test(msg) ||
     /unavailable/i.test(msg)
   );
+}
+
+/** ✅ AJOUT UNIQUE : détecte explicitement un 429 */
+function isGemini429(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /429/.test(msg) || /Too Many Requests/i.test(msg) || /quota/i.test(msg);
 }
 
 export async function runAI(type: AIType, payload: AIParams): Promise<any> {
@@ -158,14 +185,40 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide.
         logger.error("DB Log Error:", dbErr);
       }
 
-      /* ✅ MODIF UNIQUE : pour compta, retourner un objet JSON si possible */
+      /* ✅ MODIF UNIQUE : pour compta, retourner un objet JSON STRICT, sinon fail */
       if (type === "compta") {
         const parsed = tryParseJsonFromText(text);
         if (parsed !== null) return parsed;
+
+        // on force un "failed" propre côté worker / frontend
+        throw new HttpError(502, "IA: JSON invalide pour ComptaReport");
       }
 
       return text;
     } catch (error: unknown) {
+      // ✅ MODIF UNIQUE : si 429, renvoyer 429 + retryAfterSeconds
+      if (isGemini429(error)) {
+        const retryAfterSeconds = extractRetryAfterSeconds(error);
+
+        // retry interne si possible
+        if (attempt < MAX_ATTEMPTS) {
+          const waitSec =
+            retryAfterSeconds != null ? retryAfterSeconds : 1 + attempt;
+          await sleep(waitSec * 1000);
+          continue;
+        }
+
+        const msg = error instanceof Error ? error.message : String(error);
+        throw new HttpError(
+          429,
+          `Erreur IA: trop de requêtes (429). Réessaie dans ${
+            retryAfterSeconds ?? "quelques"
+          } secondes.`,
+          { retryAfterSeconds: retryAfterSeconds ?? undefined }
+        );
+      }
+
+      // retry backoff générique
       if (attempt < MAX_ATTEMPTS && isRetryableGeminiError(error)) {
         await sleep(300 * attempt);
         continue;
