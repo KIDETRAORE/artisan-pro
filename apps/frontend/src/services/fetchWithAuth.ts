@@ -22,5 +22,6 @@ export async function fetchWithAuth(input: RequestInfo, init: RequestInit = {}) 
     throw new ApiRequestError(apiErr);
   }
 
+
   return res;
 }

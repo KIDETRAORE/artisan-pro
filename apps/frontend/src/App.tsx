@@ -14,6 +14,15 @@ import Devis from "./pages/Devis";
 import Settings from "./pages/Settings";
 import { fetchWithAuth } from "./auth/fetchWithAuth";
 
+// ✅ routes Stripe pages
+import Upgrade from "./pages/Upgrade";
+import Billing from "./pages/Billing";
+import Success from "./pages/Success";
+import Cancel from "./pages/Cancel";
+
+// ✅ RESET PASSWORD (route publique)
+import ResetPassword from "./pages/ResetPassword";
+
 // ✅ MODIF (Option B): lazy-load pages lourdes
 const Vision = lazy(() => import("./pages/Vision"));
 const Compta = lazy(() => import("./pages/Compta"));
@@ -95,6 +104,9 @@ export default function App() {
           element={!accessToken ? <Login /> : <Navigate to="/vision" replace />}
         />
 
+        {/* ✅ Route publique reset password (doit être accessible sans session) */}
+        <Route path="/reset-password" element={<ResetPassword />} />
+
         <Route
           element={accessToken ? <Layout /> : <Navigate to="/login" replace />}
         >
@@ -106,6 +118,12 @@ export default function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/assistant" element={<Assistant />} />
           <Route path="/factures" element={<Navigate to="/devis" replace />} />
+
+          {/* ✅ routes Stripe */}
+          <Route path="/upgrade" element={<Upgrade />} />
+          <Route path="/billing" element={<Billing />} />
+          <Route path="/success" element={<Success />} />
+          <Route path="/cancel" element={<Cancel />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/login" replace />} />

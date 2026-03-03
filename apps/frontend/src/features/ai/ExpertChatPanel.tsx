@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Bot, User, Loader2, Trash2 } from "lucide-react";
 import { useAuth } from "../../store/auth.store";
+import { ApiRequestError, toApiRequestError } from "../../utils/apiRequestError";
+
+// ✅ AJOUT
+import type { AiRunResponse } from "../../api/types";
 
 interface Message {
   id: string;
@@ -58,7 +62,9 @@ function buildUltraCompactContext(report: any) {
           currency: report.meta.currency,
           sourceFileName: report.meta.sourceFileName ?? null,
           generatedAt: report.meta.generatedAt,
-          sheets: Array.isArray(report.meta.sheets) ? report.meta.sheets.slice(0, 20) : [],
+          sheets: Array.isArray(report.meta.sheets)
+            ? report.meta.sheets.slice(0, 20)
+            : [],
           rowsTotal: report.meta.rowsTotal,
         }
       : undefined,
@@ -78,7 +84,9 @@ function buildUltraCompactContext(report: any) {
           collectee: report.tva.collectee,
           deductible: report.tva.deductible,
           aPayer: report.tva.aPayer,
-          parTaux: Array.isArray(report.tva.parTaux) ? report.tva.parTaux.slice(0, 6) : [],
+          parTaux: Array.isArray(report.tva.parTaux)
+            ? report.tva.parTaux.slice(0, 6)
+            : [],
         }
       : undefined,
 
@@ -96,12 +104,16 @@ function buildUltraCompactContext(report: any) {
         }
       : undefined,
 
-    anomalies: Array.isArray(report?.anomalies) ? report.anomalies.slice(0, 10) : [],
+    anomalies: Array.isArray(report?.anomalies)
+      ? report.anomalies.slice(0, 10)
+      : [],
 
     summary: report?.summary
       ? {
           resume: summaryResume,
-          actions: Array.isArray(report.summary.actions) ? report.summary.actions.slice(0, 10) : [],
+          actions: Array.isArray(report.summary.actions)
+            ? report.summary.actions.slice(0, 10)
+            : [],
           questions: Array.isArray(report.summary.questions)
             ? report.summary.questions.slice(0, 10)
             : [],
@@ -129,6 +141,24 @@ export default function ExpertChatPanel() {
   const [analysisContext, setAnalysisContext] = useState<any | null>(null);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // ✅ MODIF: anti multi-poll + cleanup unmount
+  const pollTimerRef = useRef<number | null>(null);
+  const isPollingRef = useRef(false);
+
+  const clearPoll = () => {
+    if (pollTimerRef.current) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    isPollingRef.current = false;
+  };
+
+  useEffect(() => {
+    return () => {
+      clearPoll();
+    };
+  }, []);
 
   const getWelcomeMessage = useCallback(() => {
     return "Contexte chargé. Pose ta question (TVA, charges, marge, trésorerie, anomalies…).";
@@ -165,21 +195,31 @@ export default function ExpertChatPanel() {
   }, [messages, isLoading]);
 
   const startPolling = (jobId: string) => {
-    let stopped = false;
-    let timer: number | null = null;
+    // ✅ MODIF: stop ancien poll si existant
+    clearPoll();
+
+    // ✅ MODIF: empêcher multi-poll
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
+
+    // ✅ MODIF: backoff 429
+    let delayMs = 1000;
+    const maxDelayMs = 10000;
 
     const schedule = (ms: number) => {
-      if (stopped) return;
-      if (timer) window.clearTimeout(timer);
-      timer = window.setTimeout(tick, ms);
+      if (!isPollingRef.current) return;
+      if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = window.setTimeout(tick, ms);
     };
 
     const tick = async () => {
-      if (stopped) return;
+      if (!isPollingRef.current) return;
 
       try {
         const res = await fetch(`${AI_URL}/status/${jobId}`, {
-          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+          headers: accessToken
+            ? { Authorization: `Bearer ${accessToken}` }
+            : undefined,
         });
 
         if (res.status === 304) {
@@ -187,10 +227,16 @@ export default function ExpertChatPanel() {
           return;
         }
 
+        if (res.status === 429) {
+          delayMs = Math.min(maxDelayMs, delayMs * 2);
+          schedule(delayMs);
+          return;
+        }
+
         const data: any = await res.json();
 
         if (data.status === "completed") {
-          stopped = true;
+          clearPoll();
           setIsLoading(false);
 
           const parsed = safeParseJson(data.result);
@@ -199,13 +245,18 @@ export default function ExpertChatPanel() {
 
           setMessages((prev) => [
             ...prev,
-            { id: `ai-${Date.now()}`, role: "assistant", content, timestamp: new Date() },
+            {
+              id: `ai-${Date.now()}`,
+              role: "assistant",
+              content,
+              timestamp: new Date(),
+            },
           ]);
           return;
         }
 
         if (data.status === "failed") {
-          stopped = true;
+          clearPoll();
           setIsLoading(false);
 
           setMessages((prev) => [
@@ -222,7 +273,7 @@ export default function ExpertChatPanel() {
 
         schedule(1500);
       } catch {
-        stopped = true;
+        clearPoll();
         setIsLoading(false);
         setMessages((prev) => [
           ...prev,
@@ -286,31 +337,12 @@ export default function ExpertChatPanel() {
         body: form,
       });
 
-      // lire la réponse même si ce n'est pas JSON
-      const text = await res.text();
-      let json: any = null;
-      try {
-        json = text ? JSON.parse(text) : null;
-      } catch {
-        json = null;
-      }
+      if (!res.ok) throw await toApiRequestError(res);
 
-      if (!res.ok) {
-        setIsLoading(false);
-        const msg = json?.error || json?.message || text || "Body invalide";
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `http-${Date.now()}`,
-            role: "assistant",
-            content: `Erreur backend (${res.status}). ${msg}`,
-            timestamp: new Date(),
-          },
-        ]);
-        return;
-      }
+      // ✅ MODIF: typage AiRunResponse + extraction jobId
+      const json = (await res.json()) as AiRunResponse;
+      const jobId = json?.jobId;
 
-      const jobId = json?.jobId ?? json?.id;
       if (!jobId) {
         setIsLoading(false);
         setMessages((prev) => [
@@ -326,14 +358,20 @@ export default function ExpertChatPanel() {
       }
 
       startPolling(String(jobId));
-    } catch {
+    } catch (e) {
+      const err = e as ApiRequestError;
+
+      clearPoll();
       setIsLoading(false);
+
       setMessages((prev) => [
         ...prev,
         {
           id: `err-${Date.now()}`,
           role: "assistant",
-          content: `Erreur technique. Vérifie la connexion backend.\nURL utilisée: ${AI_URL}`,
+          content:
+            err?.message ||
+            `Erreur technique. Vérifie la connexion backend.\nURL utilisée: ${AI_URL}`,
           timestamp: new Date(),
         },
       ]);
@@ -341,6 +379,7 @@ export default function ExpertChatPanel() {
   };
 
   const clearChat = () => {
+    clearPoll();
     setMessages([
       {
         id: "welcome",
@@ -378,11 +417,16 @@ export default function ExpertChatPanel() {
         </button>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 pb-3 space-y-3">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-3 pb-3 space-y-3"
+      >
         {messages.map((m) => (
           <div
             key={m.id}
-            className={`flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+            className={`flex gap-2 ${
+              m.role === "user" ? "justify-end" : "justify-start"
+            }`}
           >
             {m.role === "assistant" && (
               <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center shrink-0">

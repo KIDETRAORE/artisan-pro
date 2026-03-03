@@ -209,13 +209,19 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide.
         }
 
         const msg = error instanceof Error ? error.message : String(error);
-        throw new HttpError(
+
+        // ✅ FIX TS UNIQUE : ne pas passer d'objet au 3e param (attendu boolean|undefined)
+        const httpErr = new HttpError(
           429,
           `Erreur IA: trop de requêtes (429). Réessaie dans ${
             retryAfterSeconds ?? "quelques"
-          } secondes.`,
-          { retryAfterSeconds: retryAfterSeconds ?? undefined }
+          } secondes.`
         );
+        (httpErr as any).details = {
+          retryAfterSeconds: retryAfterSeconds ?? undefined,
+          original: msg,
+        };
+        throw httpErr;
       }
 
       // retry backoff générique

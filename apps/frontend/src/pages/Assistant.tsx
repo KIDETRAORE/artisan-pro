@@ -1,7 +1,20 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Paperclip, Loader2, Sparkles, Trash2 } from "lucide-react";
+import {
+  Send,
+  Bot,
+  User,
+  Paperclip,
+  Loader2,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { useUser } from "../context/user.context";
 import { useAuth } from "../store/auth.store";
+import { fetchWithAuth } from "../auth/fetchWithAuth";
+import { ApiRequestError } from "../utils/apiRequestError";
+
+// ✅ AJOUT
+import type { AiRunResponse } from "../api/types";
 
 const API_URL = "http://localhost:8080/ai";
 
@@ -40,7 +53,9 @@ export default function Assistant() {
       role: "assistant",
       content:
         customText ||
-        `Bonjour ${userData?.name || "Artisan"} ! Je suis votre expert ArtisanPro. Je peux vous aider à analyser vos devis, calculer vos marges ou répondre à vos questions comptables.`,
+        `Bonjour ${
+          userData?.name || "Artisan"
+        } ! Je suis votre expert ArtisanPro. Je peux vous aider à analyser vos devis, calculer vos marges ou répondre à vos questions comptables.`,
       timestamp: new Date(),
     }),
     [userData?.name]
@@ -65,7 +80,8 @@ export default function Assistant() {
     };
 
     window.addEventListener("openExpertChat", handleExpertEvent);
-    return () => window.removeEventListener("openExpertChat", handleExpertEvent);
+    return () =>
+      window.removeEventListener("openExpertChat", handleExpertEvent);
   }, [getWelcomeMessage, messages.length]);
 
   // Auto-scroll
@@ -74,8 +90,41 @@ export default function Assistant() {
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isLoading]);
 
+  // ✅ Anti multi-poll + cleanup
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isPollingRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      isPollingRef.current = false;
+    };
+  }, []);
+
+  const clearPoll = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    isPollingRef.current = false;
+  };
+
   const startPolling = (jobId: string) => {
-    const interval = setInterval(async () => {
+    // ✅ Stop ancien poll si existant + reset flag
+    clearPoll();
+
+    // ✅ Empêche plusieurs polls simultanés
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
+
+    // ✅ Backoff 429 : 1s → 2s → 4s → 8s → 10s (max)
+    let delayMs = 1000;
+    const maxDelayMs = 10000;
+
+    const tick = async () => {
       try {
         const res = await fetch(`${API_URL}/status/${jobId}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -83,10 +132,18 @@ export default function Assistant() {
 
         if (res.status === 304) return;
 
+        if (res.status === 429) {
+          clearPoll();
+          delayMs = Math.min(maxDelayMs, delayMs * 2);
+          isPollingRef.current = true;
+          pollIntervalRef.current = setInterval(tick, delayMs);
+          return;
+        }
+
         const data = await res.json();
 
         if (data.status === "completed") {
-          clearInterval(interval);
+          clearPoll();
 
           const botMsg: Message = {
             id: Date.now().toString(),
@@ -98,7 +155,7 @@ export default function Assistant() {
           setMessages((prev) => [...prev, botMsg]);
           setIsLoading(false);
         } else if (data.status === "failed") {
-          clearInterval(interval);
+          clearPoll();
 
           const botMsg: Message = {
             id: Date.now().toString(),
@@ -110,11 +167,15 @@ export default function Assistant() {
           setMessages((prev) => [...prev, botMsg]);
           setIsLoading(false);
         }
-      } catch (err) {
-        clearInterval(interval);
+      } catch {
+        clearPoll();
         setIsLoading(false);
       }
-    }, 1200);
+    };
+
+    // Démarrage immédiat, puis interval
+    tick();
+    pollIntervalRef.current = setInterval(tick, delayMs);
   };
 
   const handleSend = async () => {
@@ -135,36 +196,41 @@ export default function Assistant() {
       // ✅ Prompt enrichi si contexte (vision/compta/etc.)
       let finalPrompt = input;
       if (analysisContext) {
-        finalPrompt = `CONTEXTE (JSON): ${JSON.stringify(analysisContext)}\n\nQUESTION: ${input}`;
+        finalPrompt = `CONTEXTE (JSON): ${JSON.stringify(
+          analysisContext
+        )}\n\nQUESTION: ${input}`;
       }
 
-      // ✅ IMPORTANT: type "expert" n'existe pas backend -> on utilise "assistant"
-      const response = await fetch(`${API_URL}/run`, {
+      // ✅ MODIF: type OpenAPI
+      const data = await fetchWithAuth<AiRunResponse>("/ai/run", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          type: "assistant",
-          prompt: finalPrompt,
-        }),
+        body: JSON.stringify({ type: "assistant", prompt: finalPrompt }),
       });
 
-      const data = await response.json();
-
-      if (data.jobId) {
-        startPolling(data.jobId);
+      if (data?.jobId) {
+        startPolling(String(data.jobId));
       } else {
-        throw new Error(data.message || "Erreur de communication avec l'IA");
+        // ✅ pas de throw new Error : on gère via message UI
+        const botMsg: Message = {
+          id: `noj-${Date.now()}`,
+          role: "assistant",
+          content: "Le backend n’a pas renvoyé de jobId.",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, botMsg]);
+        setIsLoading(false);
       }
-    } catch (err) {
-      console.error("Chat Error:", err);
+    } catch (e) {
+      const err = e as ApiRequestError;
 
       const errorMsg: Message = {
         id: `err-${Date.now()}`,
         role: "assistant",
-        content: "Désolé, j'ai rencontré une erreur technique. Vérifiez votre connexion au serveur.",
+        content:
+          err.code === "quota_exceeded"
+            ? "Quota atteint. Passez en PRO pour continuer."
+            : err.message ||
+              "Désolé, j'ai rencontré une erreur technique. Vérifiez votre connexion au serveur.",
         timestamp: new Date(),
       };
 
@@ -199,10 +265,22 @@ export default function Assistant() {
 
       <div className="flex-1 bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 flex flex-col overflow-hidden mb-4">
         {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-slate-50/30">
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-slate-50/30"
+        >
           {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`flex gap-3 max-w-[90%] ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+            <div
+              key={msg.id}
+              className={`flex ${
+                msg.role === "user" ? "justify-end" : "justify-start"
+              }`}
+            >
+              <div
+                className={`flex gap-3 max-w-[90%] ${
+                  msg.role === "user" ? "flex-row-reverse" : ""
+                }`}
+              >
                 <div
                   className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
                     msg.role === "user"
@@ -210,7 +288,11 @@ export default function Assistant() {
                       : "bg-slate-900 text-white"
                   }`}
                 >
-                  {msg.role === "user" ? <User size={16} /> : <Bot size={16} />}
+                  {msg.role === "user" ? (
+                    <User size={16} />
+                  ) : (
+                    <Bot size={16} />
+                  )}
                 </div>
 
                 <div
@@ -249,7 +331,11 @@ export default function Assistant() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                placeholder={analysisContext ? "Posez une question sur l'analyse..." : "Posez votre question technique..."}
+                placeholder={
+                  analysisContext
+                    ? "Posez une question sur l'analyse..."
+                    : "Posez votre question technique..."
+                }
                 className="w-full pl-6 pr-12 py-4 bg-slate-100 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl transition-all text-sm outline-none"
               />
               <button

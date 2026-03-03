@@ -72,10 +72,12 @@ Source de vérité quota : table `ai_quota` (`monthly_limit`, `used`, `reset_at`
 - tout `UPDATE ai_quota.monthly_limit` depuis Node
 - tout `UPDATE ai_quota.reset_at` depuis Node
 
-## Pré-check (avant appel IA) : middleware `checkQuota` (lecture-only)
+## Pré-check (avant appel IA) : middleware `quotaMiddleware` (lecture-only)
 - lit `subscriptions` → si PRO active : bypass
 - lit `ai_quota` → refuse si `used + weight > limit`
 - ne fait aucun reset, aucune écriture DB.
+- si quota dépassé → **403** avec `code="quota_exceeded"` et `details` (pour UI upgrade) :
+  - `{ feature, used, limit, weight, resetAt }`
 
 ## Consommation réelle (après succès IA)
 - `quotaService.recordUsage(...)` appelle exclusivement `consume_ai_quota`.
@@ -132,9 +134,13 @@ Format unique pour toutes les erreurs API :
 {
   "success": false,
   "error": { "code": "string", "message": "string" },
-  "details": {},
-  "requestId": "string"
+  "requestId": "string",
+  "details": {}
 }
+
+requestId est toujours présent (au minimum "unknown").
+
+details est optionnel (présent uniquement quand utile : quota, validation, debug contrôlé).
 
 Helper unique : sendError(req, res, status, code, message, details?).
 
@@ -148,7 +154,7 @@ gère HttpError → status + code/message
 
 fallback → 500 internal_error
 
-Règle : validate.middleware, auth.middleware, cors, 404, checkQuota doivent tous utiliser sendError (pas de { message } ou { success:false, error:"..." }).
+Règle : validate.middleware, auth.middleware, cors, 404, quotaMiddleware doivent tous utiliser sendError (pas de { message } ou { success:false, error:"..." }).
 
 Endpoints clés
 Auth
@@ -205,8 +211,14 @@ All API errors MUST follow this structure:
     "code": "string_code",
     "message": "Human readable message"
   },
-  "details": "optional"
+  "requestId": "string",
+  "details": {}
 }
+
+requestId is ALWAYS present (at minimum "unknown").
+
+details is OPTIONAL (can be omitted).
+
 ❌ Forbidden patterns
 
 res.json({ success:false, error:"..." })
@@ -278,7 +290,7 @@ is a regression.
 
 Quota check:
 
-Performed by quotaMiddleware / checkQuota
+Performed by quotaMiddleware
 
 READ-ONLY
 
@@ -329,11 +341,25 @@ pre-commit: lint-staged runs guards on staged files
 pre-push: runs guards:all
 
 Manual searches
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'success\s*:\s*false\s*,\s*error\s*:\s*["'']'
+Select-String -Path "apps/backend/src/**/.ts" -Pattern 'success\s:\sfalse\s,\serror\s:\s*["'']'
 
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles\.plan|subscription_status|monthly_quota_|quota_reset_at'
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles.plan|subscription_status|monthly_quota_|quota_reset_at'
 
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'update\("ai_quota"\)|\.update\({[^}]*used'
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'update
+"
+𝑎
+𝑖
+𝑞
+𝑢
+𝑜
+𝑡
+𝑎
+"
+"ai
+q
+	​
+
+uota"|.update({[^}]*used'
 
 If any violation appears → fix required.
 
@@ -408,17 +434,31 @@ Full rewrites increase regression risk.
 After any backend modification, the following checks MUST be run:
 
 Error shape validation
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'success\s*:\s*false\s*,\s*error\s*:\s*["'']'
+Select-String -Path "apps/backend/src/**/.ts" -Pattern 'success\s:\sfalse\s,\serror\s:\s*["'']'
 
 Expected result: NONE
 
 profiles misuse validation
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles\.plan|subscription_status|monthly_quota_|quota_reset_at'
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles.plan|subscription_status|monthly_quota_|quota_reset_at'
 
 Expected result: NONE
 
 Quota write validation
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'update\("ai_quota"\)|\.update\({[^}]*used'
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'update
+"
+𝑎
+𝑖
+𝑞
+𝑢
+𝑜
+𝑡
+𝑎
+"
+"ai
+q
+	​
+
+uota"|.update({[^}]*used'
 
 Expected result:
 
@@ -438,7 +478,8 @@ All errors MUST follow:
     "code": "...",
     "message": "..."
   },
-  "details": "optional"
+  "requestId": "string",
+  "details": {}
 }
 
 Allowed mechanisms:
@@ -459,7 +500,7 @@ res.json({ success:false, message:"..." })
 
 Pre-check:
 
-checkQuota (or quotaMiddleware)
+quotaMiddleware
 
 READ-ONLY
 
@@ -581,18 +622,18 @@ Only use validated data (no manual casting without schema)
 ✅ Example (Compliant)
 
 const AiChatBodySchema = z.object({
-  type: z.string().min(1).max(40).optional(),
-  prompt: z.string().min(1).max(10_000),
-  context: z.unknown().optional(),
+type: z.string().min(1).max(40).optional(),
+prompt: z.string().min(1).max(10_000),
+context: z.unknown().optional(),
 });
 
 router.post(
-  "/chat",
-  validateStrip(AiChatBodySchema, "body"),
-  async (req, res) => {
-    const { type, prompt, context } =
-      req.body as z.infer<typeof AiChatBodySchema>;
-  }
+"/chat",
+validateStrip(AiChatBodySchema, "body"),
+async (req, res) => {
+const { type, prompt, context } =
+req.body as z.infer<typeof AiChatBodySchema>;
+}
 );
 
 Multipart Special Case
@@ -608,10 +649,10 @@ Runtime check validates mime-type
 Example:
 
 router.post(
-  "/run",
-  uploadMiddleware,
-  validateStrip(AiRunBodySchema, "body"),
-  async (...)
+"/run",
+uploadMiddleware,
+validateStrip(AiRunBodySchema, "body"),
+async (...)
 );
 
 Forbidden Patterns

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../../store/auth.store";
+import { ApiRequestError, toApiRequestError } from "../../utils/apiRequestError";
 
 const API_URL = import.meta.env.VITE_API_URL
   ? `${String(import.meta.env.VITE_API_URL).replace(/\/$/, "")}`
@@ -35,15 +36,19 @@ export function useAiAssistant() {
         headers: buildAuthHeaders(accessToken),
       });
 
-      if (!res.ok) throw new Error("Erreur stratégie IA");
+      if (!res.ok) throw await toApiRequestError(res);
+
       const json: any = await res.json();
 
       const advice =
-        Array.isArray(json.advice) ? (json.advice as string[]) : [String(json.advice ?? "")];
+        Array.isArray(json.advice)
+          ? (json.advice as string[])
+          : [String(json.advice ?? "")];
 
       setData((prev) => ({ ...(prev ?? {}), advice }));
-    } catch (err: any) {
-      setError(err?.message || "Erreur stratégie IA");
+    } catch (err) {
+      const apiErr = err as ApiRequestError;
+      setError(apiErr?.message || "Erreur stratégie IA");
     } finally {
       setLoading(false);
     }
@@ -58,12 +63,14 @@ export function useAiAssistant() {
         headers: buildAuthHeaders(accessToken),
       });
 
-      if (!res.ok) throw new Error("Erreur prévision IA");
+      if (!res.ok) throw await toApiRequestError(res);
+
       const json: any = await res.json();
 
       setData((prev) => ({ ...(prev ?? {}), forecast: json }));
-    } catch (err: any) {
-      setError(err?.message || "Erreur prévision IA");
+    } catch (err) {
+      const apiErr = err as ApiRequestError;
+      setError(apiErr?.message || "Erreur prévision IA");
     } finally {
       setLoading(false);
     }
@@ -79,13 +86,24 @@ export function useAiAssistant() {
         headers: buildAuthHeaders(accessToken),
       });
 
-      return res.ok;
-    } catch {
+      if (!res.ok) throw await toApiRequestError(res);
+
+      return true;
+    } catch (err) {
+      const apiErr = err as ApiRequestError;
+      setError(apiErr?.message || "Erreur automatisation");
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  return { data, loading, error, fetchStrategy, fetchForecast, triggerAutomation };
+  return {
+    data,
+    loading,
+    error,
+    fetchStrategy,
+    fetchForecast,
+    triggerAutomation,
+  };
 }

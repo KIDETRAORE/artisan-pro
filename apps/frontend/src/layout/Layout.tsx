@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLocation, Link, Outlet, useNavigate } from "react-router-dom";
 import { FileText, Camera, PieChart, X, Sparkles } from "lucide-react";
 
@@ -14,6 +14,7 @@ export default function Layout() {
   const { userData } = useUser();
 
   const plan = userData?.plan ?? "free";
+  const status = userData?.status ?? "inactive"; // ✅ MODIF: status pour isPro
   const quota = userData?.quota;
 
   const percentage =
@@ -23,6 +24,26 @@ export default function Layout() {
     if (percentage < 60) return "bg-indigo-600";
     if (percentage < 85) return "bg-amber-500";
     return "bg-red-500";
+  };
+
+  // ✅ MODIF: isPro + bouton upgrade dynamique
+  const isPro = plan === "pro" && status === "active";
+
+  const getUpgradeCtaClass = () => {
+    // si pro → pas affiché (mais garde une valeur stable)
+    if (isPro) return "bg-indigo-600";
+
+    // si pas de quota (devrait être illimité uniquement si pro, mais safe)
+    if (!quota || quota.limit <= 0) return "bg-indigo-600 hover:bg-indigo-700";
+
+    // quota atteint
+    if (quota.used >= quota.limit) return "bg-red-600 hover:bg-red-700 animate-pulse";
+
+    // quota bas (< 20%)
+    if (percentage >= 80) return "bg-amber-600 hover:bg-amber-700";
+
+    // normal
+    return "bg-indigo-600 hover:bg-indigo-700";
   };
 
   useEffect(() => {
@@ -40,6 +61,145 @@ export default function Layout() {
     { name: "SUIVI", href: "/vision", icon: Camera, color: "bg-[#4f46e5]" },
     { name: "COMPTA", href: "/compta", icon: PieChart, color: "bg-[#059669]" },
   ];
+
+  // ✅ dropdown réglages
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const settingsWrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!settingsWrapRef.current) return;
+      if (settingsWrapRef.current.contains(e.target as Node)) return;
+      setIsSettingsOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  // ✅ MODIF UNIQUE: rendre les sections Settings totalement fonctionnelles
+  // - attend les sections
+  // - scroll avec offset
+  // - fallback si tu utilises data-section au lieu de id
+  const findSettingsSectionEl = (hash: string): HTMLElement | null => {
+    if (!hash) return null;
+    const byId = document.getElementById(hash);
+    if (byId) return byId;
+
+    // fallback si ta page Settings met: <section data-section="account" ...>
+    const byData = document.querySelector<HTMLElement>(`[data-section="${hash}"]`);
+    if (byData) return byData;
+
+    return null;
+  };
+
+  useEffect(() => {
+    if (location.pathname !== "/settings") return;
+
+    const hash = (location.hash || "").replace("#", "");
+    if (!hash) return;
+
+    const headerOffset = 110; // approx header + marge
+
+    // on essaie plusieurs fois car Settings peut rendre async
+    let tries = 0;
+    const maxTries = 20; // ~ 1s si interval 50ms
+
+    const attempt = () => {
+      const el = findSettingsSectionEl(hash);
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const top = window.scrollY + rect.top - headerOffset;
+        window.scrollTo({ top, behavior: "smooth" });
+        return true;
+      }
+      return false;
+    };
+
+    // tentative immédiate
+    if (attempt()) return;
+
+    const timer = window.setInterval(() => {
+      tries += 1;
+      if (attempt() || tries >= maxTries) {
+        window.clearInterval(timer);
+      }
+    }, 50);
+
+    return () => window.clearInterval(timer);
+  }, [location.pathname, location.hash]);
+
+  const goToSettingsSection = (hash: string) => {
+    setIsSettingsOpen(false);
+    const target = `/settings#${hash}`;
+
+    // si déjà sur /settings, on force le hash (et on laisse l'effect faire le scroll fiable)
+    if (location.pathname === "/settings") {
+      navigate(target, { replace: false });
+      return;
+    }
+
+    navigate(target);
+  };
+
+  const SettingsMenu = () => (
+    <div className="absolute right-0 top-12 w-56 bg-white border border-slate-100 shadow-xl rounded-2xl overflow-hidden z-50">
+      <div className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50">
+        Paramètres
+      </div>
+
+      {/* ✅ IDs attendus côté Settings: account, subscription, billing, security */}
+      <button
+        type="button"
+        onClick={() => goToSettingsSection("account")}
+        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+      >
+        Compte
+      </button>
+      <button
+        type="button"
+        onClick={() => goToSettingsSection("subscription")}
+        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+      >
+        Abonnement
+      </button>
+
+      <button
+        type="button"
+        onClick={() => goToSettingsSection("ai")}
+        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+      >
+        IA
+      </button>
+      
+      <button
+        type="button"
+        onClick={() => goToSettingsSection("billing")}
+        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+      >
+        Facturation
+      </button>
+      <button
+        type="button"
+        onClick={() => goToSettingsSection("security")}
+        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+      >
+        Sécurité
+      </button>
+
+      <div className="h-px bg-slate-100" />
+
+      <button
+        type="button"
+        onClick={() => {
+          setIsSettingsOpen(false);
+          navigate("/settings");
+        }}
+        className="w-full text-left px-4 py-3 text-sm font-black text-slate-900 hover:bg-slate-50"
+      >
+        Ouvrir tous les réglages
+      </button>
+    </div>
+  );
 
   return (
     <div className="flex h-screen bg-[#f8fafc] overflow-hidden flex-col font-sans relative">
@@ -88,21 +248,37 @@ export default function Layout() {
           </Link>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {!isPro && (
+            <Link
+              to="/upgrade"
+              className={`px-3 py-2 rounded-xl text-white text-xs font-bold uppercase tracking-widest transition-colors ${getUpgradeCtaClass()}`}
+            >
+              Passer PRO
+            </Link>
+          )}
+
           <button className="w-10 h-10 rounded-full border border-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-50">
             ?
           </button>
 
-          <button
-            onClick={() => navigate("/settings")}
-            className="w-10 h-10 rounded-full border border-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-50"
-          >
-            ⚙️
-          </button>
+          <div className="relative" ref={settingsWrapRef}>
+            <button
+              onClick={() => setIsSettingsOpen((v) => !v)}
+              className="w-10 h-10 rounded-full border border-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-50"
+              aria-haspopup="menu"
+              aria-expanded={isSettingsOpen}
+              aria-label="Réglages"
+            >
+              ⚙️
+            </button>
+
+            {isSettingsOpen && <SettingsMenu />}
+          </div>
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto relative">
+      <main className="flex-1 overflow-y-auto relative pb-32">
         <Outlet />
       </main>
 
@@ -130,11 +306,10 @@ export default function Layout() {
 
         <button
           onClick={() => setIsChatOpen(!isChatOpen)}
-          className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 border-4 border-white ${
-            isChatOpen
+          className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 border-4 border-white ${isChatOpen
               ? "bg-slate-900 text-white rotate-90 scale-90"
               : "bg-gradient-to-tr from-purple-600 to-blue-600 text-white hover:scale-110 active:scale-95"
-          }`}
+            }`}
           title="Mode Expert IA"
         >
           {isChatOpen ? <X size={24} /> : <Sparkles size={24} className="animate-pulse" />}
@@ -150,14 +325,12 @@ export default function Layout() {
               <Link
                 key={item.name}
                 to={item.href}
-                className={`flex flex-col items-center gap-1 transition-all duration-300 ${
-                  isActive ? "scale-110" : "opacity-60 hover:opacity-100"
-                }`}
+                className={`flex flex-col items-center gap-1 transition-all duration-300 ${isActive ? "scale-110" : "opacity-60 hover:opacity-100"
+                  }`}
               >
                 <div
-                  className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${
-                    isActive ? item.color : "bg-slate-200"
-                  }`}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${isActive ? item.color : "bg-slate-200"
+                    }`}
                 >
                   <Icon size={18} className={isActive ? "text-white" : "text-slate-600"} />
                 </div>

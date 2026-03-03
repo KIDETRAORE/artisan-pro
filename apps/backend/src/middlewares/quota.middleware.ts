@@ -26,40 +26,43 @@ export const quotaMiddleware = async (
 ) => {
   const userId = req.user?.id;
   if (!userId) {
-    return sendError(
-      req,
-      res,
-      401,
-      "unauthorized",
-      "Utilisateur non authentifié"
-    );
+    return sendError(req, res, 401, "unauthorized", "Utilisateur non authentifié");
   }
 
   const feature = resolveFeature(req);
 
   try {
-    // ✅ READ-ONLY: SELECT uniquement (pas de ensureQuotaRow, pas d'UPDATE)
-    const q = await quotaService.getUserQuota(userId);
+    // ✅ Pré-check réel READ-ONLY via checkQuota
+    const result = await quotaService.checkQuota(userId, feature);
 
-    // Si pas de ligne quota : forcer un passage par /dashboard (init)
-    if (!q) {
+    if (result.ok) {
+      return next();
+    }
+
+    // Ligne quota inexistante
+    if (result.code === "quota_row_missing") {
       return sendError(
         req,
         res,
         403,
         "quota_not_initialized",
-        "Quota non initialisé. Ouvre le dashboard puis réessaie.",
-        { feature }
+        "Quota non initialisé. Ouvre le dashboard puis réessaie."
       );
     }
 
-    // ✅ Reset logique uniquement (sans UPDATE)
-    if (q.reset_at && new Date(q.reset_at).getTime() <= Date.now()) {
-      // IMPORTANT: pas d'update ici (read-only)
-      // Le dashboard fera l'init/refresh si nécessaire.
+    // ✅ Quota dépassé → 403 + payload UI upgrade
+    if (result.code === "quota_exceeded") {
+      return sendError(req, res, 403, "quota_exceeded", "Quota atteint");
     }
 
-    return next();
+    // Autre erreur métier
+    logger.error("quotaMiddleware: checkQuota failed", {
+      userId,
+      feature,
+      code: result.code,
+    });
+
+    return sendError(req, res, 500, "quota_check_failed", "Impossible de vérifier le quota");
   } catch (err: unknown) {
     logger.error("quotaMiddleware: unexpected error", {
       userId,
@@ -67,8 +70,6 @@ export const quotaMiddleware = async (
       message: err instanceof Error ? err.message : String(err),
     });
 
-    return sendError(req, res, 500, "quota_check_failed", "Impossible de vérifier le quota", {
-      feature,
-    });
+    return sendError(req, res, 500, "quota_check_failed", "Impossible de vérifier le quota");
   }
 };

@@ -1,8 +1,11 @@
 import React, { useState } from "react";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
-import { ApiError } from "../auth/ApiError";
+import { ApiRequestError } from "../utils/apiRequestError";
 import { Link } from "react-router-dom";
 import { useUser } from "../context/user.context";
+
+// ✅ AJOUT
+import type { StripeCheckoutResponse } from "../api/types";
 
 export default function Upgrade() {
   const { userData } = useUser();
@@ -14,15 +17,21 @@ export default function Upgrade() {
   const startCheckout = async () => {
     setLoading(true);
     setError(null);
-    try {
-      const res = await fetchWithAuth<{ success: boolean; url?: string }>("/stripe/create-checkout-session", {
-        method: "POST",
-      });
 
-      if (!res?.url) throw new Error("URL de paiement manquante");
+    try {
+      const res = await fetchWithAuth<StripeCheckoutResponse>(
+        "/stripe/create-checkout-session",
+        { method: "POST" }
+      );
+
+      if (!res?.url) {
+        setError("URL de paiement manquante.");
+        return;
+      }
+
       window.location.href = res.url;
-    } catch (e: any) {
-      const err = e as ApiError;
+    } catch (e) {
+      const err = e as ApiRequestError;
       setError(err?.message ?? "Impossible de démarrer le paiement.");
     } finally {
       setLoading(false);
@@ -51,7 +60,10 @@ export default function Upgrade() {
       </button>
 
       <div className="text-xs text-slate-500">
-        Déjà PRO ? <Link className="text-blue-600 font-bold" to="/billing">Ouvrir le portail Billing</Link>
+        Déjà PRO ?{" "}
+        <Link className="text-blue-600 font-bold" to="/billing">
+          Ouvrir le portail Billing
+        </Link>
       </div>
     </div>
   );

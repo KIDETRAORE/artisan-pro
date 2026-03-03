@@ -9,6 +9,8 @@ import {
   normalizeStatus,
   isProActive,
 } from "../context/user.context";
+import { ApiRequestError } from "../utils/apiRequestError";
+import { toast } from "react-hot-toast";
 
 export default function Vision() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -37,7 +39,8 @@ export default function Vision() {
 
       // ✅ MODIF 2: setUserData doit recevoir un UserData direct (pas une fonction)
       const rawPlan = data?.subscription?.plan ?? userData?.plan ?? "free";
-      const rawStatus = data?.subscription?.status ?? userData?.status ?? "inactive";
+      const rawStatus =
+        data?.subscription?.status ?? userData?.status ?? "inactive";
 
       const plan = normalizePlan(rawPlan);
       const status = normalizeStatus(rawStatus);
@@ -97,8 +100,15 @@ export default function Vision() {
       setAnalysis(data);
 
       await refreshQuotaFromDashboard();
-    } catch {
-      alert("Erreur lors de l'analyse.");
+    } catch (e) {
+      const err = e as ApiRequestError;
+
+      if (err.code === "quota_exceeded") {
+        toast.error("Quota atteint. Passez en PRO pour continuer.");
+        navigate("/upgrade");
+      } else {
+        toast.error(err.message || "Erreur lors de l'analyse.");
+      }
     } finally {
       setIsProcessing(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -123,7 +133,12 @@ export default function Vision() {
             Base de connaissance externe
           </span>
         </div>
-        <div className="border-2 border-dashed border-slate-50 rounded-xl py-4 flex flex-col items-center justify-center gap-1 text-slate-400 hover:bg-slate-50 transition-colors cursor-pointer group">
+
+        {/* ✅ Import catalogue (inchangé) */}
+        <div
+          onClick={() => !isProcessing && fileInputRef.current?.click()}
+          className="border-2 border-dashed border-slate-50 rounded-xl py-4 flex flex-col items-center justify-center gap-1 text-slate-400 hover:bg-slate-50 transition-colors cursor-pointer group"
+        >
           <span className="text-[11px] font-medium italic opacity-60 flex items-center gap-2">
             ☁️ Importer un catalogue (Excel/CSV)
           </span>
@@ -143,9 +158,11 @@ export default function Vision() {
         {!analysis ? (
           <>
             <p className="text-slate-400 text-[12px] leading-snug italic mb-6">
-              Prenez une photo. L'IA analyse l'avancement technique et les matériaux sans identifier les personnes.
+              Prenez une photo. L'IA analyse l'avancement technique et les
+              matériaux sans identifier les personnes.
             </p>
 
+            {/* ✅ MODIF UNIQUE: "Prendre une photo" déclenche l'appareil photo (input capture) */}
             <div
               onClick={() => !isProcessing && fileInputRef.current?.click()}
               className="flex-1 border-2 border-dashed border-slate-100 rounded-[1.5rem] flex flex-col items-center justify-center group cursor-pointer hover:bg-slate-50 transition-all mb-2 min-h-[200px]"
@@ -174,7 +191,9 @@ export default function Vision() {
           </>
         ) : (
           <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-500">
-            <pre className="text-[11px] whitespace-pre-wrap">{JSON.stringify(analysis, null, 2)}</pre>
+            <pre className="text-[11px] whitespace-pre-wrap">
+              {JSON.stringify(analysis, null, 2)}
+            </pre>
 
             <button
               onClick={() => sendToExpertMode(analysis)}

@@ -6,15 +6,14 @@ export type ApiErrorBody = {
     code: string;
     message: string;
   };
-  requestId?: string;
-  details?: unknown;
+  requestId: string;
 };
 
-export function getRequestId(req: Request): string | undefined {
+export function getRequestId(req: Request): string {
   return (
     (req.headers["x-request-id"] as string | undefined) ??
-    (req as any).requestId ??
-    undefined
+    ((req as any).requestId as string | undefined) ??
+    "unknown"
   );
 }
 
@@ -23,14 +22,12 @@ export function sendError(
   res: Response,
   status: number,
   code: string,
-  message: string,
-  details?: unknown
+  message: string
 ) {
   const body: ApiErrorBody = {
     success: false,
     error: { code, message },
     requestId: getRequestId(req),
-    details: details ?? undefined,
   };
 
   return res.status(status).json(body);

@@ -17,6 +17,11 @@ import { useAuth } from "../store/auth.store";
 import { useComptaReportStore } from "../store/comptaReport.store";
 import { useExpertAssistantStore } from "../features/ai/expertAssistant.store";
 import { z } from "zod";
+import { ApiRequestError } from "../utils/apiRequestError";
+import { toast } from "react-hot-toast";
+
+// ✅ AJOUT
+import type { AiRunResponse } from "../api/types";
 
 /**
  * Helpers formats
@@ -167,6 +172,7 @@ export default function Compta() {
 
   // ✅ MODIF: anti multi-poll + cleanup unmount
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isPollingRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -174,6 +180,7 @@ export default function Compta() {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
+      isPollingRef.current = false;
     };
   }, []);
 
@@ -190,11 +197,27 @@ export default function Compta() {
     return value;
   };
 
-  const startPolling = (id: string) => {
-    // ✅ MODIF: éviter plusieurs polls simultanés
-    if (pollRef.current) return;
+  const clearPoll = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    isPollingRef.current = false;
+  };
 
-    pollRef.current = setInterval(async () => {
+  const startPolling = (id: string) => {
+    // ✅ MODIF: stop ancien poll si existant + reset flag
+    clearPoll();
+
+    // ✅ MODIF: empêcher plusieurs polls simultanés
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
+
+    // ✅ MODIF: backoff 429 : 1s → 2s → 4s → 8s → 10s (max)
+    let delayMs = 1000;
+    const maxDelayMs = 10000;
+
+    const tick = async () => {
       try {
         const response = await fetch(`${API_URL}/status/${id}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -202,19 +225,22 @@ export default function Compta() {
 
         if (response.status === 304) return;
 
+        if (response.status === 429) {
+          // ✅ clearInterval + relance avec délai augmenté
+          clearPoll();
+          delayMs = Math.min(maxDelayMs, delayMs * 2);
+          isPollingRef.current = true;
+          pollRef.current = setInterval(tick, delayMs);
+          return;
+        }
+
         const data = await response.json();
 
         if (data.status === "completed") {
-          // ✅ MODIF: clearInterval via ref (safe)
-          if (pollRef.current) {
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-          }
-
+          clearPoll();
           setIsProcessing(false);
 
           const parsed = safeParseResult(data.result);
-
           setRawResult(parsed);
 
           const validated = ComptaReportSchema.safeParse(parsed);
@@ -234,38 +260,44 @@ export default function Compta() {
         }
 
         if (data.status === "failed") {
-          // ✅ MODIF: clearInterval via ref (safe)
-          if (pollRef.current) {
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-          }
-
+          clearPoll();
           setIsProcessing(false);
           setReport(null);
           setSchemaError(null);
           setRawResult(null);
-          alert(data.error || "L'analyse comptable a échoué.");
+          toast.error(data.error || "L'analyse comptable a échoué.");
         }
-      } catch {
+      } catch (e) {
         // ✅ MODIF: clearInterval + setIsProcessing(false) dans le catch
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
+        clearPoll();
         setIsProcessing(false);
+
+        const err = e as ApiRequestError;
+        if (err?.code === "quota_exceeded") {
+          toast.error("Quota atteint. Passez en PRO pour continuer.");
+          navigate("/upgrade");
+        } else {
+          toast.error(err?.message || "Erreur pendant l'analyse.");
+        }
       }
-    }, 2000);
+    };
+
+    // Démarrage immédiat, puis interval
+    tick();
+    pollRef.current = setInterval(tick, delayMs);
   };
 
   const handleUpload = async () => {
     if (!file) return;
-    if (!accessToken) return alert("Vous devez être connecté.");
+
+    // ✅ MODIF: remplacer alert par toast
+    if (!accessToken) {
+      toast.error("Vous devez être connecté.");
+      return;
+    }
 
     // ✅ MODIF: stop ancien poll si existant
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
+    clearPoll();
 
     setIsProcessing(true);
     setReport(null);
@@ -276,20 +308,35 @@ export default function Compta() {
     form.append("type", "compta");
     form.append("file", file);
 
-    const response = await fetch(`${API_URL}/run`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: form,
-    });
+    try {
+      const response = await fetch(`${API_URL}/run`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: form,
+      });
 
-    const data = await response.json();
-    if (!data.jobId) {
+      // ✅ MODIF: typer la réponse /ai/run + handling jobId manquant
+      const data = (await response.json()) as AiRunResponse;
+
+      if (!data.jobId) {
+        setIsProcessing(false);
+        toast.error((data as any)?.error || "Erreur lors du lancement.");
+        return;
+      }
+
+      setJobId(String(data.jobId));
+      startPolling(String(data.jobId));
+    } catch (e) {
       setIsProcessing(false);
-      return alert(data.error || "Erreur lors du lancement.");
-    }
 
-    setJobId(String(data.jobId));
-    startPolling(String(data.jobId));
+      const err = e as ApiRequestError;
+      if (err?.code === "quota_exceeded") {
+        toast.error("Quota atteint. Passez en PRO pour continuer.");
+        navigate("/upgrade");
+      } else {
+        toast.error(err?.message || "Erreur lors du lancement.");
+      }
+    }
   };
 
   const handleExpertChat = () => {
@@ -555,7 +602,8 @@ export default function Compta() {
                   </div>
 
                   <div className="px-4 py-3 bg-slate-50 text-xs text-slate-600 font-semibold">
-                    Affichage: 10 lignes (preview). Export disponible via boutons.
+                    Affichage: 10 lignes (preview). Export disponible via
+                    boutons.
                   </div>
                 </div>
               ))}

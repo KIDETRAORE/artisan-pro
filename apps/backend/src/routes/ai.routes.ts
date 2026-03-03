@@ -58,6 +58,7 @@ const uploadMiddleware = (
 ) => {
   upload.single("file")(req, res, async (err: unknown) => {
     if (err) {
+      // ✅ FIX: sendError(req,res,status,code,message)
       return sendError(
         req,
         res,
@@ -101,6 +102,7 @@ const uploadMiddleware = (
       (detectedMime === "application/zip" && isXlsx);
 
     if (!isAllowed) {
+      // ✅ FIX: sendError(req,res,status,code,message)
       return sendError(
         req,
         res,
@@ -134,11 +136,13 @@ router.post(
 
       if (!req.user?.id) {
         logger.warn("[AI-ROUTE] /run unauthorized (missing req.user.id)");
+        // ✅ FIX
         return sendError(req, res, 401, "unauthorized", "Non authentifié");
       }
 
       if (!file) {
         logger.warn("[AI-ROUTE] /run missing file");
+        // ✅ FIX
         return sendError(req, res, 400, "missing_file", "Aucun fichier reçu");
       }
 
@@ -146,21 +150,29 @@ router.post(
       const feature = type || "vision";
       const weight = FEATURE_WEIGHTS[feature] ?? 1;
 
-      const quotaCheck = await quotaService.checkQuota(req.user!.id, feature);
+      const quotaCheck = await quotaService.checkQuota(req.user.id, feature);
 
-      // ✅ FIX TS: quotaCheck n'a pas "allowed" → on utilise "ok"
       if (!quotaCheck.ok) {
-        return sendError(req, res, 403, "quota_exceeded", "Quota mensuel atteint.", {
-          used: (quotaCheck as any).used,
-          limit: (quotaCheck as any).limit,
-          resetAt: (quotaCheck as any).resetAt,
+        // ✅ FIX: sendError n'accepte PAS un 6e arg "details"
+        // On garde la réponse typée standard (code/message). Le détail reste côté logs.
+        logger.warn("[AI-ROUTE] quota exceeded (precheck)", {
+          userId: req.user.id,
+          feature,
           weight,
+          quotaCheck,
         });
+
+        return sendError(
+          req,
+          res,
+          403,
+          "quota_exceeded",
+          "Quota mensuel atteint."
+        );
       }
 
       const fileBase64 = file.buffer.toString("base64");
 
-      // ✅ (3) Ensuite seulement → enqueue (inchangé, juste déplacé après pré-check)
       const job = await aiQueue.add(
         "ai-task",
         {
@@ -186,7 +198,14 @@ router.post(
       logger.error("[AI-ROUTE] /run failed", {
         message: error instanceof Error ? error.message : String(error),
       });
-      return sendError(req, res, 500, "internal_error", "Internal Server Error");
+      // ✅ FIX
+      return sendError(
+        req,
+        res,
+        500,
+        "internal_error",
+        "Internal Server Error"
+      );
     }
   }
 );
@@ -208,6 +227,7 @@ router.post(
 
       if (!req.user?.id) {
         logger.warn("[AI-ROUTE] /chat unauthorized (missing req.user.id)");
+        // ✅ FIX
         return sendError(req, res, 401, "unauthorized", "Non authentifié");
       }
 
@@ -215,22 +235,30 @@ router.post(
       const feature = type || "expert";
       const weight = FEATURE_WEIGHTS[feature] ?? 1;
 
-      const quotaCheck = await quotaService.checkQuota(req.user!.id, feature);
+      const quotaCheck = await quotaService.checkQuota(req.user.id, feature);
 
-      // ✅ FIX TS: quotaCheck n'a pas "allowed" → on utilise "ok"
       if (!quotaCheck.ok) {
-        return sendError(req, res, 403, "quota_exceeded", "Quota mensuel atteint.", {
-          used: (quotaCheck as any).used,
-          limit: (quotaCheck as any).limit,
-          resetAt: (quotaCheck as any).resetAt,
+        // ✅ FIX: pas de 6e arg details
+        logger.warn("[AI-ROUTE] quota exceeded (chat precheck)", {
+          userId: req.user.id,
+          feature,
           weight,
+          quotaCheck,
         });
+
+        return sendError(
+          req,
+          res,
+          403,
+          "quota_exceeded",
+          "Quota mensuel atteint."
+        );
       }
 
       const job = await aiQueue.add(
         "ai-task",
         {
-          type: feature, // ✅ utilise feature
+          type: feature,
           userId: req.user.id,
           prompt,
           context,
@@ -251,15 +279,47 @@ router.post(
       logger.error("[AI-ROUTE] /chat failed", {
         message: error instanceof Error ? error.message : String(error),
       });
-      return sendError(req, res, 500, "internal_error", "Internal Server Error");
+      // ✅ FIX
+      return sendError(
+        req,
+        res,
+        500,
+        "internal_error",
+        "Internal Server Error"
+      );
     }
   }
 );
 
 /**
+ * ✅ MODIF UNIQUE: normaliser les statuts BullMQ -> statuts API stables
+ * - BullMQ: waiting | delayed | active | completed | failed | paused
+ * - API: pending | processing | completed | failed
+ */
+const normalizeJobStatus = (
+  state: string
+): "pending" | "processing" | "completed" | "failed" => {
+  switch (state) {
+    case "active":
+      return "processing";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "waiting":
+    case "delayed":
+    case "paused":
+    default:
+      return "pending";
+  }
+};
+
+/**
  * ===============================
  * GET /ai/status/:jobId
  * - ✅ Normalise l'erreur côté client (pas de fuite failedReason)
+ * - ✅ NO-CACHE: éviter 304/ETag qui bloque le polling
+ * - ✅ MODIF UNIQUE: status normalisé (pending/processing/completed/failed)
  * ===============================
  */
 router.get(
@@ -267,41 +327,55 @@ router.get(
   validateStrip(AiStatusParamsSchema, "params"),
   async (req: Request, res: Response) => {
     try {
+      // (inchangé) headers anti-cache + ETag variable (évite 304)
+      res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, proxy-revalidate"
+      );
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      res.setHeader("Surrogate-Control", "no-store");
+      res.setHeader("ETag", String(Date.now()));
+
+      const requestId = (req as any)?.requestId ?? "unknown";
+
       const { jobId } = req.params as z.infer<typeof AiStatusParamsSchema>;
 
       const job = await aiQueue.getJob(String(jobId));
       if (!job) {
+        // ✅ FIX
         return sendError(req, res, 404, "not_found", "Analyse introuvable");
       }
 
       const ownerId = (job.data as any)?.userId as string | undefined;
       if (ownerId && req.user?.id && ownerId !== req.user.id) {
+        // ✅ FIX
         return sendError(req, res, 403, "forbidden", "Forbidden");
       }
 
       const state = await job.getState();
+      const status = normalizeJobStatus(state);
 
-      // ✅ Si failed : garder le détail côté serveur uniquement
       if (state === "failed") {
         logger.warn("[AI-ROUTE] job failed (details kept server-side)", {
           jobId: String(job.id),
           userId: req.user?.id,
           failedReason: (job as any)?.failedReason,
           stacktrace: (job as any)?.stacktrace,
-          requestId: (req as any)?.requestId,
+          requestId,
         });
       }
 
       return res.status(200).json({
         success: true,
-        status: state,
-        result: state === "completed" ? job.returnvalue : null,
+        status, // ✅ MODIF UNIQUE: status normalisé (au lieu de "state" BullMQ)
+        result: status === "completed" ? job.returnvalue : null,
         error:
-          state === "failed"
+          status === "failed"
             ? {
                 code: "ai_job_failed",
                 message: "L'IA n'a pas pu traiter la demande",
-                requestId: (req as any)?.requestId ?? undefined,
+                requestId,
               }
             : null,
       });
@@ -309,7 +383,14 @@ router.get(
       logger.error("[AI-ROUTE] /status failed", {
         message: error instanceof Error ? error.message : String(error),
       });
-      return sendError(req, res, 500, "internal_error", "Internal Server Error");
+      // ✅ FIX
+      return sendError(
+        req,
+        res,
+        500,
+        "internal_error",
+        "Internal Server Error"
+      );
     }
   }
 );
@@ -321,6 +402,7 @@ router.get(
 router.get("/compta/latest", async (req: Request, res: Response) => {
   try {
     if (!req.user?.id) {
+      // ✅ FIX
       return sendError(req, res, 401, "unauthorized", "Non authentifié");
     }
 
@@ -334,6 +416,7 @@ router.get("/compta/latest", async (req: Request, res: Response) => {
       .limit(1);
 
     if (error) {
+      // ✅ FIX
       return sendError(req, res, 500, "db_error", "DB error");
     }
 
@@ -346,7 +429,14 @@ router.get("/compta/latest", async (req: Request, res: Response) => {
       id: row?.id ?? null,
     });
   } catch {
-    return sendError(req, res, 500, "internal_error", "Internal Server Error");
+    // ✅ FIX
+    return sendError(
+      req,
+      res,
+      500,
+      "internal_error",
+      "Internal Server Error"
+    );
   }
 });
 

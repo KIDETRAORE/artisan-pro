@@ -2,6 +2,7 @@
 
 import { API_URL } from "../config/api";
 import { supabase } from "../lib/supabase";
+import { ApiRequestError, toApiRequestError } from "../utils/apiRequestError";
 
 /**
  * 🔐 Fetch sécurisé avec token Supabase
@@ -23,15 +24,12 @@ export async function fetchWithAuth<T = unknown>(
       headers.set("Authorization", `Bearer ${session.access_token}`);
     }
 
-    // 3️⃣ Content-Type automatique si body JSON
-    if (init.body && !headers.has("Content-Type")) {
+    // 3️⃣ Content-Type automatique si body JSON (⚠️ pas pour FormData/Blob)
+    if (typeof init.body === "string" && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
     }
 
     const url = `${API_URL}${input}`;
-
-    // 🔎 DEBUG (tu peux supprimer après)
-    console.log("🌍 API CALL:", url);
 
     // 4️⃣ Appel API
     const response = await fetch(url, {
@@ -44,24 +42,17 @@ export async function fetchWithAuth<T = unknown>(
     if (response.status === 401) {
       await supabase.auth.signOut();
       window.location.href = "/login";
-      throw new Error("Session expirée");
+      throw new ApiRequestError({
+        code: "unauthorized",
+        message: "Session expirée",
+        requestId: "unknown",
+        status: 401,
+      });
     }
 
-    // 6️⃣ Gestion erreurs HTTP
+    // 6️⃣ Gestion erreurs HTTP (standardisées)
     if (!response.ok) {
-      let message = `Erreur HTTP ${response.status}`;
-
-      try {
-        const errorData = await response.json();
-        if (errorData?.message) {
-          message = errorData.message;
-        }
-      } catch {
-        // ignore si pas JSON
-      }
-
-      console.error("❌ API ERROR:", message);
-      throw new Error(message);
+      throw await toApiRequestError(response);
     }
 
     // 7️⃣ Si 204 → rien à retourner
@@ -77,9 +68,7 @@ export async function fetchWithAuth<T = unknown>(
     }
 
     return undefined as T;
-
   } catch (error) {
-    console.error("fetchWithAuth error:", error);
     throw error;
   }
 }

@@ -19,6 +19,9 @@ import router from "./routes";
 // ✅ Stripe webhook (raw body)
 import stripeWebhookRoutes from "./routes/stripe.webhook";
 
+// ✅ AJOUT OPENAPI
+import openApiRoutes from "./routes/openapi.routes";
+
 const app = express();
 
 const isProd = ENV.NODE_ENV === "production"; // ✅ ajout
@@ -43,34 +46,26 @@ app.use(
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
-        // Base
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
 
-        // Scripts / styles
         scriptSrc: isProd
           ? ["'self'"]
           : ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
 
-        styleSrc: isProd
-          ? ["'self'"]
-          : ["'self'", "'unsafe-inline'"],
+        styleSrc: isProd ? ["'self'"] : ["'self'", "'unsafe-inline'"],
 
-        // Images / fonts
         imgSrc: ["'self'", "data:", "blob:"],
         fontSrc: ["'self'", "data:"],
 
-        // Réseau (APIs externes) — adapte selon tes besoins réels
         connectSrc: [
           "'self'",
-          // ex: Supabase / Stripe / Google, etc.
           // "https://*.supabase.co",
           // "https://api.stripe.com",
         ],
 
-        // Iframes (Stripe, etc.) si nécessaire
         frameSrc: [
           "'self'",
           // "https://js.stripe.com",
@@ -148,6 +143,7 @@ app.use(
     next: express.NextFunction
   ) => {
     if (err instanceof Error && err.message === "CORS_NOT_ALLOWED") {
+      // ✅ MODIF: sendError attend 5 args (pas de details ici)
       return sendError(req, res, 403, "cors_forbidden", "Origine non autorisée");
     }
     return next(err);
@@ -159,7 +155,7 @@ app.use(
  * BODY PARSERS (LIMIT PROTECTION)
  * ======================
  */
-app.use(express.json({ limit: "1mb", type: ["application/json"] })); // ✅ modif UNIQUE
+app.use(express.json({ limit: "1mb", type: ["application/json"] }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(cookieParser());
 
@@ -174,6 +170,13 @@ if (ENV.NODE_ENV !== "production") {
 
 /**
  * ======================
+ * OPENAPI ROUTES
+ * ======================
+ */
+app.use(openApiRoutes);
+
+/**
+ * ======================
  * ROUTES (SOURCE UNIQUE)
  * ======================
  */
@@ -185,10 +188,8 @@ app.use("/", router);
  * ======================
  */
 app.use((req, res) => {
-  return sendError(req, res, 404, "not_found", "Route introuvable", {
-    method: req.method,
-    path: req.originalUrl,
-  });
+  // ✅ MODIF: sendError attend 5 args (pas de details ici)
+  return sendError(req, res, 404, "not_found", "Route introuvable");
 });
 
 /**
