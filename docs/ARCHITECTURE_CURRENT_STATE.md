@@ -45,6 +45,49 @@ Replaced remaining forbidden patterns (`{ success:false, error:"..." }`) with **
   - `apps/frontend/src/context/user.context.tsx`: `normalizePlan`, `normalizeStatus`, `isProActive`
   - `apps/frontend/src/App.tsx`: uses normalizers (no more `"FREE" | "PRO"` typed plan)
 
+### 5) ✅ New architectural rules to prevent “spam loops” + invalid AI JSON regressions
+We observed 2 recurring failure modes during the chat:
+- **Spam / loops**: repeated calls to `/dashboard` and high-frequency polling to `/ai/status/:id`.
+- **Invalid JSON**: AI returns text / Markdown / malformed JSON → frontend schema parse fails → poor UX and sometimes polling confusion.
+
+✅ We lock these new rules:
+
+#### 5.1 Single “Dashboard hydration” owner (no duplicated fetch)
+- **ONLY `App.tsx`** is allowed to fetch `/dashboard` for session hydration (plan/status/quota/user).
+- Pages (ex: `Dashboard.tsx`) must **not** do extra “best effort” `/dashboard` calls unless there is a strict functional reason.
+- Reason: duplicated `/dashboard` fetch creates noisy logs (`OPTIONS`, repeated “Utilisateur authentifié”), and makes it harder to detect real regressions.
+
+#### 5.2 Polling is strictly single-instance + must always stop
+Frontend polling for async AI jobs (e.g. `/ai/status/:jobId`) MUST follow:
+- Only **one polling loop per jobId** (guard with `isPollingRef` or equivalent).
+- Always clear polling in ALL terminal cases:
+  - `status === "completed"`
+  - `status === "failed"`
+  - any thrown error / network error
+  - component unmount (cleanup)
+- Avoid overlapping requests:
+  - Prefer a `setTimeout` loop (schedule next tick only after previous completes), OR
+  - If using `setInterval`, ensure no concurrent in-flight tick (lock boolean) and always clear on completion.
+- 429 backoff is allowed/encouraged; but it must not restart infinite loops.
+
+#### 5.3 Backend must never “complete” with invalid compta payload
+For `feature="compta"` (and any route expecting “strict JSON”), backend MUST guarantee:
+
+- Persist BOTH:
+  - `response_raw` (string, debug)
+  - `response_json` (JSONB, validated payload)
+- If AI output cannot be parsed or does not validate against the expected schema:
+  - mark job as `failed`
+  - return `status="failed"` with an error code like `invalid_ai_json`
+  - NEVER mark as `completed` with a broken payload
+- Reason: if backend returns “completed” with invalid content, frontend will fail Zod parse and user sees “JSON invalide”, plus polling logic becomes harder to reason about.
+
+#### 5.4 Multi-device restore must return JSON (not a wrapper mismatch)
+If frontend restores the last compta report via backend endpoint:
+- Endpoint should return a JSON payload that is easy to validate.
+- If the API returns a wrapper `{ success: true, report: ... }`, frontend must parse **`report`**, not the wrapper.
+- “No report” should return **404 or 204** (both ok) and frontend handles silently.
+
 ---
 
 # Choix quota
@@ -189,11 +232,23 @@ POST /stripe/webhook — raw body (AVANT express.json)
 
 endpoints checkout/portal si présents (ex: /stripe/checkout, /stripe/portal)
 
-Quota / Usage
+AI async (BullMQ)
 
-GET /quota (si exposé)
+POST /ai/run
 
-RPC DB : consume_ai_quota(uid, amt) (source de vérité conso)
+GET /ai/status/:jobId
+
+GET /ai/export/:jobId?format=json|csv (si présent)
+
+✅ Multi-device restore (compta):
+
+GET /ai/compta/latest
+
+MUST be auth-required (req.user.id)
+
+MUST return last completed report for feature=compta
+
+MUST return JSON payload (response_json) and not only raw text
 
 🚨 NON-NEGOTIABLE BACKEND CONSTRAINTS (ANTI-REGRESSION RULES)
 
@@ -233,9 +288,7 @@ return sendError(req, res, status, code, message, details?)
 
 OR throw new HttpError(status, code, message, details)
 
-Handled centrally by error.middleware.ts.
-
-No exception.
+Handled centrally by error.middleware.ts. No exception.
 
 2️⃣ profiles Table Is NOT A Cache
 
@@ -341,29 +394,23 @@ pre-commit: lint-staged runs guards on staged files
 pre-push: runs guards:all
 
 Manual searches
+
 Select-String -Path "apps/backend/src/**/.ts" -Pattern 'success\s:\sfalse\s,\serror\s:\s*["'']'
+
+Expected result: NONE
 
 Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles.plan|subscription_status|monthly_quota_|quota_reset_at'
 
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'update
-"
-𝑎
-𝑖
-𝑞
-𝑢
-𝑜
-𝑡
-𝑎
-"
-"ai
-q
-	​
+Expected result: NONE
 
-uota"|.update({[^}]*used'
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern '.update\(\s*["'']ai_quota["'']|\.update\(\{[^}]*used'
+
+Expected result: only inside RPC definitions (DB), never in Node code
 
 If any violation appears → fix required.
 
-🔐 ARCHITECTURAL IMMUTABILITY PROTOCOL
+🔒 ARCHITECTURAL IMMUTABILITY PROTOCOL
+
 (Mandatory Workflow For Every New Session)
 
 This protocol defines how the project must evolve without introducing regressions.
@@ -403,13 +450,11 @@ Database schema (Supabase migrations + live DB)
 No assumptions allowed.
 No partial memory allowed.
 No inferred structure allowed.
-
 All decisions must be based on the uploaded code only.
 
 2️⃣ No Full File Regeneration Without Justification
 
 Rule:
-
 Full file rewrites are forbidden unless:
 
 The file is fundamentally broken
@@ -426,8 +471,7 @@ Replace specific blocks only
 
 Preserve untouched logic
 
-Reason:
-Full rewrites increase regression risk.
+Reason: Full rewrites increase regression risk.
 
 3️⃣ Mandatory Post-Modification Verification
 
@@ -435,36 +479,15 @@ After any backend modification, the following checks MUST be run:
 
 Error shape validation
 Select-String -Path "apps/backend/src/**/.ts" -Pattern 'success\s:\sfalse\s,\serror\s:\s*["'']'
-
 Expected result: NONE
 
 profiles misuse validation
 Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles.plan|subscription_status|monthly_quota_|quota_reset_at'
-
 Expected result: NONE
 
 Quota write validation
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'update
-"
-𝑎
-𝑖
-𝑞
-𝑢
-𝑜
-𝑡
-𝑎
-"
-"ai
-q
-	​
-
-uota"|.update({[^}]*used'
-
-Expected result:
-
-Only inside RPC definition (if present)
-
-Never inside middleware or controller.
+Select-String -Path "apps/backend/src/**/*.ts" -Pattern '.update\(\s*["'']ai_quota["'']|\.update\(\{[^}]*used'
+Expected result: never in Node code, only DB/RPC
 
 If any violation appears → modification is rejected.
 
@@ -474,10 +497,7 @@ All errors MUST follow:
 
 {
   "success": false,
-  "error": {
-    "code": "...",
-    "message": "..."
-  },
+  "error": { "code": "...", "message": "..." },
   "requestId": "string",
   "details": {}
 }
@@ -576,7 +596,6 @@ Adding layers
 Improving modules
 
 Refactoring internally
-
 But never by breaking invariants defined in this document.
 
 🔟 Definition of Regression
@@ -593,12 +612,15 @@ Creating duplicate middleware logic
 
 Breaking unified response format
 
+Reintroducing spam loops (duplicate hydration or uncontrolled polling)
+
+Marking AI jobs “completed” with invalid compta JSON payload
+
 Any regression invalidates the change.
 
-11 Input Validation Rules (Immutable)
+11️⃣ Input Validation Rules (Immutable)
 
 All external inputs must be validated using Zod schemas.
-
 This applies to:
 
 req.body
@@ -609,8 +631,7 @@ req.query
 
 No controller is allowed to access raw request data without prior validation.
 
-Mandatory Pattern
-
+Mandatory Pattern:
 Each route must:
 
 Define a Zod schema
@@ -622,22 +643,21 @@ Only use validated data (no manual casting without schema)
 ✅ Example (Compliant)
 
 const AiChatBodySchema = z.object({
-type: z.string().min(1).max(40).optional(),
-prompt: z.string().min(1).max(10_000),
-context: z.unknown().optional(),
+  type: z.string().min(1).max(40).optional(),
+  prompt: z.string().min(1).max(10_000),
+  context: z.unknown().optional(),
 });
 
 router.post(
-"/chat",
-validateStrip(AiChatBodySchema, "body"),
-async (req, res) => {
-const { type, prompt, context } =
-req.body as z.infer<typeof AiChatBodySchema>;
-}
+  "/chat",
+  validateStrip(AiChatBodySchema, "body"),
+  async (req, res) => {
+    const { type, prompt, context } =
+      req.body as z.infer<typeof AiChatBodySchema>;
+  }
 );
 
-Multipart Special Case
-
+Multipart Special Case:
 For multipart routes:
 
 Zod validates text fields
@@ -646,23 +666,15 @@ Multer validates file presence and size
 
 Runtime check validates mime-type
 
-Example:
-
-router.post(
-"/run",
-uploadMiddleware,
-validateStrip(AiRunBodySchema, "body"),
-async (...)
-);
-
-Forbidden Patterns
+Forbidden Patterns:
 
 const { type } = req.body as { type?: string };
+
 if (!req.body.prompt) { ... }
 
 Manual validation without Zod schema is not allowed.
 
-Architectural Objective
+Architectural Objective:
 
 Enforce strict API contracts
 
