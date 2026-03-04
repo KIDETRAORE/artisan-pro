@@ -27,8 +27,8 @@ export async function getOrCreateConversationId(params: {
         analysis_id: analysisId,
         updated_at: nowIso,
       } as any,
-      // ✅ MODIF UNIQUE : conversation persistante par user
-      { onConflict: "user_id" }
+      // ✅ FIX: doit matcher la contrainte UNIQUE (user_id, analysis_id)
+      { onConflict: "user_id,analysis_id" }
     )
     .select("id")
     .single();

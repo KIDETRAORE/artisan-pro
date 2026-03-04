@@ -44,24 +44,23 @@ export default function ExpertHubPanel({
   messages: ExpertMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ExpertMessage[]>>;
 }) {
-  // ✅ Hydration au mount / quand analysisId change
+  // ✅ MODIF UNIQUE: Hydration au mount + fallback si analysisId absent
   useEffect(() => {
-    if (!analysisId) return;
-
     let cancelled = false;
 
     (async () => {
       try {
-        const data = await fetchWithAuth<ExpertConversationResponse>(
-          `/ai/expert/history?analysisId=${encodeURIComponent(analysisId)}`,
-          { method: "GET" }
-        );
+        const url = analysisId
+          ? `/ai/expert/history?analysisId=${encodeURIComponent(analysisId)}`
+          : `/ai/expert/history`;
+
+        const data = await fetchWithAuth<ExpertConversationResponse>(url, {
+          method: "GET",
+        });
 
         if (cancelled) return;
 
         const raw = Array.isArray(data?.messages) ? data.messages : [];
-
-        // Si pas d’historique, on ne casse pas l’UI (on garde les messages actuels)
         if (raw.length === 0) return;
 
         const mapped: ExpertMessage[] = raw.map((m) => ({

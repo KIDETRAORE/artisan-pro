@@ -130,18 +130,28 @@ export default function ExpertChatPanel({
         const status = data?.status;
 
         if (status === "completed") {
-          const resultText =
+          // ✅ MODIF UNIQUE: normaliser la sortie pour éviter l'affichage { "response": "..." }
+          const raw =
             data?.result?.text ??
             data?.result?.response ??
             data?.result ??
             "Réponse reçue.";
+
+          const normalized =
+            typeof raw === "string"
+              ? raw
+              : typeof raw === "object" &&
+                  raw !== null &&
+                  "response" in raw
+                ? String((raw as any).response ?? "")
+                : String(raw);
 
           setMessages((prev) => [
             ...prev,
             {
               id: `a-${Date.now()}`,
               role: "assistant",
-              content: String(resultText),
+              content: normalized,
               timestamp: new Date(),
             },
           ]);

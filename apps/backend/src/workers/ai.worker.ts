@@ -96,6 +96,44 @@ function extractAssistantText(result: unknown): string {
   }
 }
 
+// ✅ AJOUT UNIQUE : normaliser la sortie assistant quand Gemini renvoie { "response": "..." }
+function normalizeAssistantOutput(text: string): string {
+  const t = text.trim();
+
+  try {
+    const parsed = JSON.parse(t);
+
+    if ((parsed as any)?.response) return String((parsed as any).response);
+    if ((parsed as any)?.text) return String((parsed as any).text);
+  } catch {}
+
+  return text;
+}
+
+// ✅ AJOUT UNIQUE : Output Sanitizer (anti JSON / anti markdown)
+function sanitizeAssistantOutput(text: string): string {
+  let t = text.trim();
+
+  // enlever markdown code blocks
+  t = t.replace(/```[\s\S]*?```/g, "").trim();
+
+  // enlever JSON wrapper
+  if (t.startsWith("{") && t.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(t);
+
+      if ((parsed as any)?.response) t = String((parsed as any).response);
+      if ((parsed as any)?.text) t = String((parsed as any).text);
+    } catch {}
+  }
+
+  // enlever clés style "response:" / "text:"
+  t = t.replace(/"response"\s*:\s*/gi, "");
+  t = t.replace(/"text"\s*:\s*/gi, "");
+
+  return t.trim();
+}
+
 // ✅ MODIF UNIQUE : extraire tokens Gemini si présents (usageMetadata.totalTokenCount)
 function extractTokensUsed(result: unknown): number | null {
   const r: any = result as any;
@@ -161,11 +199,17 @@ async function buildCopilotSnapshot(params: {
     tvaDeductible:
       typeof tva?.deductible === "number" ? Number(tva.deductible) : undefined,
     recettesHT:
-      typeof totals?.recettesHT === "number" ? Number(totals.recettesHT) : undefined,
+      typeof totals?.recettesHT === "number"
+        ? Number(totals.recettesHT)
+        : undefined,
     depensesHT:
-      typeof totals?.depensesHT === "number" ? Number(totals.depensesHT) : undefined,
+      typeof totals?.depensesHT === "number"
+        ? Number(totals.depensesHT)
+        : undefined,
     resultatNet:
-      typeof totals?.resultatNet === "number" ? Number(totals.resultatNet) : undefined,
+      typeof totals?.resultatNet === "number"
+        ? Number(totals.resultatNet)
+        : undefined,
   };
 
   const prompt = `
@@ -370,12 +414,26 @@ export const aiWorker = new Worker(
         });
       }
 
-      await quotaService.recordUsage(
-        userId,
-        feature,
-        typeof prompt === "string" ? prompt : "worker-input",
-        result
-      );
+      // ✅ MODIF UNIQUE (BEST EFFORT): recordUsage ne doit JAMAIS bloquer la suite
+      try {
+        const outputText = extractAssistantText(result);
+
+        await quotaService.recordUsage(
+          userId,
+          feature,
+          typeof prompt === "string" ? prompt : "worker-input",
+          outputText,
+          tokensUsed ?? undefined
+        );
+      } catch (e: unknown) {
+        logger.warn("[WORKER-AI] recordUsage failed (best effort)", {
+          jobId: job.id,
+          userId,
+          aiType,
+          feature,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
 
       // ✅ Persister le report compta dans ai_logs.response_json
       // ✅ MODIF UNIQUE (Mode 1 Copilote): générer & stocker un snapshot copilot dans response_json.copilot
@@ -436,7 +494,10 @@ export const aiWorker = new Worker(
       // ✅ si conversationId présent => persister la réponse assistant
       if (conversationId) {
         try {
-          const text = extractAssistantText(result);
+          const raw = extractAssistantText(result);
+          const normalized = normalizeAssistantOutput(raw);
+          const text = sanitizeAssistantOutput(normalized);
+
           await appendMessage({
             conversationId: String(conversationId),
             role: "assistant",

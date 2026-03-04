@@ -28,8 +28,9 @@ const ExpertChatBodySchema = z.object({
   prompt: z.string().min(1, "Prompt manquant").max(10_000),
 });
 
+// ✅ MODIF UNIQUE: analysisId optionnel + uuid
 const ExpertHistoryQuerySchema = z.object({
-  analysisId: z.string().min(1, "analysisId manquant"),
+  analysisId: z.string().uuid().optional(),
 });
 
 function buildExpertContext(report: any) {
@@ -72,9 +73,29 @@ function buildExpertContext(report: any) {
 function interpretShortIntent(prompt: string): string {
   const p = prompt.trim().toLowerCase();
 
-  if (p === "tva" || p.includes("tva") || p.includes("taxe")) {
-    return "Optimise la TVA à partir du rapport comptable (diagnostic + 2 actions + 1 vérification + 1 prochaine étape).";
+  // ✅ MODIF UNIQUE: intents larges => synthèse globale (pas juste TVA)
+  if (
+    p === "synthese" ||
+    p === "synthèse" ||
+    p.includes("synthese") ||
+    p.includes("synthèse") ||
+    p === "analyse" ||
+    p.includes("analyse") ||
+    p === "compta" ||
+    p.includes("compta")
+  ) {
+    return [
+      "Fais une synthèse complète de la situation comptable de l'artisan.",
+      "Explique les recettes, les charges, la rentabilité et la TVA en utilisant uniquement les données du rapport.",
+      "Signale les anomalies si présentes, et propose 1 à 3 pistes d'amélioration actionnables.",
+      "Termine par une question pour continuer la discussion.",
+    ].join(" ");
   }
+
+  if (p === "tva" || p.includes("tva") || p.includes("taxe")) {
+    return "Explique la situation TVA à partir du rapport (TVA à payer, collectée, déductible), ce que ça signifie, et une action concrète à faire. Termine par une question.";
+  }
+
   if (
     p === "charges" ||
     p === "charge" ||
@@ -84,59 +105,94 @@ function interpretShortIntent(prompt: string): string {
     p.includes("coût") ||
     p.includes("cout")
   ) {
-    return "Optimise les charges à partir du rapport comptable (top postes + 2 actions + 1 vérification + 1 prochaine étape).";
+    return "Analyse les charges à partir du rapport (postes principaux, ce qui pèse le plus), explique simplement, propose 1 à 3 actions pour optimiser. Termine par une question.";
   }
+
   if (p === "marge" || p.includes("marge") || p.includes("rentab")) {
-    return "Optimise la marge à partir du rapport comptable (constats + 2 actions + 1 vérification + 1 prochaine étape).";
+    return "Analyse la marge / rentabilité à partir du rapport, explique ce que les chiffres indiquent, propose 1 à 3 actions concrètes pour améliorer. Termine par une question.";
   }
+
   if (
     p === "trésorerie" ||
     p === "tresorerie" ||
     p.includes("cash") ||
     p.includes("liquid")
   ) {
-    return "Optimise la trésorerie à partir du rapport comptable (risques + 2 actions + 1 vérification + 1 prochaine étape).";
+    return "Analyse la trésorerie à partir du rapport (risques, points d’attention), explique simplement, propose 1 à 3 actions concrètes. Termine par une question.";
   }
 
   return prompt;
 }
 
 /**
- * ✅ MODIFS UNIQUES (B):
- * - template ultra “copiable”
- * - 8 lignes max
- * - obligation de recopier TVA_A_PAYER / TVA_COLLECTEE / TVA_DEDUCTIBLE
- * - si markdown détecté => réécrire immédiatement en texte brut (sinon invalide)
+ * ✅ MODIF UNIQUE (remplacement complet)
+ * Prompt conversationnel (sans template fixe)
+ * + règle: si question large => analyser l'ensemble du rapport
+ *
+ * ✅ AJOUT (demandé): bloc DIAGNOSTIC INTELLIGENT + règle "tenir compte de l'historique"
+ * ✅ AJOUT (demandé): FORMAT DE RÉPONSE OBLIGATOIRE (anti JSON / anti markdown)
+ * ✅ AJOUT (demandé): arrondir les montants à l'euro
+ * ✅ MODIF (demandé): renforcer anti-markdown + anti-json
  */
 function buildSystemInstruction(): string {
   return [
-    "Tu es l’Expert Comptable ArtisanPro.",
-    "Tu réponds en français, simple et actionnable.",
-    "Base-toi sur CONTEXTE (rapport) + HISTORIQUE.",
+    "Tu es ExpertComptableGPT pour l'application ArtisanPro.",
+    "Tu aides des artisans du bâtiment à comprendre leur comptabilité et améliorer leur rentabilité.",
+    "Tu analyses un rapport comptable fourni dans CONTEXTE.",
+    "Objectif : expliquer les chiffres simplement et aider l'utilisateur à prendre de meilleures décisions.",
 
-    "RÈGLE TVA (OBLIGATOIRE) :",
-    "- Tu dois recopier EXACTEMENT les montants TVA_A_PAYER / TVA_COLLECTEE / TVA_DEDUCTIBLE depuis OFFICIAL_FIGURES.",
-    "- Interdit de recalculer la TVA (ni somme, ni arrondis).",
+    "Règles :",
+    "• N'invente jamais de chiffres",
+    "• Utilise uniquement les données du rapport",
+    "• Explique les résultats simplement",
+    "• Réponds comme un expert-comptable humain",
 
-    "ANTI-MARKDOWN (OBLIGATOIRE) :",
-    "- Tu réponds en TEXTE BRUT uniquement.",
-    "- Si tu as écrit le moindre Markdown (###, **, `, listes Markdown, etc.), tu dois RÉÉCRIRE IMMÉDIATEMENT la réponse SANS Markdown. Sinon réponse invalide.",
+    // ✅ AJOUT UNIQUE : arrondir les montants
+    "RÈGLE D'AFFICHAGE DES MONTANTS (OBLIGATOIRE) :",
+    "• Tous les montants doivent être arrondis à l'euro pour être plus lisibles.",
+    "• Exemple : 5 946 € au lieu de 5 946,99 €.",
 
-    "FORMAT STRICT :",
-    "- 8 lignes MAX au total (y compris les questions).",
-    "- 1 idée par ligne. Phrases courtes.",
-    "- Interdit : ###, **, ``, { }, [], JSON, ou code.",
-    "- Copie EXACTEMENT le template ci-dessous (mêmes lignes, même ordre).",
+    // ✅ MODIF UNIQUE : anti-markdown + anti-json plus dur
+    "RÈGLES DE FORMAT (OBLIGATOIRE)",
+    "- Réponds uniquement en TEXTE BRUT.",
+    '- Interdits : JSON, { }, [ ], guillemets de clé ("response":), code, Markdown.',
+    "- Interdits : **, __, ##, ###, ``` , liens [texte](url), listes Markdown.",
+    "- Si tu as écrit un seul caractère de Markdown (ex: **), tu dois réécrire immédiatement la réponse en texte brut.",
+    '- Utilise uniquement : emojis + texte + puces simples "•" + numéros "1)".',
 
-    "TEMPLATE (copie exactement, 8 lignes max) :",
-    "🧾 TVA (résumé)",
-    "• À payer : TVA_A_PAYER €",
-    "• Collectée : TVA_COLLECTEE € | Déductible : TVA_DEDUCTIBLE €",
-    "✅ Actions",
-    "1) ...",
-    "2) ...",
-    "⚠️ À vérifier : ...",
-    "❓ Question : ...",
+    "Style :",
+    "- Français simple",
+    "- Ton pédagogique",
+    "- Réponse conversationnelle",
+    "- Maximum 8 à 10 lignes",
+
+    "Structure recommandée :",
+    "1. Synthèse rapide",
+    "2. Interprétation des chiffres",
+    "3. Conseils concrets (1 à 3)",
+    "4. Question pour continuer la discussion",
+
+    "IMPORTANT :",
+    "Si la question utilisateur est courte (ex : TVA, marge, charges, synthèse) :",
+    "• analyse le rapport",
+    "• explique la situation",
+    "• propose une piste d'amélioration",
+    "• pose une question pour approfondir",
+
+    "HISTORIQUE (IMPORTANT) :",
+    "Tu dois tenir compte de l'historique de la conversation (HISTORIQUE) pour éviter de répéter les mêmes informations.",
+    "Si un point a déjà été expliqué, fais un rappel très court et avance (nouvelle analyse / nouveau conseil / nouvelle question).",
+
+    "DIAGNOSTIC INTELLIGENT :",
+    "Ton rôle n'est pas seulement de répondre mais d'aider l'artisan à comprendre sa situation.",
+    "Quand une information manque pour faire une analyse fiable :",
+    "• pose une question pertinente",
+    "• adapte ton analyse selon la réponse",
+    "• fais avancer la discussion",
+    "Un bon expert pose souvent des questions avant de conclure.",
+    "Limite les questions à une seule à la fois.",
+
+    'Si la question utilisateur est large (ex: "synthèse", "analyse", "compta"), tu dois analyser l\'ensemble du rapport et pas seulement un élément spécifique comme la TVA.',
   ].join("\n");
 }
 
@@ -154,25 +210,60 @@ router.get(
       const { analysisId } =
         req.query as z.infer<typeof ExpertHistoryQuerySchema>;
 
-      const { data: conv, error: convErr } = await supabaseAdmin
-        .from("expert_conversations")
-        .select("id")
-        .eq("user_id", req.user.id)
-        .eq("analysis_id", analysisId)
-        .maybeSingle();
+      // ✅ MODIF UNIQUE: fallback dernière conversation si analysisId absent
+      let conversationId: string | null = null;
 
-      if (convErr) {
-        return sendError(req, res, 500, "history_fetch_failed", convErr.message);
+      if (analysisId) {
+        const { data: conv, error: convErr } = await supabaseAdmin
+          .from("expert_conversations")
+          .select("id")
+          .eq("user_id", req.user.id)
+          .eq("analysis_id", analysisId)
+          .maybeSingle();
+
+        if (convErr) {
+          return sendError(
+            req,
+            res,
+            500,
+            "history_fetch_failed",
+            convErr.message
+          );
+        }
+
+        conversationId = conv?.id ?? null;
       }
 
-      if (!conv?.id) {
+      if (!conversationId) {
+        const { data: conv, error: convErr } = await supabaseAdmin
+          .from("expert_conversations")
+          .select("id")
+          .eq("user_id", req.user.id)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (convErr) {
+          return sendError(
+            req,
+            res,
+            500,
+            "history_fetch_failed",
+            convErr.message
+          );
+        }
+
+        conversationId = conv?.id ?? null;
+      }
+
+      if (!conversationId) {
         return res.status(200).json({ success: true, messages: [] });
       }
 
       const { data: msgs, error: msgErr } = await supabaseAdmin
         .from("expert_messages")
         .select("id, role, content, created_at")
-        .eq("conversation_id", conv.id)
+        .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
 
       if (msgErr) {
@@ -283,7 +374,6 @@ router.post(
         `TVA_A_PAYER = ${tvaAPayer ?? "null"}`,
         `TVA_COLLECTEE = ${tvaCollectee ?? "null"}`,
         `TVA_DEDUCTIBLE = ${tvaDeductible ?? "null"}`,
-        "INSTRUCTION: Tu dois COPIER ces montants tels quels dans le template (aucun recalcul).",
       ].join("\n");
 
       const finalPrompt = `${buildSystemInstruction()}
@@ -326,13 +416,7 @@ ${interpreted}`;
         message: error instanceof Error ? error.message : String(error),
       });
 
-      return sendError(
-        req,
-        res,
-        500,
-        "internal_error",
-        "Internal Server Error"
-      );
+      return sendError(req, res, 500, "internal_error", "Internal Server Error");
     }
   }
 );
