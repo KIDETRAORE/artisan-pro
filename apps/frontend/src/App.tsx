@@ -56,8 +56,8 @@ export default function App() {
 
   useEffect(() => {
     const run = async () => {
-      // ✅ MODIF UNIQUE: ne dépend plus de accessToken (fetchWithAuth récupère la session)
-      if (!userEmail) return;
+      // ✅ MODIF UNIQUE: ne plus dépendre de userEmail (peut être null après refresh)
+      if (!accessToken) return;
       if (dashboardFetchInFlightRef.current) return;
 
       dashboardFetchInFlightRef.current = true;
@@ -67,7 +67,14 @@ export default function App() {
           method: "GET",
         });
 
-        const emailName = userEmail.split("@")[0] || "Artisan";
+        // ✅ MODIF UNIQUE: prendre l'email depuis l'API si userEmail n'est pas encore hydraté
+        const finalEmail = data?.user?.email ?? userEmail;
+        if (!finalEmail) {
+          clearUserData();
+          return;
+        }
+
+        const emailName = finalEmail.split("@")[0] || "Artisan";
         const formattedName =
           emailName.charAt(0).toUpperCase() + emailName.slice(1);
 
@@ -77,7 +84,7 @@ export default function App() {
 
         setUserData({
           name: formattedName,
-          email: userEmail,
+          email: finalEmail,
           plan,
           status,
           quota: proActive
@@ -95,8 +102,8 @@ export default function App() {
     };
 
     run();
-    // ✅ MODIF UNIQUE: retirer accessToken des deps (évite refetch sur refresh token)
-  }, [userEmail, setUserData, clearUserData]);
+    // ✅ MODIF UNIQUE: on dépend de accessToken (sinon au refresh on ne fetch jamais)
+  }, [accessToken, userEmail, setUserData, clearUserData]);
 
   return (
     <Suspense fallback={<div className="p-4">Chargement…</div>}>

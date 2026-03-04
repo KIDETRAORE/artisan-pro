@@ -1,24 +1,13 @@
-// apps/backend/src/services/quota.service.ts
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
 import { consumeAiQuotaOrThrow, QuotaError } from "./quota/consumeQuota";
 import { normalizePlan, normalizeStatus, isProActive } from "../domain/plan";
 
-/**
- * ======================
- * LIMITES PAR PLAN
- * ======================
- */
 const PLAN_LIMITS: Record<string, number> = {
   free: 100,
   pro: 1000,
 };
 
-/**
- * ======================
- * POIDS PAR FEATURE
- * ======================
- */
 export const FEATURE_WEIGHTS: Record<string, number> = {
   assistant: 1,
   devis: 2,
@@ -28,11 +17,6 @@ export const FEATURE_WEIGHTS: Record<string, number> = {
   vocal: 1,
 };
 
-/**
- * ======================
- * CAPS PAR FEATURE
- * ======================
- */
 export const FEATURE_CAPS: Record<string, number> = {
   vision: 15,
   compta: 10,
@@ -48,7 +32,6 @@ function nextResetDate(from = new Date()): Date {
 }
 
 export const quotaService = {
-  // ✅ READ-ONLY
   async getQuotaRow(userId: string) {
     const { data, error } = await supabaseAdmin
       .from("ai_quota")
@@ -60,13 +43,7 @@ export const quotaService = {
     return data ?? null;
   },
 
-  /**
-   * ✅ DESIGN FINAL: plus de ensure_ai_quota ici.
-   * On suppose que la row ai_quota est créée via trigger (handle_new_user).
-   * Cette fonction renvoie la “shape” utile au dashboard, mais en 100% read-only.
-   */
   async getQuotaSnapshot(userId: string) {
-    // 1) Subscriptions
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
       .select("plan,status")
@@ -94,7 +71,6 @@ export const quotaService = {
       };
     }
 
-    // 2) Quota row (doit exister)
     const { data: quota, error: quotaErr } = await supabaseAdmin
       .from("ai_quota")
       .select("user_id, monthly_limit, used, reset_at")
@@ -110,7 +86,6 @@ export const quotaService = {
     }
 
     if (!quota) {
-      // Ici: trigger manquant / user créé avant trigger / projet mal migré
       throw new Error("quota_row_missing");
     }
 
@@ -122,7 +97,6 @@ export const quotaService = {
     };
   },
 
-  // ✅ 100% READ-ONLY
   async checkQuota(userId: string, feature: string) {
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
@@ -131,7 +105,11 @@ export const quotaService = {
       .maybeSingle();
 
     if (subErr) {
-      return { ok: false as const, code: "quota_check_failed", reason: subErr.message };
+      return {
+        ok: false as const,
+        code: "quota_check_failed",
+        reason: subErr.message,
+      };
     }
 
     const plan = normalizePlan(sub?.plan);
@@ -148,7 +126,11 @@ export const quotaService = {
       .maybeSingle();
 
     if (qErr) {
-      return { ok: false as const, code: "quota_check_failed", reason: qErr.message };
+      return {
+        ok: false as const,
+        code: "quota_check_failed",
+        reason: qErr.message,
+      };
     }
 
     if (!quota) {
@@ -177,7 +159,14 @@ export const quotaService = {
     return { ok: true as const };
   },
 
-  async recordUsage(userId: string, feature: string, input?: string, output?: string) {
+  // ✅ MODIF UNIQUE : ajout param tokensUsed optionnel
+  async recordUsage(
+    userId: string,
+    feature: string,
+    input?: string,
+    output?: string,
+    tokensUsed?: number
+  ) {
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
       .select("plan,status")
@@ -196,16 +185,22 @@ export const quotaService = {
     const status = normalizeStatus(sub?.status);
     const pro = isProActive(plan, status);
 
+    const estimated = (estimateTokens(input) + estimateTokens(output)) || 0;
+    const tokensFinal =
+      typeof tokensUsed === "number" && Number.isFinite(tokensUsed) && tokensUsed > 0
+        ? Math.floor(tokensUsed)
+        : estimated;
+
     if (pro) {
       void supabaseAdmin.from("ai_usage").insert({
         user_id: userId,
         feature,
-        tokens_estimated: (estimateTokens(input) + estimateTokens(output)) || 0,
+        // ✅ on stocke le réel si dispo, sinon estimation
+        tokens_estimated: tokensFinal,
       });
       return;
     }
 
-    // FREE: row doit exister via trigger
     const { data: quota, error: qErr } = await supabaseAdmin
       .from("ai_quota")
       .select("user_id")
@@ -226,12 +221,10 @@ export const quotaService = {
 
     const rawWeight = FEATURE_WEIGHTS[feature] ?? 1;
     const weight = Math.max(1, Number(rawWeight) || 1);
-    const tokens = estimateTokens(input) + estimateTokens(output);
 
     try {
       await consumeAiQuotaOrThrow(userId, weight);
     } catch (err: any) {
-      // ✅ MODIF UNIQUE : mapping strict (ne pas convertir "quota_rpc_failed" en quota_exceeded)
       const code = String(err?.code ?? "");
       const msg = String(err?.message ?? "");
 
@@ -255,7 +248,8 @@ export const quotaService = {
         await supabaseAdmin.from("ai_usage").insert({
           user_id: userId,
           feature,
-          tokens_estimated: tokens > 0 ? tokens : weight * 100,
+          // ✅ on stocke le réel si dispo, sinon estimation fallback
+          tokens_estimated: tokensFinal > 0 ? tokensFinal : weight * 100,
         });
       } catch (err: unknown) {
         logger.warn("[QuotaService] ai_usage insert failed (best effort)", {

@@ -9,7 +9,6 @@ import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { aiRateLimit } from "../middlewares/rateLimit.middleware";
 import { validateStrip } from "../middlewares/validate.middleware";
 
-// ✅ (1) Imports ajoutés (et sendError déplacé) — comme demandé
 import { quotaService } from "../services/quota.service";
 import { FEATURE_WEIGHTS } from "../config/featureWeights";
 import { sendError } from "../utils/apiError";
@@ -58,7 +57,6 @@ const uploadMiddleware = (
 ) => {
   upload.single("file")(req, res, async (err: unknown) => {
     if (err) {
-      // ✅ FIX: sendError(req,res,status,code,message)
       return sendError(
         req,
         res,
@@ -102,7 +100,6 @@ const uploadMiddleware = (
       (detectedMime === "application/zip" && isXlsx);
 
     if (!isAllowed) {
-      // ✅ FIX: sendError(req,res,status,code,message)
       return sendError(
         req,
         res,
@@ -136,25 +133,21 @@ router.post(
 
       if (!req.user?.id) {
         logger.warn("[AI-ROUTE] /run unauthorized (missing req.user.id)");
-        // ✅ FIX
         return sendError(req, res, 401, "unauthorized", "Non authentifié");
       }
 
       if (!file) {
         logger.warn("[AI-ROUTE] /run missing file");
-        // ✅ FIX
         return sendError(req, res, 400, "missing_file", "Aucun fichier reçu");
       }
 
-      // ✅ (2) Pré-check quota (read-only) AVANT aiQueue.add(...)
+      // ✅ Pré-check quota (read-only) AVANT enqueue
       const feature = type || "vision";
       const weight = FEATURE_WEIGHTS[feature] ?? 1;
 
       const quotaCheck = await quotaService.checkQuota(req.user.id, feature);
 
       if (!quotaCheck.ok) {
-        // ✅ FIX: sendError n'accepte PAS un 6e arg "details"
-        // On garde la réponse typée standard (code/message). Le détail reste côté logs.
         logger.warn("[AI-ROUTE] quota exceeded (precheck)", {
           userId: req.user.id,
           feature,
@@ -173,6 +166,42 @@ router.post(
 
       const fileBase64 = file.buffer.toString("base64");
 
+      /**
+       * ✅ MODIF DEMANDÉE (optionnelle): analysisId explicite pour compta
+       * - On crée une ligne ai_logs "pending" et on renvoie son id
+       * - Le worker mettra ensuite à jour cette même ligne (response_json, status...)
+       */
+      let analysisId: string | null = null;
+
+      if (feature === "compta") {
+        const { data, error } = await supabaseAdmin
+          .from("ai_logs")
+          .insert({
+            user_id: req.user.id,
+            feature: "compta",
+            status: "pending",
+          })
+          .select("id")
+          .single();
+
+        if (error) {
+          logger.error("[AI-ROUTE] /run failed to create ai_logs (pending)", {
+            message: error.message,
+            userId: req.user.id,
+          });
+
+          return sendError(
+            req,
+            res,
+            500,
+            "db_error",
+            "Impossible d'initialiser l'analyse."
+          );
+        }
+
+        analysisId = data?.id ?? null;
+      }
+
       const job = await aiQueue.add(
         "ai-task",
         {
@@ -181,6 +210,7 @@ router.post(
           fileBase64,
           mimeType: file.mimetype,
           fileName: file.originalname,
+          analysisId: analysisId ?? undefined, // ✅ AJOUT: transmis au worker
         },
         {
           removeOnComplete: { age: 600, count: 50 },
@@ -191,14 +221,18 @@ router.post(
       logger.info("[AI-ROUTE] /run job created", {
         jobId: job.id,
         userId: req.user.id,
+        analysisId,
       });
 
-      return res.status(200).json({ success: true, jobId: job.id });
+      return res.status(200).json({
+        success: true,
+        jobId: job.id,
+        analysisId, // ✅ AJOUT: renvoyé au frontend (null si non compta)
+      });
     } catch (error: unknown) {
       logger.error("[AI-ROUTE] /run failed", {
         message: error instanceof Error ? error.message : String(error),
       });
-      // ✅ FIX
       return sendError(
         req,
         res,
@@ -227,18 +261,15 @@ router.post(
 
       if (!req.user?.id) {
         logger.warn("[AI-ROUTE] /chat unauthorized (missing req.user.id)");
-        // ✅ FIX
         return sendError(req, res, 401, "unauthorized", "Non authentifié");
       }
 
-      // ✅ Pré-check quota (read-only) AVANT enqueue
       const feature = type || "expert";
       const weight = FEATURE_WEIGHTS[feature] ?? 1;
 
       const quotaCheck = await quotaService.checkQuota(req.user.id, feature);
 
       if (!quotaCheck.ok) {
-        // ✅ FIX: pas de 6e arg details
         logger.warn("[AI-ROUTE] quota exceeded (chat precheck)", {
           userId: req.user.id,
           feature,
@@ -279,7 +310,6 @@ router.post(
       logger.error("[AI-ROUTE] /chat failed", {
         message: error instanceof Error ? error.message : String(error),
       });
-      // ✅ FIX
       return sendError(
         req,
         res,
@@ -291,11 +321,6 @@ router.post(
   }
 );
 
-/**
- * ✅ MODIF UNIQUE: normaliser les statuts BullMQ -> statuts API stables
- * - BullMQ: waiting | delayed | active | completed | failed | paused
- * - API: pending | processing | completed | failed
- */
 const normalizeJobStatus = (
   state: string
 ): "pending" | "processing" | "completed" | "failed" => {
@@ -317,9 +342,6 @@ const normalizeJobStatus = (
 /**
  * ===============================
  * GET /ai/status/:jobId
- * - ✅ Normalise l'erreur côté client (pas de fuite failedReason)
- * - ✅ NO-CACHE: éviter 304/ETag qui bloque le polling
- * - ✅ MODIF UNIQUE: status normalisé (pending/processing/completed/failed)
  * ===============================
  */
 router.get(
@@ -327,7 +349,6 @@ router.get(
   validateStrip(AiStatusParamsSchema, "params"),
   async (req: Request, res: Response) => {
     try {
-      // (inchangé) headers anti-cache + ETag variable (évite 304)
       res.setHeader(
         "Cache-Control",
         "no-store, no-cache, must-revalidate, proxy-revalidate"
@@ -343,13 +364,11 @@ router.get(
 
       const job = await aiQueue.getJob(String(jobId));
       if (!job) {
-        // ✅ FIX
         return sendError(req, res, 404, "not_found", "Analyse introuvable");
       }
 
       const ownerId = (job.data as any)?.userId as string | undefined;
       if (ownerId && req.user?.id && ownerId !== req.user.id) {
-        // ✅ FIX
         return sendError(req, res, 403, "forbidden", "Forbidden");
       }
 
@@ -368,7 +387,7 @@ router.get(
 
       return res.status(200).json({
         success: true,
-        status, // ✅ MODIF UNIQUE: status normalisé (au lieu de "state" BullMQ)
+        status,
         result: status === "completed" ? job.returnvalue : null,
         error:
           status === "failed"
@@ -383,7 +402,6 @@ router.get(
       logger.error("[AI-ROUTE] /status failed", {
         message: error instanceof Error ? error.message : String(error),
       });
-      // ✅ FIX
       return sendError(
         req,
         res,
@@ -396,16 +414,15 @@ router.get(
 );
 
 /**
- * ✅ NOUVELLE ROUTE
  * GET /ai/compta/latest
  */
 router.get("/compta/latest", async (req: Request, res: Response) => {
   try {
     if (!req.user?.id) {
-      // ✅ FIX
       return sendError(req, res, 401, "unauthorized", "Non authentifié");
     }
 
+    // ✅ MODIF UNIQUE : maybeSingle() (au lieu de tableau + data[0])
     const { data, error } = await supabaseAdmin
       .from("ai_logs")
       .select("id, feature, status, response_json, created_at")
@@ -413,23 +430,20 @@ router.get("/compta/latest", async (req: Request, res: Response) => {
       .eq("feature", "compta")
       .eq("status", "completed")
       .order("created_at", { ascending: false })
-      .limit(1);
+      .limit(1)
+      .maybeSingle();
 
     if (error) {
-      // ✅ FIX
       return sendError(req, res, 500, "db_error", "DB error");
     }
 
-    const row = data?.[0];
-
     return res.status(200).json({
       success: true,
-      report: row?.response_json ?? null,
-      createdAt: row?.created_at ?? null,
-      id: row?.id ?? null,
+      report: data?.response_json ?? null,
+      createdAt: data?.created_at ?? null,
+      id: data?.id ?? null,
     });
   } catch {
-    // ✅ FIX
     return sendError(
       req,
       res,

@@ -22,6 +22,9 @@ import stripeWebhookRoutes from "./routes/stripe.webhook";
 // ✅ AJOUT OPENAPI
 import openApiRoutes from "./routes/openapi.routes";
 
+// ✅ AJOUT: Expert routes (mount direct /ai/expert)
+import expertRouter from "./routes/expert.routes";
+
 const app = express();
 
 const isProd = ENV.NODE_ENV === "production"; // ✅ ajout
@@ -174,6 +177,12 @@ if (ENV.NODE_ENV !== "production") {
  * ======================
  */
 app.use(openApiRoutes);
+
+/**
+ * ✅ EXPERT ROUTES (DIRECT)
+ * /ai/expert/*
+ */
+app.use("/ai/expert", expertRouter);
 
 /**
  * ======================

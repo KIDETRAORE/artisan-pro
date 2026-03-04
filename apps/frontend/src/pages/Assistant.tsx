@@ -201,8 +201,8 @@ export default function Assistant() {
         )}\n\nQUESTION: ${input}`;
       }
 
-      // ✅ MODIF: type OpenAPI
-      const data = await fetchWithAuth<AiRunResponse>("/ai/run", {
+      // ✅ MODIF UNIQUE: /ai/run -> /ai/chat
+      const data = await fetchWithAuth<AiRunResponse>("/ai/chat", {
         method: "POST",
         body: JSON.stringify({ type: "assistant", prompt: finalPrompt }),
       });

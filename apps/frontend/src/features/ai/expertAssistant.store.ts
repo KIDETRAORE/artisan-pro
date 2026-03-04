@@ -3,7 +3,13 @@ import { create } from "zustand";
 export type ExpertPayload = {
   source: "compta" | "vision" | "devis" | "other";
   message?: string;
+
+  // ✅ MODIF: ajouter analysisId (pour pipeline expert basé DB)
+  analysisId?: string;
+
+  // (inchangé) compat legacy / fallback
   analysisData?: unknown; // on peut typer précisément plus tard (ex: ComptaReport)
+
   createdAt: string;
 };
 

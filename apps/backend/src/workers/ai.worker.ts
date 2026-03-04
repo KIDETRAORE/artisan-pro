@@ -1,5 +1,4 @@
 // apps/backend/src/workers/ai.worker.ts
-
 import { Worker, type Job } from "bullmq";
 import * as XLSX from "xlsx";
 import { redisOptions } from "../config/redis";
@@ -7,6 +6,9 @@ import { runAI, type AIType } from "../services/ai/gemini.service";
 import { quotaService } from "../services/quota.service";
 import { logger } from "../utils/logger";
 import { supabaseAdmin } from "../lib/supabaseAdmin"; // ✅ AJOUTÉ
+
+// ✅ AJOUT: persistance conversation expert
+import { appendMessage } from "../services/expertConversation.service";
 
 logger.info("👷 [WORKER-AI] Chargement du worker IA...");
 
@@ -53,7 +55,6 @@ function xlsxBase64ToPromptText(fileBase64: string): string {
 
   for (const name of sheets) {
     const sheet = wb.Sheets[name];
-    // ✅ MODIF 1 : guard pour éviter WorkSheet | undefined
     if (!sheet) continue;
 
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: null }) as unknown[];
@@ -73,26 +74,194 @@ function xlsxBase64ToPromptText(fileBase64: string): string {
   );
 }
 
-/**
- * ✅ Context Builder (RPC Supabase)
- * - si get_user_context est manquant / invalide => on throw
- * - le job sera en failed (via bullmq) au lieu de “success”
- */
 async function buildUserContext(uid: string) {
   const { data, error } = await supabaseAdmin.rpc("get_user_context", { uid });
   if (error) throw error;
   return data;
 }
 
+function extractAssistantText(result: unknown): string {
+  if (typeof result === "string") return result;
+
+  const r: any = result as any;
+  const maybe =
+    r?.text ?? r?.response ?? r?.message ?? r?.content ?? r?.result ?? null;
+
+  if (typeof maybe === "string") return maybe;
+
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return String(result);
+  }
+}
+
+// ✅ MODIF UNIQUE : extraire tokens Gemini si présents (usageMetadata.totalTokenCount)
+function extractTokensUsed(result: unknown): number | null {
+  const r: any = result as any;
+  const usage = r?.usageMetadata ?? r?.__usageMetadata ?? null;
+  const total = usage?.totalTokenCount;
+
+  return typeof total === "number" && Number.isFinite(total) && total > 0
+    ? total
+    : null;
+}
+
+/* ✅ AJOUT UNIQUE (Mode 1 Copilote): parse JSON issu d’un texte (best effort) */
+function tryParseJsonFromText(text: string): unknown | null {
+  const t = String(text ?? "").trim();
+
+  if (
+    (t.startsWith("{") && t.endsWith("}")) ||
+    (t.startsWith("[") && t.endsWith("]"))
+  ) {
+    try {
+      return JSON.parse(t);
+    } catch {}
+  }
+
+  const fenceMatch = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch?.[1]) {
+    try {
+      return JSON.parse(fenceMatch[1].trim());
+    } catch {}
+  }
+
+  const firstBrace = t.indexOf("{");
+  const lastBrace = t.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(t.slice(firstBrace, lastBrace + 1));
+    } catch {}
+  }
+
+  return null;
+}
+
+/* ✅ AJOUT UNIQUE (Mode 1 Copilote): générer & retourner un snapshot Copilote (JSON) */
+async function buildCopilotSnapshot(params: {
+  userId: string;
+  report: any;
+}): Promise<Record<string, unknown> | null> {
+  const { userId, report } = params;
+
+  if (!report || typeof report !== "object") return null;
+
+  const tva = report?.tva ?? {};
+  const totals = report?.totals ?? {};
+  const anomalies = Array.isArray(report?.anomalies) ? report.anomalies : [];
+  const topDepenses = report?.breakdown?.topDepenses ?? [];
+  const topRecettes = report?.breakdown?.topRecettes ?? [];
+
+  const official = {
+    tvaAPayer:
+      typeof tva?.aPayer === "number" ? Number(tva.aPayer) : undefined,
+    tvaCollectee:
+      typeof tva?.collectee === "number" ? Number(tva.collectee) : undefined,
+    tvaDeductible:
+      typeof tva?.deductible === "number" ? Number(tva.deductible) : undefined,
+    recettesHT:
+      typeof totals?.recettesHT === "number" ? Number(totals.recettesHT) : undefined,
+    depensesHT:
+      typeof totals?.depensesHT === "number" ? Number(totals.depensesHT) : undefined,
+    resultatNet:
+      typeof totals?.resultatNet === "number" ? Number(totals.resultatNet) : undefined,
+  };
+
+  const prompt = `
+TU ES "COPILOTE FINANCIER ARTISAN" (BTP).
+Objectif: produire un snapshot court et actionnable pour mobile.
+
+RÈGLES ABSOLUES :
+- Réponds UNIQUEMENT en JSON valide (pas de Markdown, pas de texte autour).
+- N'effectue AUCUN recalcul des chiffres : copie les chiffres OFFICIAL_FIGURES tels quels.
+- Si incohérence, signale-la dans alerts mais garde les chiffres OFFICIELS.
+- Réponse courte (mobile): 3 alertes max, 3 actions max, 1 toCheck, 1 nextStep, 2 questions max.
+
+FORMAT EXACT ATTENDU :
+{
+  "title": "Copilote financier — YYYY-MM",
+  "alerts": [
+    { "severity": "critical" | "warn" | "info", "label": "..." }
+  ],
+  "actions": ["...", "..."],
+  "toCheck": "...",
+  "nextStep": "...",
+  "questions": ["...", "..."],
+  "figures": {
+    "tvaAPayer": 0,
+    "tvaCollectee": 0,
+    "tvaDeductible": 0,
+    "recettesHT": 0,
+    "depensesHT": 0,
+    "resultatNet": 0
+  }
+}
+
+OFFICIAL_FIGURES (SOURCE DE VÉRITÉ — À RECOPIER TEL QUEL) :
+${JSON.stringify(official)}
+
+CONTEXTE (anomalies + top postes, sans recalcul) :
+${JSON.stringify(
+  {
+    anomalies: anomalies.slice(0, 10),
+    topDepenses: Array.isArray(topDepenses) ? topDepenses.slice(0, 5) : [],
+    topRecettes: Array.isArray(topRecettes) ? topRecettes.slice(0, 5) : [],
+  },
+  null,
+  0
+)}
+`.trim();
+
+  try {
+    // ✅ on utilise "assistant" car runAI(expert) est en mode texte-only chez toi
+    const out = await runAI("assistant" as AIType, {
+      userId,
+      prompt,
+    });
+
+    if (typeof out === "object" && out !== null) {
+      return out as Record<string, unknown>;
+    }
+
+    if (typeof out === "string") {
+      const parsed = tryParseJsonFromText(out);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    }
+
+    return null;
+  } catch (e: unknown) {
+    logger.warn("[WORKER-AI] Copilot snapshot generation failed (best effort)", {
+      userId,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
+}
+
 export const aiWorker = new Worker(
   "aiQueue",
   async (job: Job) => {
-    const { type, fileBase64, mimeType, userId, prompt } = job.data as {
+    const {
+      type,
+      fileBase64,
+      mimeType,
+      userId,
+      prompt,
+      context: jobContext,
+
+      // ✅ AJOUT: expert thread
+      conversationId,
+    } = job.data as {
       type?: unknown;
       fileBase64?: string;
       mimeType?: string;
       userId?: string;
       prompt?: string;
+      context?: unknown;
+      conversationId?: string;
     };
 
     if (!userId) {
@@ -112,7 +281,6 @@ export const aiWorker = new Worker(
     });
 
     const q = await quotaService.checkQuota(userId, feature);
-    // ✅ MODIF 2 : allowed -> ok
     if (!q.ok) {
       logger.warn("🚫 [WORKER-AI] Quota bloqué", {
         jobId: job.id,
@@ -124,11 +292,10 @@ export const aiWorker = new Worker(
     }
 
     try {
-      // ✅ MODIF (demandée): Context Builder fail proprement
-      let context: any;
+      let rpcContext: any;
 
       try {
-        context = await buildUserContext(userId);
+        rpcContext = await buildUserContext(userId);
       } catch (err: any) {
         logger.error("Erreur Context Builder", {
           error: err,
@@ -136,31 +303,42 @@ export const aiWorker = new Worker(
           jobId,
         });
 
-        // ✅ FAIL JOB PROPREMENT (bullmq)
         throw new Error(
           err?.message ??
             "context_builder_failed (get_user_context missing or invalid)."
         );
       }
 
-      // (context est construit pour valider la dispo du RPC ; non utilisé ici)
-      void context;
+      void rpcContext;
 
       let finalPrompt = prompt;
+
+      if (jobContext !== undefined && jobContext !== null) {
+        const ctxText = (() => {
+          try {
+            return JSON.stringify(jobContext);
+          } catch {
+            return String(jobContext);
+          }
+        })();
+
+        if (typeof finalPrompt === "string" && finalPrompt.trim().length > 0) {
+          finalPrompt = `CONTEXTE (JSON): ${ctxText}\n\nQUESTION: ${finalPrompt}`;
+        } else {
+          finalPrompt = `CONTEXTE (JSON): ${ctxText}`;
+        }
+      }
+
       let finalFileBase64 = fileBase64;
       let finalMimeType = mimeType;
 
       if (fileBase64 && isXlsxMime(mimeType)) {
         const extracted = xlsxBase64ToPromptText(fileBase64);
 
-        finalPrompt = [
-          finalPrompt ?? "",
-          "\n\n---\n\n",
-          "Le fichier fourni est un tableur XLSX. Voici les données extraites (JSON) :\n",
-          extracted,
-          "\n\n---\n\n",
-          "Consignes : base-toi sur ces données extraites pour produire la réponse structurée demandée.",
-        ].join("");
+        finalPrompt =
+          typeof finalPrompt === "string" && finalPrompt.length > 0
+            ? `${finalPrompt}\n\nDONNEES EXTRAITES DU FICHIER (JSON):\n${extracted}`
+            : `DONNEES EXTRAITES DU FICHIER (JSON):\n${extracted}`;
 
         finalFileBase64 = undefined;
         finalMimeType = undefined;
@@ -180,6 +358,18 @@ export const aiWorker = new Worker(
         userId,
       });
 
+      // ✅ MODIF UNIQUE : log tokens Gemini si dispo
+      const tokensUsed = extractTokensUsed(result);
+      if (tokensUsed != null) {
+        logger.info("[WORKER-AI] Gemini tokens used", {
+          jobId,
+          userId,
+          aiType,
+          feature,
+          tokensUsed,
+        });
+      }
+
       await quotaService.recordUsage(
         userId,
         feature,
@@ -187,16 +377,53 @@ export const aiWorker = new Worker(
         result
       );
 
-      // ✅ MODIF UNIQUE : persister le report compta dans ai_logs.response_json
+      // ✅ Persister le report compta dans ai_logs.response_json
+      // ✅ MODIF UNIQUE (Mode 1 Copilote): générer & stocker un snapshot copilot dans response_json.copilot
       if (aiType === "compta") {
         try {
-          await supabaseAdmin.from("ai_logs").insert({
-            user_id: userId,
-            feature: "compta",
-            status: "completed",
-            response_json: result as any,
-            response: JSON.stringify(result), // optionnel
+          const { data: inserted, error: insertErr } = await supabaseAdmin
+            .from("ai_logs")
+            .insert({
+              user_id: userId,
+              feature: "compta",
+              status: "completed",
+              response_json: result as any,
+              response: JSON.stringify(result),
+            })
+            .select("id")
+            .single();
+
+          if (insertErr) throw insertErr;
+
+          // ✅ best-effort: construire snapshot + l’attacher au report
+          const copilot = await buildCopilotSnapshot({
+            userId,
+            report: result as any,
           });
+
+          if (copilot) {
+            const merged = {
+              ...(result as any),
+              copilot,
+            };
+
+            const { error: upErr } = await supabaseAdmin
+              .from("ai_logs")
+              .update({
+                response_json: merged as any,
+              })
+              .eq("id", inserted.id)
+              .eq("user_id", userId);
+
+            if (upErr) {
+              logger.warn("[WORKER-AI] Copilot attach failed (best effort)", {
+                jobId: job.id,
+                userId,
+                aiType,
+                message: upErr.message,
+              });
+            }
+          }
         } catch (e: unknown) {
           logger.error("💥 [WORKER-AI] Impossible de sauvegarder ai_logs (compta)", {
             jobId: job.id,
@@ -206,33 +433,34 @@ export const aiWorker = new Worker(
         }
       }
 
-      logger.info(`✅ [WORKER-AI] Job ${job.id} terminé avec succès.`, {
-        userId,
-        aiType,
-        feature,
-      });
+      // ✅ si conversationId présent => persister la réponse assistant
+      if (conversationId) {
+        try {
+          const text = extractAssistantText(result);
+          await appendMessage({
+            conversationId: String(conversationId),
+            role: "assistant",
+            content: text,
+          });
+        } catch (e: unknown) {
+          logger.error("[WORKER-AI] Failed to persist expert assistant message", {
+            jobId,
+            userId,
+            conversationId,
+            message: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
 
       return result;
-    } catch (error: unknown) {
-      logger.error(`💥 [WORKER-AI] Erreur sur job ${job.id}`, {
+    } catch (e: unknown) {
+      logger.error("💥 [WORKER-AI] Erreur job", {
+        jobId: job.id,
         userId,
-        aiType,
-        feature,
-        message: error instanceof Error ? error.message : String(error),
+        message: e instanceof Error ? e.message : String(e),
       });
-      throw error;
+      throw e;
     }
   },
-  {
-    connection: redisOptions,
-    concurrency: 2,
-  }
+  { connection: redisOptions }
 );
-
-aiWorker.on("completed", (job) => {
-  logger.info(`✅ [WORKER-AI] Job ${job.id} completed.`);
-});
-
-aiWorker.on("failed", (job, err) => {
-  logger.error(`❌ [WORKER-AI] Job ${job?.id} failed`, { message: err.message });
-});

@@ -163,6 +163,9 @@ export default function Compta() {
   const [file, setFile] = useState<File | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
 
+  // ✅ MODIF: stocker analysisId renvoyé par /ai/run
+  const [analysisId, setAnalysisId] = useState<string | null>(null);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [rawResult, setRawResult] = useState<any>(null);
   const [report, setReport] = useState<ComptaReport | null>(null);
@@ -170,9 +173,11 @@ export default function Compta() {
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // ✅ MODIF: anti multi-poll + cleanup unmount
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPollingRef = useRef(false);
+
+  // ✅ AJOUT UNIQUE : éviter double fetch (React 18 StrictMode)
+  const didHydrateRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -206,14 +211,11 @@ export default function Compta() {
   };
 
   const startPolling = (id: string) => {
-    // ✅ MODIF: stop ancien poll si existant + reset flag
     clearPoll();
 
-    // ✅ MODIF: empêcher plusieurs polls simultanés
     if (isPollingRef.current) return;
     isPollingRef.current = true;
 
-    // ✅ MODIF (SEULE): interval de base 3s (au lieu de 1s)
     let delayMs = 3000;
     const maxDelayMs = 10000;
 
@@ -226,7 +228,6 @@ export default function Compta() {
         if (response.status === 304) return;
 
         if (response.status === 429) {
-          // ✅ clearInterval + relance avec délai augmenté
           clearPoll();
           delayMs = Math.min(maxDelayMs, delayMs * 2);
           isPollingRef.current = true;
@@ -255,7 +256,6 @@ export default function Compta() {
           setSchemaError(null);
           setReport(validated.data);
 
-          // ✅ injecte le report dans le store Dashboard (inchangé)
           setDashboardReport(validated.data);
         }
 
@@ -268,7 +268,6 @@ export default function Compta() {
           toast.error(data.error || "L'analyse comptable a échoué.");
         }
       } catch (e) {
-        // ✅ MODIF: clearInterval + setIsProcessing(false) dans le catch
         clearPoll();
         setIsProcessing(false);
 
@@ -282,27 +281,72 @@ export default function Compta() {
       }
     };
 
-    // Démarrage immédiat, puis interval
     tick();
     pollRef.current = setInterval(tick, delayMs);
   };
 
+  // ✅ AJOUT UNIQUE : Option B — recharger le dernier report via /ai/compta/latest
+  useEffect(() => {
+    if (!accessToken) return;
+    if (didHydrateRef.current) return;
+    if (isProcessing) return;
+    if (report) return;
+
+    didHydrateRef.current = true;
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/compta/latest`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        const json = (await res.json()) as any;
+
+        if (!res.ok || !json?.report) {
+          return;
+        }
+
+        const parsed = safeParseResult(json.report);
+        setRawResult(parsed);
+
+        const validated = ComptaReportSchema.safeParse(parsed);
+        if (!validated.success) {
+          setSchemaError(
+            "Le serveur a renvoyé un JSON invalide (format ComptaReport)."
+          );
+          return;
+        }
+
+        setSchemaError(null);
+        setReport(validated.data);
+        setDashboardReport(validated.data);
+
+        if (json?.id) {
+          setAnalysisId(String(json.id));
+        }
+      } catch {
+        // silencieux : on ne bloque pas la page si le réseau échoue
+      }
+    })();
+  }, [accessToken, isProcessing, report]);
+
   const handleUpload = async () => {
     if (!file) return;
 
-    // ✅ MODIF: remplacer alert par toast
     if (!accessToken) {
       toast.error("Vous devez être connecté.");
       return;
     }
 
-    // ✅ MODIF: stop ancien poll si existant
     clearPoll();
 
     setIsProcessing(true);
     setReport(null);
     setRawResult(null);
     setSchemaError(null);
+
+    // ✅ MODIF: reset analysisId au lancement
+    setAnalysisId(null);
 
     const form = new FormData();
     form.append("type", "compta");
@@ -315,7 +359,6 @@ export default function Compta() {
         body: form,
       });
 
-      // ✅ MODIF: typer la réponse /ai/run + handling jobId manquant
       const data = (await response.json()) as AiRunResponse;
 
       if (!data.jobId) {
@@ -323,6 +366,11 @@ export default function Compta() {
         toast.error((data as any)?.error || "Erreur lors du lancement.");
         return;
       }
+
+      // ✅ MODIF: récupérer analysisId si renvoyé par le backend
+      setAnalysisId(
+        (data as any)?.analysisId ? String((data as any).analysisId) : null
+      );
 
       setJobId(String(data.jobId));
       startPolling(String(data.jobId));
@@ -339,12 +387,36 @@ export default function Compta() {
     }
   };
 
-  const handleExpertChat = () => {
-    if (!report) return;
+  // ✅ MODIF UNIQUE: au clic Mode Expert IA, NE PLUS naviguer vers /dashboard
+  const handleExpertChat = async () => {
+    if (!accessToken) {
+      toast.error("Vous devez être connecté.");
+      return;
+    }
 
     const resultatNet = Number(report?.totals?.resultatNet ?? 0) || 0;
 
-    // ✅ MODIF: envoie le report au store expert + navigation dashboard (bulle)
+    let finalAnalysisId = analysisId;
+
+    try {
+      const res = await fetch(`${API_URL}/compta/latest`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      const json = (await res.json()) as any;
+
+      if (!res.ok || !json?.id) {
+        toast.error("Impossible de retrouver l’analyse compta à utiliser.");
+        return;
+      }
+
+      finalAnalysisId = String(json.id);
+      setAnalysisId(finalAnalysisId);
+    } catch {
+      toast.error("Erreur réseau lors de la récupération de l’analyse compta.");
+      return;
+    }
+
     openWith({
       source: "compta",
       message: `Analyse expert activée ! Résultat net estimé: ${resultatNet}€. Que veux-tu optimiser (TVA, charges, marge, trésorerie) ?`,
@@ -352,16 +424,16 @@ export default function Compta() {
       createdAt: new Date().toISOString(),
     });
 
-    // ✅ fallback existant si ton Layout écoute toujours l’event (migration progressive)
     const event = new CustomEvent("openExpertChat", {
       detail: {
-        analysisData: report,
+        analysisId: finalAnalysisId,
         message: `Analyse expert activée ! Résultat net estimé: ${resultatNet}€. Que veux-tu optimiser (TVA, charges, marge, trésorerie) ?`,
       },
     });
     window.dispatchEvent(event);
 
-    navigate("/dashboard");
+    // ✅ MODIF: on reste sur la page Compta (plus de navigate("/dashboard"))
+    // navigate("/dashboard");
   };
 
   const downloadJson = () => {

@@ -11,6 +11,24 @@ type AuthedRequest = Request & {
   user?: { id: string; email?: string };
 };
 
+// ✅ AJOUT UNIQUE: type snapshot (optionnel, n'impacte pas l'existant)
+type CopilotSnapshot = {
+  title: string;
+  alerts: Array<{ severity: "critical" | "warn" | "info"; label: string }>;
+  actions: string[];
+  toCheck: string;
+  nextStep: string;
+  questions: string[];
+  figures: {
+    tvaAPayer: number;
+    tvaCollectee: number;
+    tvaDeductible: number;
+    recettesHT: number;
+    depensesHT: number;
+    resultatNet: number;
+  };
+};
+
 export class DashboardController {
   /**
    * GET /dashboard
@@ -55,8 +73,6 @@ export class DashboardController {
     // ===============================
     // ✅ Source de vérité QUOTA : ai_quota
     // ===============================
-    // Design final: on ne crée jamais la row quota côté Node.
-    // La ligne est créée via trigger SQL au signup (auth.users -> profiles/subscriptions/ai_quota).
     const quota = await quotaService.getUserQuota(user.id);
 
     const used = quota?.used ?? 0;
@@ -78,6 +94,38 @@ export class DashboardController {
       history: isProActive,
     };
 
+    // ===============================
+    // ✅ AJOUT UNIQUE: dernier snapshot copilote (best effort)
+    // - Ne casse pas l'existant : champs optionnels
+    // ===============================
+    let copilotSnapshot: CopilotSnapshot | null = null;
+    let copilotAnalysisId: string | null = null;
+
+    try {
+      const { data: lastCompta, error: lastErr } = await supabaseAdmin
+        .from("ai_logs")
+        .select("id, response_json")
+        .eq("user_id", user.id)
+        .eq("feature", "compta")
+        .eq("status", "completed")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!lastErr && lastCompta?.response_json) {
+        const rj: any = lastCompta.response_json as any;
+        const maybe = rj?.copilot ?? rj?.snapshot ?? rj?.copilotSnapshot ?? null;
+
+        if (maybe && typeof maybe === "object") {
+          copilotSnapshot = maybe as CopilotSnapshot;
+          copilotAnalysisId = String(lastCompta.id);
+        }
+      }
+    } catch {
+      copilotSnapshot = null;
+      copilotAnalysisId = null;
+    }
+
     return res.status(200).json({
       message: "Dashboard accessible",
       user: {
@@ -92,6 +140,10 @@ export class DashboardController {
         percent,
         resetAt,
       },
+
+      // ✅ AJOUT UNIQUE: optionnel, compat backward
+      copilotSnapshot,
+      copilotAnalysisId,
     });
   }
 }

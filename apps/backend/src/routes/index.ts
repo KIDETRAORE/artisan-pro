@@ -13,6 +13,9 @@ import visionRoutes from "./vision.routes";
 import vocalRoutes from "./vocal.routes";
 import automationRoutes from "./automation.routes";
 
+// ✅ AJOUT
+import { usageRouter } from "./usage.routes";
+
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { requireRole } from "@middlewares/requireRole.middleware";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
@@ -50,6 +53,9 @@ router.use(
 
 router.use("/devis", authMiddleware, devisRouter);
 
+// ✅ AJOUT: USAGE (AUTH)
+router.use("/usage", authMiddleware, usageRouter);
+
 /**
  * ============================
  * MODULES IA
@@ -71,6 +77,13 @@ router.use("/assistant", ...aiBaseGuards, assistantRoutes);
 router.use("/compta", ...aiBaseGuards, comptaRoutes);
 router.use("/vision", ...aiBaseGuards, visionRoutes);
 router.use("/vocal", ...aiBaseGuards, vocalRoutes);
+
+/**
+ * ✅ NOTE:
+ * Les routes Expert sont montées directement dans app.ts via:
+ * app.use("/ai/expert", expertRouter);
+ * (évite de les monter 2 fois ici).
+ */
 
 /**
  * ============================

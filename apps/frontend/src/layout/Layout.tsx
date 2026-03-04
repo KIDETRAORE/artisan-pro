@@ -1,9 +1,26 @@
-import React, { useEffect, useRef, useState } from "react";
+// apps/frontend/src/layout/Layout.tsx
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, Link, Outlet, useNavigate } from "react-router-dom";
 import { FileText, Camera, PieChart, X, Sparkles } from "lucide-react";
 
 import ExpertHubPanel, { type ExpertTab } from "../features/ai/ExpertHubPanel";
 import { useUser } from "../context/user.context";
+import { useAuth } from "../store/auth.store";
+
+type DailyUsageResponse = {
+  success: boolean;
+  today?: { count: number; tokens: number };
+};
+
+type ExpertMessage = {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+  timestamp: Date;
+};
+
+// ✅ AJOUT UNIQUE : clé localStorage pour persister l’analyse courante (refresh-safe)
+const EXPERT_ANALYSIS_ID_KEY = "expertAnalysisId";
 
 export default function Layout() {
   const location = useLocation();
@@ -12,13 +29,73 @@ export default function Layout() {
   const [activeTab, setActiveTab] = useState<ExpertTab>("strategy");
 
   const { userData } = useUser();
+  const { accessToken } = useAuth();
 
   const plan = userData?.plan ?? "free";
-  const status = userData?.status ?? "inactive"; // ✅ MODIF: status pour isPro
+  const status = userData?.status ?? "inactive";
   const quota = userData?.quota;
 
+  const isPro = plan === "pro" && status === "active";
+
+  const [dailyUsage, setDailyUsage] = useState<{ used: number; limit: number } | null>(
+    null
+  );
+
+  const [expertAnalysisId, setExpertAnalysisId] = useState<string | null>(null);
+
+  const getWelcomeMessage = useCallback((analysisId: string | null) => {
+    if (analysisId) {
+      return "Analyse expert activée ! Que veux-tu optimiser (TVA, charges, marge, trésorerie) ?";
+    }
+    return "Mode Expert IA activé. Dis-moi ce que tu veux optimiser (TVA, charges, marge, trésorerie).";
+  }, []);
+
+  const [expertMessages, setExpertMessages] = useState<ExpertMessage[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      content: getWelcomeMessage(null),
+      timestamp: new Date(),
+    },
+  ]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      setDailyUsage(null);
+      return;
+    }
+
+    const API_BASE = import.meta.env.VITE_API_URL
+      ? import.meta.env.VITE_API_URL.replace(/\/$/, "")
+      : "http://localhost:8080";
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/usage/daily?days=1`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        const json = (await res.json()) as DailyUsageResponse;
+        if (!res.ok || !json?.success) return;
+
+        const used = Number(json?.today?.tokens ?? 0) || 0;
+        const limit = quota ? Number((quota as any).limit ?? 0) || 0 : 0;
+
+        if (limit > 0) setDailyUsage({ used, limit });
+        else setDailyUsage(null);
+      } catch {
+        setDailyUsage(null);
+      }
+    })();
+  }, [accessToken, quota]);
+
+  const displayedUsed =
+    dailyUsage?.used ?? (quota ? Number((quota as any).used ?? 0) : 0);
+  const displayedLimit =
+    dailyUsage?.limit ?? (quota ? Number((quota as any).limit ?? 0) : 0);
+
   const percentage =
-    quota && quota.limit > 0 ? Math.min(100, (quota.used / quota.limit) * 100) : 0;
+    displayedLimit > 0 ? Math.min(100, (displayedUsed / displayedLimit) * 100) : 0;
 
   const getBarColor = () => {
     if (percentage < 60) return "bg-indigo-600";
@@ -26,35 +103,85 @@ export default function Layout() {
     return "bg-red-500";
   };
 
-  // ✅ MODIF: isPro + bouton upgrade dynamique
-  const isPro = plan === "pro" && status === "active";
-
   const getUpgradeCtaClass = () => {
-    // si pro → pas affiché (mais garde une valeur stable)
     if (isPro) return "bg-indigo-600";
-
-    // si pas de quota (devrait être illimité uniquement si pro, mais safe)
-    if (!quota || quota.limit <= 0) return "bg-indigo-600 hover:bg-indigo-700";
-
-    // quota atteint
-    if (quota.used >= quota.limit) return "bg-red-600 hover:bg-red-700 animate-pulse";
-
-    // quota bas (< 20%)
+    if (!quota || (quota as any).limit <= 0) return "bg-indigo-600 hover:bg-indigo-700";
+    if ((quota as any).used >= (quota as any).limit)
+      return "bg-red-600 hover:bg-red-700 animate-pulse";
     if (percentage >= 80) return "bg-amber-600 hover:bg-amber-700";
-
-    // normal
     return "bg-indigo-600 hover:bg-indigo-700";
   };
 
+  // ✅ AJOUT UNIQUE : recharger analysisId persisté après refresh
   useEffect(() => {
-    const onOpenExpert = () => {
+    try {
+      const persisted = window.localStorage.getItem(EXPERT_ANALYSIS_ID_KEY);
+      if (persisted) setExpertAnalysisId(persisted);
+    } catch {
+      // best effort
+    }
+  }, []);
+
+  // ✅ MODIF (Option B): on gère openExpertChat ICI (parent = source unique)
+  useEffect(() => {
+    const onOpenExpert = (event: Event) => {
+      const custom = event as CustomEvent;
+      const { analysisId: incomingId, message } = (custom.detail ?? {}) as {
+        analysisId?: string;
+        message?: string;
+      };
+
+      const nextAnalysisId = incomingId ? String(incomingId) : null;
+
       setIsChatOpen(true);
       setActiveTab("chat");
+
+      // ✅ PATCH MINIMAL: set + persist localStorage
+      if (nextAnalysisId) {
+        setExpertAnalysisId(nextAnalysisId);
+        try {
+          window.localStorage.setItem(EXPERT_ANALYSIS_ID_KEY, nextAnalysisId);
+        } catch {
+          // best effort
+        }
+      }
+
+      setExpertMessages((prev) => [
+        ...prev,
+        {
+          id: `expert-${Date.now()}`,
+          role: "assistant",
+          content: message || getWelcomeMessage(nextAnalysisId),
+          timestamp: new Date(),
+        },
+      ]);
     };
 
     window.addEventListener("openExpertChat", onOpenExpert);
     return () => window.removeEventListener("openExpertChat", onOpenExpert);
-  }, []);
+  }, [getWelcomeMessage]);
+
+  // ✅ (D) Optionnel utile : si on a déjà un analysisId persisté et que le chat n’a que welcome,
+  // on met à jour le message d’accueil (best effort, sans auto-open forcé).
+  useEffect(() => {
+    if (!expertAnalysisId) return;
+
+    setExpertMessages((prev) => {
+      if (prev.length > 1) return prev;
+      return [
+        {
+          id: "welcome",
+          role: "assistant",
+          content: getWelcomeMessage(expertAnalysisId),
+          timestamp: new Date(),
+        },
+      ];
+    });
+
+    // ✅ Si tu veux vraiment auto-ouvrir la bulle, dé-commente :
+    // setIsChatOpen(true);
+    // setActiveTab("chat");
+  }, [expertAnalysisId, getWelcomeMessage]);
 
   const navigation = [
     { name: "DEVIS", href: "/devis", icon: FileText, color: "bg-[#2563eb]" },
@@ -62,7 +189,6 @@ export default function Layout() {
     { name: "COMPTA", href: "/compta", icon: PieChart, color: "bg-[#059669]" },
   ];
 
-  // ✅ dropdown réglages
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const settingsWrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -76,16 +202,11 @@ export default function Layout() {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  // ✅ MODIF UNIQUE: rendre les sections Settings totalement fonctionnelles
-  // - attend les sections
-  // - scroll avec offset
-  // - fallback si tu utilises data-section au lieu de id
   const findSettingsSectionEl = (hash: string): HTMLElement | null => {
     if (!hash) return null;
     const byId = document.getElementById(hash);
     if (byId) return byId;
 
-    // fallback si ta page Settings met: <section data-section="account" ...>
     const byData = document.querySelector<HTMLElement>(`[data-section="${hash}"]`);
     if (byData) return byData;
 
@@ -98,11 +219,10 @@ export default function Layout() {
     const hash = (location.hash || "").replace("#", "");
     if (!hash) return;
 
-    const headerOffset = 110; // approx header + marge
+    const headerOffset = 110;
 
-    // on essaie plusieurs fois car Settings peut rendre async
     let tries = 0;
-    const maxTries = 20; // ~ 1s si interval 50ms
+    const maxTries = 20;
 
     const attempt = () => {
       const el = findSettingsSectionEl(hash);
@@ -115,7 +235,6 @@ export default function Layout() {
       return false;
     };
 
-    // tentative immédiate
     if (attempt()) return;
 
     const timer = window.setInterval(() => {
@@ -132,7 +251,6 @@ export default function Layout() {
     setIsSettingsOpen(false);
     const target = `/settings#${hash}`;
 
-    // si déjà sur /settings, on force le hash (et on laisse l'effect faire le scroll fiable)
     if (location.pathname === "/settings") {
       navigate(target, { replace: false });
       return;
@@ -147,7 +265,6 @@ export default function Layout() {
         Paramètres
       </div>
 
-      {/* ✅ IDs attendus côté Settings: account, subscription, billing, security */}
       <button
         type="button"
         onClick={() => goToSettingsSection("account")}
@@ -170,7 +287,7 @@ export default function Layout() {
       >
         IA
       </button>
-      
+
       <button
         type="button"
         onClick={() => goToSettingsSection("billing")}
@@ -224,11 +341,15 @@ export default function Layout() {
                   Plan {String(plan).toUpperCase()}
                 </span>
 
-                {quota ? (
+                {isPro ? (
+                  <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">
+                    Illimité
+                  </span>
+                ) : displayedLimit > 0 ? (
                   <div className="w-28">
                     <div className="flex justify-between text-[9px] text-slate-400 font-black uppercase tracking-widest">
                       <span>
-                        {quota.used}/{quota.limit}
+                        {displayedUsed}/{displayedLimit}
                       </span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
@@ -239,11 +360,17 @@ export default function Layout() {
                     </div>
                   </div>
                 ) : (
-                  <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">
-                    Illimité
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    —
                   </span>
                 )}
               </div>
+
+              {!isPro && dailyUsage && (
+                <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                  IA aujourd’hui
+                </div>
+              )}
             </div>
           </Link>
         </div>
@@ -299,17 +426,25 @@ export default function Layout() {
             </div>
 
             <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
-              <ExpertHubPanel activeTab={activeTab} onChangeTab={setActiveTab} />
+              <ExpertHubPanel
+                activeTab={activeTab}
+                onChangeTab={setActiveTab}
+                analysisId={expertAnalysisId}
+                messages={expertMessages}
+                setMessages={setExpertMessages}
+                setAnalysisId={setExpertAnalysisId}
+              />
             </div>
           </div>
         )}
 
         <button
           onClick={() => setIsChatOpen(!isChatOpen)}
-          className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 border-4 border-white ${isChatOpen
+          className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 border-4 border-white ${
+            isChatOpen
               ? "bg-slate-900 text-white rotate-90 scale-90"
               : "bg-gradient-to-tr from-purple-600 to-blue-600 text-white hover:scale-110 active:scale-95"
-            }`}
+          }`}
           title="Mode Expert IA"
         >
           {isChatOpen ? <X size={24} /> : <Sparkles size={24} className="animate-pulse" />}
@@ -325,12 +460,14 @@ export default function Layout() {
               <Link
                 key={item.name}
                 to={item.href}
-                className={`flex flex-col items-center gap-1 transition-all duration-300 ${isActive ? "scale-110" : "opacity-60 hover:opacity-100"
-                  }`}
+                className={`flex flex-col items-center gap-1 transition-all duration-300 ${
+                  isActive ? "scale-110" : "opacity-60 hover:opacity-100"
+                }`}
               >
                 <div
-                  className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${isActive ? item.color : "bg-slate-200"
-                    }`}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${
+                    isActive ? item.color : "bg-slate-200"
+                  }`}
                 >
                   <Icon size={18} className={isActive ? "text-white" : "text-slate-600"} />
                 </div>

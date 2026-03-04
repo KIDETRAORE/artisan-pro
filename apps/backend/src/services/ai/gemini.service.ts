@@ -9,13 +9,15 @@ import { v4 as uuidv4 } from "uuid";
 
 const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY || "");
 
+// ✅ MODIF UNIQUE : ajouter "expert"
 export type AIType =
   | "assistant"
   | "devis"
   | "compta"
   | "vision"
   | "relance"
-  | "vocal";
+  | "vocal"
+  | "expert";
 
 export interface AIParams {
   prompt?: string;
@@ -64,8 +66,6 @@ function sleep(ms: number): Promise<void> {
 function extractRetryAfterSeconds(err: unknown): number | null {
   const msg = err instanceof Error ? err.message : String(err);
 
-  // exemples vus dans tes logs:
-  // "Please retry in 44.64659169s." ou "retryDelay":"44s"
   const m1 = msg.match(/retry in\s+([0-9]+(?:\.[0-9]+)?)s/i);
   if (m1?.[1]) {
     const v = Number(m1[1]);
@@ -108,13 +108,21 @@ export async function runAI(type: AIType, payload: AIParams): Promise<any> {
   }
 
   const artisanContext = await getArtisanContext(payload.userId);
-  const baseInstruction = PROMPTS[type] || PROMPTS.assistant;
+
+  // ✅ MODIF UNIQUE : éviter PROMPTS[type] quand type === "expert" (clé absente)
+  const promptKey: keyof typeof PROMPTS =
+    type === "expert" ? "assistant" : type;
+
+  const baseInstruction = PROMPTS[promptKey] || PROMPTS.assistant;
 
   const userPrompt =
     payload.prompt ||
     (type === "compta"
       ? "Analyse ce document comptable, calcule les totaux Recettes, Dépenses et TVA."
       : "Analyse de document");
+
+  // ✅ MODIF UNIQUE : ne PAS forcer JSON pour l’expert
+  const mustReturnJson = type !== "expert";
 
   const fullPrompt = `
 ${baseInstruction}
@@ -125,16 +133,31 @@ ${artisanContext}
 DEMANDE :
 ${userPrompt}
 
-IMPORTANT : Réponds UNIQUEMENT au format JSON valide.
+${
+  mustReturnJson
+    ? "IMPORTANT : Réponds UNIQUEMENT au format JSON valide."
+    : "IMPORTANT : Réponds en TEXTE uniquement (sans JSON)."
+}
 `.trim();
 
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  const generationConfig = {
-    temperature: 0.1,
+  // ✅ MODIF UNIQUE : Optimisation n°4 (désactiver temperature) pour expert
+  // ⭐ AJOUT : limiter la longueur de réponse pour expert (mobile + -tokens)
+  const generationConfig: {
+    temperature: number;
+    topP: number;
+    topK: number;
+    maxOutputTokens?: number;
+  } = {
+    temperature: type === "expert" ? 0 : 0.1,
     topP: 1,
     topK: 32,
   };
+
+  if (type === "expert") {
+    generationConfig.maxOutputTokens = 350;
+  }
 
   const MAX_ATTEMPTS = 3;
 
@@ -168,39 +191,53 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide.
       }
 
       const response = await result.response;
+
+      // ✅ MODIF UNIQUE : récupérer usageMetadata (tokens)
+      const usageMetadata = (response as any)?.usageMetadata ?? null;
+      const tokensUsed =
+        typeof usageMetadata?.totalTokenCount === "number"
+          ? usageMetadata.totalTokenCount
+          : null;
+
       let text = response.text().replace(/```json|```/g, "").trim();
 
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) text = jsonMatch[0];
 
       try {
+        // ✅ MODIF UNIQUE : stocker tokens_used si la colonne existe
         await supabaseAdmin.from("ai_logs").insert({
           id: uuidv4(),
           user_id: payload.userId,
           prompt: userPrompt,
           response: text,
           status: "SUCCESS",
+          ...(tokensUsed != null ? { tokens_used: tokensUsed } : {}),
         });
       } catch (dbErr) {
         logger.error("DB Log Error:", dbErr);
       }
 
-      /* ✅ MODIF UNIQUE : pour compta, retourner un objet JSON STRICT, sinon fail */
+      /* ✅ inchangé : pour compta, retourner un objet JSON STRICT, sinon fail */
       if (type === "compta") {
         const parsed = tryParseJsonFromText(text);
-        if (parsed !== null) return parsed;
+        if (parsed !== null) {
+          // ✅ MODIF UNIQUE : attacher usageMetadata sans casser le schéma compta
+          if (parsed && typeof parsed === "object") {
+            (parsed as any).__usageMetadata = usageMetadata ?? undefined;
+          }
+          return parsed;
+        }
 
-        // on force un "failed" propre côté worker / frontend
         throw new HttpError(502, "IA: JSON invalide pour ComptaReport");
       }
 
+      // ✅ inchangé : on retourne le texte
       return text;
     } catch (error: unknown) {
-      // ✅ MODIF UNIQUE : si 429, renvoyer 429 + retryAfterSeconds
       if (isGemini429(error)) {
         const retryAfterSeconds = extractRetryAfterSeconds(error);
 
-        // retry interne si possible
         if (attempt < MAX_ATTEMPTS) {
           const waitSec =
             retryAfterSeconds != null ? retryAfterSeconds : 1 + attempt;
@@ -210,7 +247,6 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide.
 
         const msg = error instanceof Error ? error.message : String(error);
 
-        // ✅ FIX TS UNIQUE : ne pas passer d'objet au 3e param (attendu boolean|undefined)
         const httpErr = new HttpError(
           429,
           `Erreur IA: trop de requêtes (429). Réessaie dans ${
@@ -224,7 +260,6 @@ IMPORTANT : Réponds UNIQUEMENT au format JSON valide.
         throw httpErr;
       }
 
-      // retry backoff générique
       if (attempt < MAX_ATTEMPTS && isRetryableGeminiError(error)) {
         await sleep(300 * attempt);
         continue;
