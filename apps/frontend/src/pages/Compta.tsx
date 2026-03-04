@@ -213,8 +213,8 @@ export default function Compta() {
     if (isPollingRef.current) return;
     isPollingRef.current = true;
 
-    // ✅ MODIF: backoff 429 : 1s → 2s → 4s → 8s → 10s (max)
-    let delayMs = 1000;
+    // ✅ MODIF (SEULE): interval de base 3s (au lieu de 1s)
+    let delayMs = 3000;
     const maxDelayMs = 10000;
 
     const tick = async () => {

@@ -56,6 +56,17 @@ export const useAuth = create<AuthState>((set) => ({
 
     const newToken = session?.access_token ?? null;
 
+    // ✅ PATCH: évite setState si rien n'a changé (anti re-render inutile)
+    const prev = useAuth.getState();
+    const sameUser =
+      (prev.user?.id ?? null) === (newUser?.id ?? null) &&
+      (prev.user?.email ?? null) === (newUser?.email ?? null);
+    const sameToken = prev.accessToken === newToken;
+
+    if (sameUser && sameToken && prev.isLoading === false) {
+      return;
+    }
+
     set({
       user: newUser,
       accessToken: newToken,
@@ -78,6 +89,17 @@ supabase.auth.onAuthStateChange((_event, session) => {
     : null;
 
   const newToken = session?.access_token ?? null;
+
+  // ✅ PATCH: n'applique l'update que si réellement différent
+  const prev = useAuth.getState();
+  const sameUser =
+    (prev.user?.id ?? null) === (newUser?.id ?? null) &&
+    (prev.user?.email ?? null) === (newUser?.email ?? null);
+  const sameToken = prev.accessToken === newToken;
+
+  if (sameUser && sameToken && prev.isLoading === false) {
+    return;
+  }
 
   useAuth.setState({
     user: newUser,

@@ -1,4 +1,5 @@
-import React, { useEffect } from "react";
+// apps/frontend/src/pages/Dashboard.tsx
+import React, { useEffect, useRef } from "react";
 import {
   TrendingUp,
   Clock,
@@ -6,33 +7,51 @@ import {
   Send,
   ArrowRight,
   FileText,
-  Users,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useComptaReportStore } from "../store/comptaReport.store";
 
-// ✅ AJOUTS
-import type { DashboardResponse } from "../api/types";
+// ✅ AJOUTS (restore depuis Supabase via backend)
 import { fetchWithAuth } from "../auth/fetchWithAuth";
+import { ComptaReportSchema } from "../pages/Compta";
 
 export default function Dashboard() {
   const report = useComptaReportStore((s) => s.report);
+  const setReport = useComptaReportStore((s) => s.setReport);
+
+  // ✅ AJOUT: évite double fetch en dev (React 18 StrictMode)
+  const restoreFetchOnceRef = useRef(false);
+
+  // ✅ AJOUT: hydrate le store au chargement via GET /ai/compta/latest (multi-devices)
+  useEffect(() => {
+    if (restoreFetchOnceRef.current) return;
+    restoreFetchOnceRef.current = true;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await fetchWithAuth<unknown>("/ai/compta/latest", {
+          method: "GET",
+        });
+
+        const parsed = ComptaReportSchema.safeParse(data);
+        if (!parsed.success) return;
+
+        if (!cancelled) setReport(parsed.data);
+      } catch {
+        // Pas de report / 401 / réseau : best effort, on n'impacte pas l'UI
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setReport]);
 
   const recettesHT = report?.totals?.recettesHT ?? 0;
   const depensesHT = report?.totals?.depensesHT ?? 0;
   const resultatNet = report?.totals?.resultatNet ?? 0;
-  const tvaCollectee = report?.tva?.collectee ?? 0;
-  const tvaDeductible = report?.tva?.deductible ?? 0;
-
-  // ✅ AJOUT: fetch typé dashboard (best effort, n’impacte pas l’UI)
-  useEffect(() => {
-    (async () => {
-      const data = await fetchWithAuth<DashboardResponse>("/dashboard", {
-        method: "GET",
-      });
-      void data;
-    })();
-  }, []);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
@@ -150,7 +169,7 @@ export default function Dashboard() {
               to="/devis"
               className="text-xs font-bold text-slate-400 hover:text-blue-600 uppercase tracking-widest"
             >
-              Voir tout l'historique
+              Voir tout l&apos;historique
             </Link>
           </div>
         </div>

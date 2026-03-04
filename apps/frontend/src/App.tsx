@@ -56,7 +56,8 @@ export default function App() {
 
   useEffect(() => {
     const run = async () => {
-      if (!accessToken || !userEmail) return;
+      // ✅ MODIF UNIQUE: ne dépend plus de accessToken (fetchWithAuth récupère la session)
+      if (!userEmail) return;
       if (dashboardFetchInFlightRef.current) return;
 
       dashboardFetchInFlightRef.current = true;
@@ -94,7 +95,8 @@ export default function App() {
     };
 
     run();
-  }, [userEmail, accessToken, setUserData, clearUserData]);
+    // ✅ MODIF UNIQUE: retirer accessToken des deps (évite refetch sur refresh token)
+  }, [userEmail, setUserData, clearUserData]);
 
   return (
     <Suspense fallback={<div className="p-4">Chargement…</div>}>
