@@ -51,14 +51,7 @@ export default function Layout() {
     return "Mode Expert IA activé. Dis-moi ce que tu veux optimiser (TVA, charges, marge, trésorerie).";
   }, []);
 
-  const [expertMessages, setExpertMessages] = useState<ExpertMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: getWelcomeMessage(null),
-      timestamp: new Date(),
-    },
-  ]);
+  const [expertMessages, setExpertMessages] = useState<ExpertMessage[]>([]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -90,10 +83,8 @@ export default function Layout() {
     })();
   }, [accessToken, quota]);
 
-  const displayedUsed =
-    dailyUsage?.used ?? (quota ? Number((quota as any).used ?? 0) : 0);
-  const displayedLimit =
-    dailyUsage?.limit ?? (quota ? Number((quota as any).limit ?? 0) : 0);
+  const displayedUsed = dailyUsage?.used ?? (quota ? Number((quota as any).used ?? 0) : 0);
+  const displayedLimit = dailyUsage?.limit ?? (quota ? Number((quota as any).limit ?? 0) : 0);
 
   const percentage =
     displayedLimit > 0 ? Math.min(100, (displayedUsed / displayedLimit) * 100) : 0;
@@ -172,27 +163,23 @@ export default function Layout() {
     return () => window.removeEventListener("openExpertChat", onOpenExpert);
   }, [getWelcomeMessage]);
 
-  // ✅ (D) Optionnel utile : si on a déjà un analysisId persisté et que le chat n’a que welcome,
-  // on met à jour le message d’accueil (best effort, sans auto-open forcé).
-  useEffect(() => {
-    if (!expertAnalysisId) return;
-
-    setExpertMessages((prev) => {
-      if (prev.length > 1) return prev;
-      return [
-        {
-          id: "welcome",
-          role: "assistant",
-          content: getWelcomeMessage(expertAnalysisId),
-          timestamp: new Date(),
-        },
-      ];
-    });
-
-    // ✅ Si tu veux vraiment auto-ouvrir la bulle, dé-commente :
-    // setIsChatOpen(true);
-    // setActiveTab("chat");
-  }, [expertAnalysisId, getWelcomeMessage]);
+  // ✅ MODIF UNIQUE : on ne force PLUS un "welcome" ici (sinon ça écrase l'historique hydraté)
+  // (le welcome doit être géré côté panel, ou via l'event openExpertChat)
+  // useEffect(() => {
+  //   if (!expertAnalysisId) return;
+  //
+  //   setExpertMessages((prev) => {
+  //     if (prev.length > 1) return prev;
+  //     return [
+  //       {
+  //         id: "welcome",
+  //         role: "assistant",
+  //         content: getWelcomeMessage(expertAnalysisId),
+  //         timestamp: new Date(),
+  //       },
+  //     ];
+  //   });
+  // }, [expertAnalysisId, getWelcomeMessage]);
 
   const navigation = [
     { name: "DEVIS", href: "/devis", icon: FileText, color: "bg-[#2563eb]" },

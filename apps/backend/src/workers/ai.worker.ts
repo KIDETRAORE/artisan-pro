@@ -117,7 +117,7 @@ function sanitizeAssistantOutput(text: string): string {
   // enlever markdown code blocks
   t = t.replace(/```[\s\S]*?```/g, "").trim();
 
-  // enlever JSON wrapper
+  // enlever JSON wrapper (quand c'est du JSON valide)
   if (t.startsWith("{") && t.endsWith("}")) {
     try {
       const parsed = JSON.parse(t);
@@ -126,6 +126,23 @@ function sanitizeAssistantOutput(text: string): string {
       if ((parsed as any)?.text) t = String((parsed as any).text);
     } catch {}
   }
+
+  // ✅ MODIF UNIQUE : enlever wrapper "bizarre" du style {"Bonjour ..."} / {\"Bonjour ...\"}
+  // Cas 1: {"..."} (accolades + une seule string entre guillemets, sans ":" -> pas un objet JSON)
+  {
+    const m = t.match(/^\{\s*"([\s\S]*)"\s*\}$/);
+    if (m?.[1] && !t.includes('":')) {
+      t = m[1];
+    }
+  }
+
+  // Cas 2: {\"...\"} (même chose mais quotes échappés)
+  if (t.startsWith('{\\\"') && t.endsWith('\\\"}')) {
+    t = t.slice(3, -3);
+  }
+
+  // best-effort: dés-échapper les séquences fréquentes
+  t = t.replace(/\\n/g, "\n").replace(/\\"/g, '"').trim();
 
   // enlever clés style "response:" / "text:"
   t = t.replace(/"response"\s*:\s*/gi, "");

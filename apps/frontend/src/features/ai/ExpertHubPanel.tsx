@@ -15,7 +15,7 @@ export type ExpertMessage = {
 
 type ExpertHistoryItem = {
   id?: string;
-  role: string; // ✅ peut venir en string depuis l’API
+  role: string;
   content: string;
   createdAt?: string;
 };
@@ -59,7 +59,11 @@ export default function ExpertHubPanel({
 
     (async () => {
       try {
-        if (Array.isArray(messages) && messages.length > 0) {
+        // ✅ MODIF UNIQUE : on hydrate même si seul le message "welcome" est présent
+        const hasRealMessages =
+          Array.isArray(messages) && messages.some((m) => m.id !== "welcome");
+
+        if (hasRealMessages) {
           return;
         }
 
@@ -79,7 +83,6 @@ export default function ExpertHubPanel({
 
         const mapped: ExpertMessage[] = raw
           .map((m) => {
-            // ✅ MODIF UNIQUE : role typé strictement ("user" | "assistant")
             const role: ExpertMessage["role"] =
               m.role === "user" ? "user" : "assistant";
 

@@ -49,6 +49,34 @@ export const validate =
       return res.status(400).json(body);
     }
 
+    // ✅ MODIF UNIQUE : req.query peut être getter-only → ne pas l'assigner
+    if (property === "query") {
+      const q = req.query as unknown as Record<string, unknown>;
+
+      if (q && typeof q === "object") {
+        for (const k of Object.keys(q)) {
+          try {
+            delete (q as any)[k];
+          } catch {
+            // ignore
+          }
+        }
+
+        try {
+          Object.assign(q, result.data as any);
+        } catch {
+          // fallback best-effort
+          (req as any).validatedQuery = result.data;
+        }
+
+        return next();
+      }
+
+      // fallback si query n'est pas un objet
+      (req as any).validatedQuery = result.data;
+      return next();
+    }
+
     (req as any)[property] = result.data;
     return next();
   };
