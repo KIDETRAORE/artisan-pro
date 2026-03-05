@@ -298,6 +298,9 @@ export const aiWorker = new Worker(
 
       // ✅ AJOUT: expert thread
       conversationId,
+
+      // ✅ MODIF UNIQUE: si fourni, on UPDATE l’analyse existante (ai_logs) au lieu d’INSERT
+      analysisId,
     } = job.data as {
       type?: unknown;
       fileBase64?: string;
@@ -306,6 +309,7 @@ export const aiWorker = new Worker(
       prompt?: string;
       context?: unknown;
       conversationId?: string;
+      analysisId?: string;
     };
 
     if (!userId) {
@@ -439,55 +443,106 @@ export const aiWorker = new Worker(
       // ✅ MODIF UNIQUE (Mode 1 Copilote): générer & stocker un snapshot copilot dans response_json.copilot
       if (aiType === "compta") {
         try {
-          const { data: inserted, error: insertErr } = await supabaseAdmin
-            .from("ai_logs")
-            .insert({
-              user_id: userId,
-              feature: "compta",
-              status: "completed",
-              response_json: result as any,
-              response: JSON.stringify(result),
-            })
-            .select("id")
-            .single();
+          const targetId =
+            typeof analysisId === "string" && analysisId.trim().length > 0
+              ? analysisId.trim()
+              : null;
 
-          if (insertErr) throw insertErr;
-
-          // ✅ best-effort: construire snapshot + l’attacher au report
-          const copilot = await buildCopilotSnapshot({
-            userId,
-            report: result as any,
-          });
-
-          if (copilot) {
-            const merged = {
-              ...(result as any),
-              copilot,
-            };
-
-            const { error: upErr } = await supabaseAdmin
+          if (targetId) {
+            const { error: upErr0 } = await supabaseAdmin
               .from("ai_logs")
               .update({
-                response_json: merged as any,
+                feature: "compta",
+                status: "completed",
+                response_json: result as any,
+                response: JSON.stringify(result),
               })
-              .eq("id", inserted.id)
+              .eq("id", targetId)
               .eq("user_id", userId);
 
-            if (upErr) {
-              logger.warn("[WORKER-AI] Copilot attach failed (best effort)", {
-                jobId: job.id,
-                userId,
-                aiType,
-                message: upErr.message,
-              });
+            if (upErr0) throw upErr0;
+
+            const copilot = await buildCopilotSnapshot({
+              userId,
+              report: result as any,
+            });
+
+            if (copilot) {
+              const merged = {
+                ...(result as any),
+                copilot,
+              };
+
+              const { error: upErr1 } = await supabaseAdmin
+                .from("ai_logs")
+                .update({
+                  response_json: merged as any,
+                })
+                .eq("id", targetId)
+                .eq("user_id", userId);
+
+              if (upErr1) {
+                logger.warn("[WORKER-AI] Copilot attach failed (best effort)", {
+                  jobId: job.id,
+                  userId,
+                  aiType,
+                  message: upErr1.message,
+                });
+              }
+            }
+          } else {
+            const { data: inserted, error: insertErr } = await supabaseAdmin
+              .from("ai_logs")
+              .insert({
+                user_id: userId,
+                feature: "compta",
+                status: "completed",
+                response_json: result as any,
+                response: JSON.stringify(result),
+              })
+              .select("id")
+              .single();
+
+            if (insertErr) throw insertErr;
+
+            const copilot = await buildCopilotSnapshot({
+              userId,
+              report: result as any,
+            });
+
+            if (copilot) {
+              const merged = {
+                ...(result as any),
+                copilot,
+              };
+
+              const { error: upErr } = await supabaseAdmin
+                .from("ai_logs")
+                .update({
+                  response_json: merged as any,
+                })
+                .eq("id", inserted.id)
+                .eq("user_id", userId);
+
+              if (upErr) {
+                logger.warn("[WORKER-AI] Copilot attach failed (best effort)", {
+                  jobId: job.id,
+                  userId,
+                  aiType,
+                  message: upErr.message,
+                });
+              }
             }
           }
         } catch (e: unknown) {
-          logger.error("💥 [WORKER-AI] Impossible de sauvegarder ai_logs (compta)", {
-            jobId: job.id,
-            userId,
-            message: e instanceof Error ? e.message : String(e),
-          });
+          logger.error(
+            "💥 [WORKER-AI] Impossible de sauvegarder ai_logs (compta)",
+            {
+              jobId: job.id,
+              userId,
+              message: e instanceof Error ? e.message : String(e),
+            }
+          );
         }
       }
 

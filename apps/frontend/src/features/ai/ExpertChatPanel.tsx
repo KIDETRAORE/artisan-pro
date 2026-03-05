@@ -1,3 +1,4 @@
+// apps/frontend/src/features/ai/ExpertChatPanel.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Bot, User, Loader2, Trash2 } from "lucide-react";
 import { useAuth } from "../../store/auth.store";
@@ -25,7 +26,7 @@ export type ExpertMessage = {
 // ✅ on vise bien sous 4000 chars côté backend
 const PROMPT_MAX = 2500;
 
-// ✅ AJOUT UNIQUE: clé de persistance analysisId (pour hydration après refresh)
+// ✅ clé de persistance analysisId (pour hydration après refresh)
 const EXPERT_ANALYSIS_ID_KEY = "artisanpro_expert_analysis_id";
 
 function truncateString(s: string, max: number): string {
@@ -50,6 +51,13 @@ export default function ExpertChatPanel({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  // ✅ AJOUT: permet d’annuler le polling si on ferme / unmount / relance un job
+  const pollAbortRef = useRef<AbortController | null>(null);
+
+  // ✅ AJOUT: évite de re-fetch l’historique en boucle (StrictMode / rerenders)
+  const historyLoadedKeyRef = useRef<string | null>(null);
+  const historyAbortRef = useRef<AbortController | null>(null);
+
   const getWelcomeMessage = useCallback(() => {
     if (analysisId) {
       return "Analyse expert activée ! Que veux-tu optimiser (TVA, charges, marge, trésorerie) ?";
@@ -57,7 +65,7 @@ export default function ExpertChatPanel({
     return "Mode Expert IA activé. Dis-moi ce que tu veux optimiser (TVA, charges, marge, trésorerie).";
   }, [analysisId]);
 
-  // ✅ AJOUT UNIQUE: au mount, tenter de restaurer analysisId si absent (permet history sans repasser par Compta)
+  // ✅ au mount, tenter de restaurer analysisId si absent
   useEffect(() => {
     if (analysisId) return;
     try {
@@ -71,7 +79,7 @@ export default function ExpertChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ AJOUT UNIQUE: persister analysisId quand il change
+  // ✅ persister analysisId quand il change
   useEffect(() => {
     try {
       if (analysisId && analysisId.trim().length > 0) {
@@ -81,6 +89,100 @@ export default function ExpertChatPanel({
       // best effort
     }
   }, [analysisId]);
+
+  // ✅ AJOUT: cleanup unmount => stop polling + stop history fetch
+  useEffect(() => {
+    return () => {
+      try {
+        pollAbortRef.current?.abort();
+      } catch {
+        // ignore
+      }
+
+      try {
+        historyAbortRef.current?.abort();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  // ✅ AJOUT: Hydratation historique depuis le backend (persistance DB)
+  useEffect(() => {
+    if (!accessToken) return;
+
+    // clé de cache : on charge 1 fois par analysisId (ou "last" si absent)
+    const key = analysisId && analysisId.trim().length > 0 ? analysisId.trim() : "last";
+    if (historyLoadedKeyRef.current === key) return;
+    historyLoadedKeyRef.current = key;
+
+    // abort d’un fetch précédent si relance
+    try {
+      historyAbortRef.current?.abort();
+    } catch {
+      // ignore
+    }
+    const controller = new AbortController();
+    historyAbortRef.current = controller;
+
+    const run = async () => {
+      try {
+        const qs =
+          key !== "last"
+            ? `?analysisId=${encodeURIComponent(key)}`
+            : "";
+
+        const res = await fetch(`${AI_URL}/expert/history${qs}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+        if (!res.ok) throw await toApiRequestError(res);
+
+        const data = (await res.json()) as any;
+        const raw = Array.isArray(data?.messages) ? data.messages : [];
+
+        const hydrated: ExpertMessage[] = raw
+          .map((m: any) => {
+            const role = m?.role === "user" ? "user" : "assistant";
+            const content = typeof m?.content === "string" ? m.content : "";
+            const createdAt = m?.createdAt ? new Date(m.createdAt) : new Date();
+            const id = typeof m?.id === "string" ? m.id : `h-${createdAt.getTime()}`;
+            if (!content) return null;
+            return { id, role, content, timestamp: createdAt };
+          })
+          .filter(Boolean) as ExpertMessage[];
+
+        // Si l’historique est vide, on garde / injecte le welcome
+        if (hydrated.length === 0) {
+          setMessages([
+            {
+              id: "welcome",
+              role: "assistant",
+              content: getWelcomeMessage(),
+              timestamp: new Date(),
+            },
+          ]);
+          return;
+        }
+
+        setMessages(hydrated);
+      } catch (e) {
+        // Best effort: si l’hydratation échoue, on garde l’UI fonctionnelle
+        setMessages([
+          {
+            id: "welcome",
+            role: "assistant",
+            content: getWelcomeMessage(),
+            timestamp: new Date(),
+          },
+        ]);
+      }
+    };
+
+    void run();
+  }, [accessToken, analysisId, getWelcomeMessage, setMessages]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -100,6 +202,16 @@ export default function ExpertChatPanel({
 
   const pollJobStatus = useCallback(
     async (jobId: string) => {
+      // ✅ AJOUT: annuler un éventuel poll précédent
+      try {
+        pollAbortRef.current?.abort();
+      } catch {
+        // ignore
+      }
+
+      const controller = new AbortController();
+      pollAbortRef.current = controller;
+
       let delayMs = 1500;
       const maxDelayMs = 12_000;
 
@@ -107,11 +219,22 @@ export default function ExpertChatPanel({
 
       // eslint-disable-next-line no-constant-condition
       while (true) {
+        if (controller.signal.aborted) {
+          setIsLoading(false);
+          return;
+        }
+
         const res = await fetch(`${AI_URL}/status/${jobId}`, {
           headers: accessToken
             ? { Authorization: `Bearer ${accessToken}` }
             : undefined,
+          signal: controller.signal,
         });
+
+        if (controller.signal.aborted) {
+          setIsLoading(false);
+          return;
+        }
 
         if (res.status === 304) {
           await schedule(delayMs);
@@ -130,7 +253,6 @@ export default function ExpertChatPanel({
         const status = data?.status;
 
         if (status === "completed") {
-          // ✅ MODIF UNIQUE: normaliser la sortie pour éviter l'affichage { "response": "..." }
           const raw =
             data?.result?.text ??
             data?.result?.response ??
@@ -141,10 +263,10 @@ export default function ExpertChatPanel({
             typeof raw === "string"
               ? raw
               : typeof raw === "object" &&
-                  raw !== null &&
-                  "response" in raw
-                ? String((raw as any).response ?? "")
-                : String(raw);
+                raw !== null &&
+                "response" in raw
+              ? String((raw as any).response ?? "")
+              : String(raw);
 
           setMessages((prev) => [
             ...prev,
@@ -180,6 +302,8 @@ export default function ExpertChatPanel({
           return;
         }
 
+        // ✅ (best effort) éviter un spam constant quand c’est "pending/delayed"
+        delayMs = Math.min(maxDelayMs, Math.round(delayMs * 1.15));
         await schedule(delayMs);
       }
     },
@@ -344,8 +468,6 @@ export default function ExpertChatPanel({
       <div className="p-4 border-t bg-white">
         <div className="flex items-center gap-2">
           <input
-            id="expert-chat-input"
-            name="expertChatInput"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}

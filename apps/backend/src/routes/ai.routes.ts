@@ -356,7 +356,6 @@ router.get(
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
       res.setHeader("Surrogate-Control", "no-store");
-      res.setHeader("ETag", String(Date.now()));
 
       const requestId = (req as any)?.requestId ?? "unknown";
 
@@ -374,6 +373,21 @@ router.get(
 
       const state = await job.getState();
       const status = normalizeJobStatus(state);
+
+      // ✅ MODIF UNIQUE : ETag stable + 304 réel (pour réduire le polling)
+      const stableTag = `W/"${String(job.id)}:${state}:${
+        (job as any)?.processedOn ?? 0
+      }:${(job as any)?.finishedOn ?? 0}"`;
+      res.setHeader("ETag", stableTag);
+
+      const inm = String(req.headers["if-none-match"] ?? "");
+      if (
+        inm === stableTag &&
+        status !== "completed" &&
+        status !== "failed"
+      ) {
+        return res.status(304).end();
+      }
 
       if (state === "failed") {
         logger.warn("[AI-ROUTE] job failed (details kept server-side)", {

@@ -270,10 +270,11 @@ router.get(
         return sendError(req, res, 500, "history_fetch_failed", msgErr.message);
       }
 
+      // ✅ MODIF UNIQUE: renvoyer exactement { id, role, content, createdAt }
       const messages = (Array.isArray(msgs) ? msgs : []).map((m: any) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
+        id: String(m.id ?? ""),
+        role: m.role === "user" ? "user" : "assistant",
+        content: String(m.content ?? ""),
         createdAt: m.created_at,
       }));
 
@@ -307,10 +308,12 @@ router.post(
       const { analysisId, prompt } =
         req.body as z.infer<typeof ExpertChatBodySchema>;
 
+      const analysisIdTrimmed = String(analysisId ?? "").trim();
+
       const { data, error } = await supabaseAdmin
         .from("ai_logs")
         .select("id, feature, status, response_json")
-        .eq("id", analysisId)
+        .eq("id", analysisIdTrimmed)
         .eq("user_id", req.user.id)
         .single();
 
@@ -339,14 +342,25 @@ router.post(
         analysisId: String(data.id),
       });
 
+      const conversationIdTrimmed = String(conversationId ?? "").trim();
+      if (!conversationIdTrimmed) {
+        return sendError(
+          req,
+          res,
+          500,
+          "conversation_init_failed",
+          "Impossible d'initialiser la conversation."
+        );
+      }
+
       await appendMessage({
-        conversationId,
+        conversationId: conversationIdTrimmed,
         role: "user",
         content: prompt,
       });
 
       const history = await getLastMessages({
-        conversationId,
+        conversationId: conversationIdTrimmed,
         limit: HISTORY_N,
       });
 
@@ -385,11 +399,12 @@ ${interpreted}`;
 
       const jobContext = {
         analysisId: String(data.id),
-        conversationId,
+        conversationId: conversationIdTrimmed,
         report: reportContext,
         history,
       };
 
+      // ✅ MODIF UNIQUE: pousser analysisId dans le job + conversationId garanti
       const job = await aiQueue.add(
         "ai-task",
         {
@@ -397,7 +412,7 @@ ${interpreted}`;
           userId: req.user.id,
           prompt: finalPrompt,
           context: jobContext,
-          conversationId,
+          conversationId: conversationIdTrimmed,
           analysisId: String(data.id),
         },
         {
@@ -409,7 +424,7 @@ ${interpreted}`;
       return res.status(200).json({
         success: true,
         jobId: job.id,
-        conversationId,
+        conversationId: conversationIdTrimmed,
       });
     } catch (error: unknown) {
       logger.error("[EXPERT-ROUTE] /chat failed", {
