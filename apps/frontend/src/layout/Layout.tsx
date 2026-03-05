@@ -27,7 +27,9 @@ export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<ExpertTab>("strategy");
+
+  // ✅ MODIF UNIQUE (cause #1): default tab = "chat"
+  const [activeTab, setActiveTab] = useState<ExpertTab>("chat");
 
   const { userData } = useUser();
   const { accessToken } = useAuth();
@@ -437,7 +439,14 @@ export default function Layout() {
         )}
 
         <button
-          onClick={() => setIsChatOpen(!isChatOpen)}
+          // ✅ MODIF UNIQUE (Option B): quand on ouvre la bulle, on force l'onglet "chat"
+          onClick={() => {
+            setIsChatOpen((prev) => {
+              const next = !prev;
+              if (next) setActiveTab("chat");
+              return next;
+            });
+          }}
           className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 border-4 border-white ${
             isChatOpen
               ? "bg-slate-900 text-white rotate-90 scale-90"

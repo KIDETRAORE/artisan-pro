@@ -1,3 +1,4 @@
+// apps/frontend/src/features/ai/ExpertHubPanel.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { MessageSquare, TrendingUp } from "lucide-react";
 import ExpertChatPanel from "./ExpertChatPanel";
@@ -51,7 +52,12 @@ export default function ExpertHubPanel({
     const key =
       analysisId && analysisId.trim().length > 0 ? analysisId.trim() : "last";
 
-    if (hydratedKeyRef.current === key) {
+    // ✅ FIX MINIMAL : ne pas "skip" si on n'a pas de vrais messages
+    // (après clearChat() on retombe à [welcome] et on doit pouvoir re-hydrater)
+    const hasRealMessages =
+      Array.isArray(messages) && messages.some((m) => m.id !== "welcome");
+
+    if (hydratedKeyRef.current === key && hasRealMessages) {
       setHydrationDone(true);
       return;
     }
@@ -60,9 +66,6 @@ export default function ExpertHubPanel({
     (async () => {
       try {
         // ✅ MODIF UNIQUE : on hydrate même si seul le message "welcome" est présent
-        const hasRealMessages =
-          Array.isArray(messages) && messages.some((m) => m.id !== "welcome");
-
         if (hasRealMessages) {
           return;
         }
