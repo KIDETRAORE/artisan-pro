@@ -19,8 +19,9 @@ type ExpertMessage = {
   timestamp: Date;
 };
 
-// ✅ AJOUT UNIQUE : clé localStorage pour persister l’analyse courante (refresh-safe)
-const EXPERT_ANALYSIS_ID_KEY = "expertAnalysisId";
+// ✅ MODIF UNIQUE : clé localStorage canonique + clé legacy pour migration
+const EXPERT_ANALYSIS_ID_KEY = "artisanpro_expert_analysis_id";
+const LEGACY_EXPERT_ANALYSIS_ID_KEY = "expertAnalysisId";
 
 export default function Layout() {
   const location = useLocation();
@@ -112,11 +113,20 @@ export default function Layout() {
     return "bg-indigo-600 hover:bg-indigo-700";
   };
 
-  // ✅ AJOUT UNIQUE : recharger analysisId persisté après refresh
+  // ✅ MODIF UNIQUE : recharger analysisId persisté après refresh (clé canonique + migration legacy)
   useEffect(() => {
     try {
-      const persisted = window.localStorage.getItem(EXPERT_ANALYSIS_ID_KEY);
-      if (persisted) setExpertAnalysisId(persisted);
+      const persisted =
+        window.localStorage.getItem(EXPERT_ANALYSIS_ID_KEY) ||
+        window.localStorage.getItem(LEGACY_EXPERT_ANALYSIS_ID_KEY);
+
+      if (persisted) {
+        setExpertAnalysisId(persisted);
+
+        // migration best-effort vers la clé canonique
+        window.localStorage.setItem(EXPERT_ANALYSIS_ID_KEY, persisted);
+        window.localStorage.removeItem(LEGACY_EXPERT_ANALYSIS_ID_KEY);
+      }
     } catch {
       // best effort
     }
@@ -136,11 +146,12 @@ export default function Layout() {
       setIsChatOpen(true);
       setActiveTab("chat");
 
-      // ✅ PATCH MINIMAL: set + persist localStorage
+      // ✅ MODIF UNIQUE : set + persist localStorage (clé canonique + cleanup legacy)
       if (nextAnalysisId) {
         setExpertAnalysisId(nextAnalysisId);
         try {
           window.localStorage.setItem(EXPERT_ANALYSIS_ID_KEY, nextAnalysisId);
+          window.localStorage.removeItem(LEGACY_EXPERT_ANALYSIS_ID_KEY);
         } catch {
           // best effort
         }

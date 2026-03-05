@@ -23,16 +23,7 @@ export type ExpertMessage = {
   timestamp: Date;
 };
 
-// ✅ on vise bien sous 4000 chars côté backend
 const PROMPT_MAX = 2500;
-
-// ✅ clé de persistance analysisId (pour hydration après refresh)
-const EXPERT_ANALYSIS_ID_KEY = "artisanpro_expert_analysis_id";
-
-function truncateString(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max - 30) + "\n...[TRUNCATED]";
-}
 
 export default function ExpertChatPanel({
   analysisId,
@@ -51,12 +42,7 @@ export default function ExpertChatPanel({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  // ✅ AJOUT: permet d’annuler le polling si on ferme / unmount / relance un job
   const pollAbortRef = useRef<AbortController | null>(null);
-
-  // ✅ AJOUT: évite de re-fetch l’historique en boucle (StrictMode / rerenders)
-  const historyLoadedKeyRef = useRef<string | null>(null);
-  const historyAbortRef = useRef<AbortController | null>(null);
 
   const getWelcomeMessage = useCallback(() => {
     if (analysisId) {
@@ -65,124 +51,13 @@ export default function ExpertChatPanel({
     return "Mode Expert IA activé. Dis-moi ce que tu veux optimiser (TVA, charges, marge, trésorerie).";
   }, [analysisId]);
 
-  // ✅ au mount, tenter de restaurer analysisId si absent
-  useEffect(() => {
-    if (analysisId) return;
-    try {
-      const saved = localStorage.getItem(EXPERT_ANALYSIS_ID_KEY);
-      if (saved && saved.trim().length > 0) {
-        setAnalysisId(saved.trim());
-      }
-    } catch {
-      // best effort
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ✅ persister analysisId quand il change
-  useEffect(() => {
-    try {
-      if (analysisId && analysisId.trim().length > 0) {
-        localStorage.setItem(EXPERT_ANALYSIS_ID_KEY, analysisId.trim());
-      }
-    } catch {
-      // best effort
-    }
-  }, [analysisId]);
-
-  // ✅ AJOUT: cleanup unmount => stop polling + stop history fetch
   useEffect(() => {
     return () => {
       try {
         pollAbortRef.current?.abort();
-      } catch {
-        // ignore
-      }
-
-      try {
-        historyAbortRef.current?.abort();
-      } catch {
-        // ignore
-      }
+      } catch {}
     };
   }, []);
-
-  // ✅ AJOUT: Hydratation historique depuis le backend (persistance DB)
-  useEffect(() => {
-    if (!accessToken) return;
-
-    // clé de cache : on charge 1 fois par analysisId (ou "last" si absent)
-    const key = analysisId && analysisId.trim().length > 0 ? analysisId.trim() : "last";
-    if (historyLoadedKeyRef.current === key) return;
-    historyLoadedKeyRef.current = key;
-
-    // abort d’un fetch précédent si relance
-    try {
-      historyAbortRef.current?.abort();
-    } catch {
-      // ignore
-    }
-    const controller = new AbortController();
-    historyAbortRef.current = controller;
-
-    const run = async () => {
-      try {
-        const qs =
-          key !== "last"
-            ? `?analysisId=${encodeURIComponent(key)}`
-            : "";
-
-        const res = await fetch(`${AI_URL}/expert/history${qs}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          signal: controller.signal,
-        });
-
-        if (controller.signal.aborted) return;
-        if (!res.ok) throw await toApiRequestError(res);
-
-        const data = (await res.json()) as any;
-        const raw = Array.isArray(data?.messages) ? data.messages : [];
-
-        const hydrated: ExpertMessage[] = raw
-          .map((m: any) => {
-            const role = m?.role === "user" ? "user" : "assistant";
-            const content = typeof m?.content === "string" ? m.content : "";
-            const createdAt = m?.createdAt ? new Date(m.createdAt) : new Date();
-            const id = typeof m?.id === "string" ? m.id : `h-${createdAt.getTime()}`;
-            if (!content) return null;
-            return { id, role, content, timestamp: createdAt };
-          })
-          .filter(Boolean) as ExpertMessage[];
-
-        // Si l’historique est vide, on garde / injecte le welcome
-        if (hydrated.length === 0) {
-          setMessages([
-            {
-              id: "welcome",
-              role: "assistant",
-              content: getWelcomeMessage(),
-              timestamp: new Date(),
-            },
-          ]);
-          return;
-        }
-
-        setMessages(hydrated);
-      } catch (e) {
-        // Best effort: si l’hydratation échoue, on garde l’UI fonctionnelle
-        setMessages([
-          {
-            id: "welcome",
-            role: "assistant",
-            content: getWelcomeMessage(),
-            timestamp: new Date(),
-          },
-        ]);
-      }
-    };
-
-    void run();
-  }, [accessToken, analysisId, getWelcomeMessage, setMessages]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -202,22 +77,18 @@ export default function ExpertChatPanel({
 
   const pollJobStatus = useCallback(
     async (jobId: string) => {
-      // ✅ AJOUT: annuler un éventuel poll précédent
       try {
         pollAbortRef.current?.abort();
-      } catch {
-        // ignore
-      }
+      } catch {}
 
       const controller = new AbortController();
       pollAbortRef.current = controller;
 
       let delayMs = 1500;
-      const maxDelayMs = 12_000;
+      const maxDelayMs = 12000;
 
       const schedule = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         if (controller.signal.aborted) {
           setIsLoading(false);
@@ -302,7 +173,6 @@ export default function ExpertChatPanel({
           return;
         }
 
-        // ✅ (best effort) éviter un spam constant quand c’est "pending/delayed"
         delayMs = Math.min(maxDelayMs, Math.round(delayMs * 1.15));
         await schedule(delayMs);
       }
@@ -331,16 +201,15 @@ export default function ExpertChatPanel({
       ...prev,
       { id: `u-${Date.now()}`, role: "user", content: q, timestamp: new Date() },
     ]);
+
     setInput("");
     setIsLoading(true);
 
     try {
-      const finalPrompt = truncateString(q, PROMPT_MAX);
-
-      const payload = {
-        analysisId,
-        prompt: finalPrompt,
-      };
+      const finalPrompt =
+        q.length > PROMPT_MAX
+          ? q.slice(0, PROMPT_MAX - 30) + "\n...[TRUNCATED]"
+          : q;
 
       const res = await fetch(`${AI_URL}/expert/chat`, {
         method: "POST",
@@ -348,7 +217,10 @@ export default function ExpertChatPanel({
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          analysisId,
+          prompt: finalPrompt,
+        }),
       });
 
       if (!res.ok) throw await toApiRequestError(res);
@@ -358,24 +230,17 @@ export default function ExpertChatPanel({
 
       if (!jobId) {
         setIsLoading(false);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `a-${Date.now()}`,
-            role: "assistant",
-            content: "Erreur: jobId manquant.",
-            timestamp: new Date(),
-          },
-        ]);
         return;
       }
 
       await pollJobStatus(String(jobId));
     } catch (e) {
       const err = e as ApiRequestError;
+
       setIsLoading(false);
 
       let msg = err.message || "Erreur lors du traitement.";
+
       if ((err as any).code === "quota_exceeded") {
         msg = "Quota mensuel atteint. Passe en PRO pour continuer.";
       } else if ((err as any).status === 429) {
@@ -413,8 +278,6 @@ export default function ExpertChatPanel({
         <button
           onClick={clearChat}
           className="p-2 rounded-xl hover:bg-slate-100"
-          aria-label="Effacer"
-          title="Effacer"
         >
           <Trash2 className="w-5 h-5 text-slate-700" />
         </button>
@@ -435,17 +298,17 @@ export default function ExpertChatPanel({
             )}
 
             <div
-              className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+              className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
                 m.role === "user"
                   ? "bg-slate-900 text-white"
-                  : "bg-white text-slate-900 border"
+                  : "bg-white border text-slate-900"
               }`}
             >
               {m.content}
             </div>
 
             {m.role === "user" && (
-              <div className="w-8 h-8 rounded-xl bg-slate-200 text-slate-800 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-xl bg-slate-200 flex items-center justify-center">
                 <User className="w-4 h-4" />
               </div>
             )}
@@ -457,7 +320,8 @@ export default function ExpertChatPanel({
             <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center">
               <Bot className="w-4 h-4" />
             </div>
-            <div className="bg-white border text-slate-900 rounded-2xl px-4 py-3 text-sm shadow-sm flex items-center gap-2">
+
+            <div className="bg-white border rounded-2xl px-4 py-3 text-sm flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
               Analyse en cours...
             </div>
@@ -472,9 +336,10 @@ export default function ExpertChatPanel({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Ex: TVA"
-            className="flex-1 px-4 py-3 rounded-2xl border bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
+            className="flex-1 px-4 py-3 rounded-2xl border bg-slate-50 focus:outline-none"
             disabled={isLoading}
           />
+
           <button
             onClick={() => void send()}
             disabled={isLoading || !input.trim()}
