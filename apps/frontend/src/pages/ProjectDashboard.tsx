@@ -5,6 +5,7 @@ import {
   getProject,
   getProjectAnalytics,
   getProjectInsights,
+  importProjectAccountingFile,
   listProjectExpenses,
   type Project,
   type ProjectAnalytics,
@@ -38,6 +39,16 @@ function riskBadgeClass(risk: ProjectInsight["risk_level"]): string {
   return "bg-emerald-100 text-emerald-700 border border-emerald-200";
 }
 
+function categoryLabel(
+  category: "materials" | "labor" | "equipment" | "transport" | "other"
+): string {
+  if (category === "materials") return "Matériaux";
+  if (category === "labor") return "Main d’œuvre";
+  if (category === "equipment") return "Équipement";
+  if (category === "transport") return "Transport";
+  return "Autres";
+}
+
 export default function ProjectDashboard() {
   const { id } = useParams<{ id: string }>();
 
@@ -46,12 +57,37 @@ export default function ProjectDashboard() {
   const [insight, setInsight] = useState<ProjectInsight | null>(null);
   const [expenses, setExpenses] = useState<ProjectExpense[]>([]);
   const [loading, setLoading] = useState(true);
+  const [importLoading, setImportLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const profitabilityLabel = useMemo(() => {
     const r = analytics?.profitability_rate ?? 0;
     return `${r.toFixed(2).replace(".", ",")} %`;
   }, [analytics]);
+
+  const categoryBreakdown = useMemo(() => {
+    if (!analytics) return [];
+
+    const total = analytics.expenses_cents;
+    const entries = Object.entries(analytics.expenses_by_category) as Array<
+      [
+        "materials" | "labor" | "equipment" | "transport" | "other",
+        number
+      ]
+    >;
+
+    return entries
+      .filter(([, amount]) => amount > 0)
+      .map(([category, amount]) => ({
+        category,
+        label: categoryLabel(category),
+        amount,
+        share: total > 0 ? (amount / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [analytics]);
+
+  const previewExpenses = useMemo(() => expenses.slice(0, 3), [expenses]);
 
   const refreshAll = useCallback(async () => {
     if (!id) return;
@@ -81,6 +117,22 @@ export default function ProjectDashboard() {
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
+
+  const handleAccountingImport = async (file: File) => {
+    if (!id) return;
+
+    setImportLoading(true);
+    setErr(null);
+
+    try {
+      await importProjectAccountingFile(id, file);
+      await refreshAll();
+    } catch {
+      setErr("Impossible d’importer le fichier comptable.");
+    } finally {
+      setImportLoading(false);
+    }
+  };
 
   if (!id) {
     return <div className="p-4">Chantier introuvable.</div>;
@@ -115,16 +167,35 @@ export default function ProjectDashboard() {
           </p>
         </div>
 
-        <div
-          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest ${healthBadgeClass(
-            analytics.health_status
-          )}`}
-        >
-          Santé chantier : {analytics.health_status}
+        <div className="flex items-center gap-3">
+          <label className="inline-flex cursor-pointer items-center rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            {importLoading ? "Import en cours..." : "Importer fichier comptable"}
+            <input
+              type="file"
+              accept=".xlsx,.csv"
+              className="hidden"
+              disabled={importLoading}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  void handleAccountingImport(file);
+                }
+                e.currentTarget.value = "";
+              }}
+            />
+          </label>
+
+          <div
+            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest ${healthBadgeClass(
+              analytics.health_status
+            )}`}
+          >
+            Santé chantier : {analytics.health_status}
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <div className="text-sm text-gray-500">Facturé</div>
           <div className="mt-1 text-xl font-semibold">
@@ -181,11 +252,63 @@ export default function ProjectDashboard() {
         </div>
       )}
 
-      <ProjectExpensesPanel
-        projectId={project.id}
-        expenses={expenses}
-        onRefresh={refreshAll}
-      />
+      {categoryBreakdown.length > 0 && (
+        <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Répartition des dépenses</h2>
+
+            {analytics.dominant_expense_category ? (
+              <div className="text-sm font-medium text-gray-600">
+                Poste dominant :{" "}
+                <span className="font-semibold text-gray-900">
+                  {categoryLabel(analytics.dominant_expense_category)}
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-3">
+            {categoryBreakdown.map((item) => (
+              <div key={item.category} className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium text-gray-700">{item.label}</span>
+                  <span className="text-gray-600">
+                    {formatEurosFromCents(item.amount)} •{" "}
+                    {item.share.toFixed(1).replace(".", ",")} %
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-100">
+                  <div
+                    className="h-2 rounded-full bg-blue-600"
+                    style={{ width: `${Math.min(100, item.share)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Dernières dépenses
+          </h2>
+
+          <Link
+            to={`/projects/${project.id}/expenses`}
+            className="inline-flex items-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Voir toutes les dépenses
+          </Link>
+        </div>
+
+        <ProjectExpensesPanel
+          projectId={project.id}
+          expenses={previewExpenses}
+          onRefresh={refreshAll}
+        />
+      </div>
 
       <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-4">
         <div className="flex items-center justify-between">

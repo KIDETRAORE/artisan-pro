@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
+  deleteInvoice,
+  deleteInvoiceLine,
   finalizeInvoice,
   getInvoice,
   listInvoiceLines,
@@ -155,10 +157,6 @@ export default function InvoiceDetail() {
     setError(null);
 
     try {
-      await patchInvoice(invoice.id, {
-        total_amount_cents: totals.total,
-      });
-
       const res = await finalizeInvoice(invoice.id);
       setInvoice(res.invoice);
       const lns = await listInvoiceLines(invoice.id);
@@ -221,6 +219,31 @@ export default function InvoiceDetail() {
     }
   };
 
+  const onDeleteInvoice = async () => {
+    if (!invoice) return;
+
+    const confirmed = window.confirm(
+      "Supprimer cette facture ? Cette action est irréversible."
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      for (const line of lines) {
+        await deleteInvoiceLine(line.id);
+      }
+
+      await deleteInvoice(invoice.id);
+      navigate("/invoices", { replace: true });
+    } catch {
+      setError("Impossible de supprimer la facture.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const status = String(invoice?.status ?? "").toLowerCase();
 
   return (
@@ -249,6 +272,14 @@ export default function InvoiceDetail() {
             className="hidden sm:inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-900 px-4 py-3 rounded-2xl font-bold text-sm hover:border-blue-200 hover:bg-blue-50/30 transition-colors"
           >
             Liste
+          </button>
+
+          <button
+            onClick={onDeleteInvoice}
+            disabled={loading}
+            className="hidden sm:inline-flex items-center gap-2 bg-white border border-red-200 text-red-700 px-4 py-3 rounded-2xl font-bold text-sm hover:bg-red-50 transition-colors disabled:opacity-60"
+          >
+            Supprimer
           </button>
 
           <button

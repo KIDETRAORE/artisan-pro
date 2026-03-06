@@ -6,9 +6,20 @@ type Props = {
   onCreated: (project: Project) => void;
 };
 
+function eurosToCents(value: string): number | null {
+  const normalized = value.replace(",", ".").trim();
+  if (!normalized) return null;
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+
+  return Math.round(parsed * 100);
+}
+
 export default function CreateProjectForm({ onCreated }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [budget, setBudget] = useState("");
   const [status, setStatus] = useState("active");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +32,12 @@ export default function CreateProjectForm({ onCreated }: Props) {
       return;
     }
 
+    const budgetCents = eurosToCents(budget);
+    if (budget.trim() && budgetCents === null) {
+      setError("Le budget doit être un nombre valide.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -29,10 +46,12 @@ export default function CreateProjectForm({ onCreated }: Props) {
         name: name.trim(),
         description: description.trim() ? description.trim() : null,
         status,
+        budget_cents: budgetCents,
       });
 
       setName("");
       setDescription("");
+      setBudget("");
       setStatus("active");
 
       onCreated(project);
@@ -71,6 +90,18 @@ export default function CreateProjectForm({ onCreated }: Props) {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Travaux, contexte, infos utiles…"
             rows={4}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            Budget (€)
+          </label>
+          <input
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            placeholder="Ex: 5000"
             className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
           />
         </div>

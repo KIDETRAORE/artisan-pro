@@ -33,6 +33,26 @@ export type PayInvoiceResponse = {
   sessionId?: string;
 };
 
+// ✅ AJOUT UNIQUE: réponses backend des lignes
+type ListInvoiceLinesResponse = {
+  success: boolean;
+  lines: InvoiceLine[];
+};
+
+type CreateInvoiceLineResponse = {
+  success: boolean;
+  line: InvoiceLine;
+};
+
+type DeleteInvoiceLineResponse = {
+  success: boolean;
+};
+
+// ✅ AJOUT UNIQUE: réponse suppression facture
+type DeleteInvoiceResponse = {
+  success: boolean;
+};
+
 // ✅ Centralise les endpoints => facile à adapter si besoin
 const API = {
   invoices: "/invoices",
@@ -42,9 +62,10 @@ const API = {
   // ✅ AJOUT: payer une facture (Stripe Checkout)
   pay: (id: string) => `/invoices/${encodeURIComponent(id)}/pay`,
 
-  // ✅ MODIF: aligné avec le backend (lines sous /invoices/:id/lines + patch/delete sur /invoice-lines/:id)
+  // ✅ MODIF UNIQUE: aligné avec le backend réel
+  invoiceLines: "/invoice-lines",
   invoiceLinesByInvoice: (invoiceId: string) =>
-    `/invoices/${encodeURIComponent(invoiceId)}/lines`,
+    `/invoice-lines?invoiceId=${encodeURIComponent(invoiceId)}`,
   invoiceLineById: (id: string) => `/invoice-lines/${encodeURIComponent(id)}`,
 };
 
@@ -80,7 +101,6 @@ export async function createInvoiceDraft(params: {
       due_date: params.due_date,
       project_id: params.project_id ?? null,
       status: "draft",
-      // ✅ MVP: compat (si backend attend encore total_amount) + cents si supporté
       total_amount: 0,
       total_amount_cents: 0,
     }),
@@ -118,14 +138,24 @@ export async function payInvoice(id: string): Promise<PayInvoiceResponse> {
   });
 }
 
+// ✅ AJOUT UNIQUE: suppression facture
+export async function deleteInvoice(id: string): Promise<DeleteInvoiceResponse> {
+  return await fetchWithAuth<DeleteInvoiceResponse>(API.invoiceById(id), {
+    method: "DELETE",
+  });
+}
+
 /**
  * ===== Lines =====
  */
 export async function listInvoiceLines(invoiceId: string): Promise<InvoiceLine[]> {
-  const data = await fetchWithAuth<unknown>(API.invoiceLinesByInvoice(invoiceId), {
-    method: "GET",
-  });
-  return (Array.isArray(data) ? (data as InvoiceLine[]) : []) ?? [];
+  const data = await fetchWithAuth<ListInvoiceLinesResponse>(
+    API.invoiceLinesByInvoice(invoiceId),
+    {
+      method: "GET",
+    }
+  );
+  return data.lines ?? [];
 }
 
 export async function createInvoiceLine(input: {
@@ -139,7 +169,7 @@ export async function createInvoiceLine(input: {
   const unit = Number.isFinite(input.unit_price_cents) ? input.unit_price_cents : 0;
   const lineTotal = Math.round(qty * unit);
 
-  return await fetchWithAuth<InvoiceLine>(API.invoiceLinesByInvoice(input.invoice_id), {
+  const data = await fetchWithAuth<CreateInvoiceLineResponse>(API.invoiceLines, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -151,6 +181,8 @@ export async function createInvoiceLine(input: {
       line_total_cents: lineTotal,
     }),
   });
+
+  return data.line;
 }
 
 export async function patchInvoiceLine(
@@ -160,7 +192,6 @@ export async function patchInvoiceLine(
   const qty = typeof patch.quantity === "number" ? patch.quantity : undefined;
   const unit = typeof patch.unit_price_cents === "number" ? patch.unit_price_cents : undefined;
 
-  // si qty/unit changent, recalcul line_total_cents côté client (MVP)
   const line_total_cents =
     typeof qty === "number" && typeof unit === "number" ? Math.round(qty * unit) : undefined;
 
@@ -174,8 +205,8 @@ export async function patchInvoiceLine(
   });
 }
 
-export async function deleteInvoiceLine(id: string): Promise<{ ok: boolean } | unknown> {
-  return await fetchWithAuth<unknown>(API.invoiceLineById(id), {
+export async function deleteInvoiceLine(id: string): Promise<DeleteInvoiceLineResponse> {
+  return await fetchWithAuth<DeleteInvoiceLineResponse>(API.invoiceLineById(id), {
     method: "DELETE",
   });
 }

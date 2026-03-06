@@ -22,6 +22,15 @@ export type ProjectAlert = {
   message: string;
 };
 
+export type ProjectExpenseCategory =
+  | "materials"
+  | "labor"
+  | "equipment"
+  | "transport"
+  | "other";
+
+export type ProjectExpensesByCategory = Record<ProjectExpenseCategory, number>;
+
 export type ProjectAnalytics = {
   revenue_cents: number;
   paid_cents: number;
@@ -33,6 +42,8 @@ export type ProjectAnalytics = {
   budget_consumed_rate: number;
   health_status: "healthy" | "warning" | "critical";
   alerts: ProjectAlert[];
+  expenses_by_category: ProjectExpensesByCategory;
+  dominant_expense_category: ProjectExpenseCategory | null;
 };
 
 export type ProjectInsight = {
@@ -56,12 +67,11 @@ export type ProjectExpense = {
   id: string;
   user_id: string;
   project_id: string;
-  label: string;
+  description: string;
   amount_cents: number;
-  vendor: string | null;
-  occurred_at: string | null;
+  category: ProjectExpenseCategory | null;
+  expense_date: string | null;
   created_at: string;
-  updated_at: string | null;
 };
 
 export async function listProjects(): Promise<Project[]> {
@@ -77,6 +87,7 @@ export async function createProject(payload: {
   name: string;
   description?: string | null;
   status?: string;
+  budget_cents?: number | null;
 }): Promise<Project> {
   const data = await fetchWithAuth<{ success: boolean; project: Project }>(
     "/projects",
@@ -119,6 +130,15 @@ export async function getProjectAnalytics(
     budget_consumed_rate: data.analytics?.budget_consumed_rate ?? 0,
     health_status: data.analytics?.health_status ?? "healthy",
     alerts: data.analytics?.alerts ?? [],
+    expenses_by_category: data.analytics?.expenses_by_category ?? {
+      materials: 0,
+      labor: 0,
+      equipment: 0,
+      transport: 0,
+      other: 0,
+    },
+    dominant_expense_category:
+      data.analytics?.dominant_expense_category ?? null,
   };
 }
 
@@ -173,6 +193,23 @@ export async function deleteProjectExpense(
     `/project-expenses/${expenseId}`,
     {
       method: "DELETE",
+    }
+  );
+}
+
+// ✅ AJOUT: import fichier comptable vers dépenses chantier
+export async function importProjectAccountingFile(
+  projectId: string,
+  file: File
+): Promise<{ success: boolean; imported: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return await fetchWithAuth<{ success: boolean; imported: number }>(
+    `/projects/${projectId}/import-accounting`,
+    {
+      method: "POST",
+      body: formData,
     }
   );
 }

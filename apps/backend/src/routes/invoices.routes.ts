@@ -105,6 +105,26 @@ router.patch(
 );
 
 /**
+ * DELETE
+ */
+router.delete(
+  "/:id",
+  requirePermission(PERMISSIONS.INVOICES_WRITE),
+  asyncHandler(async (req, res) => {
+    const r = req as AuthedRequest;
+    const userId = r.user?.id;
+    if (!userId) throw new HttpError(401, "Unauthorized");
+
+    const invoiceId = String(req.params.id);
+    await InvoicesService.deleteInvoice(userId, invoiceId);
+
+    return res.status(200).json({
+      success: true,
+    });
+  })
+);
+
+/**
  * ✅ PAY
  * POST /invoices/:id/pay
  *

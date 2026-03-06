@@ -44,6 +44,7 @@ const InvoicePaid = lazy(() => import("./pages/InvoicePaid"));
 // ✅ AJOUT: pages chantiers
 const Projects = lazy(() => import("./pages/Projects"));
 const ProjectDashboard = lazy(() => import("./pages/ProjectDashboard"));
+const ProjectExpensesPage = lazy(() => import("./pages/ProjectExpensesPage"));
 
 type DashboardResponse = {
   user?: { id: string; email?: string | null };
@@ -151,6 +152,10 @@ export default function App() {
           {/* ✅ AJOUT: routes chantiers */}
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:id" element={<ProjectDashboard />} />
+          <Route
+            path="/projects/:id/expenses"
+            element={<ProjectExpensesPage />}
+          />
 
           <Route path="/settings" element={<Settings />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />

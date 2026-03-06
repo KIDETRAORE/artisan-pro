@@ -28,6 +28,15 @@ export type ProjectAlert = {
   message: string;
 };
 
+export type ProjectExpenseCategory =
+  | "materials"
+  | "labor"
+  | "equipment"
+  | "transport"
+  | "other";
+
+export type ProjectExpensesByCategory = Record<ProjectExpenseCategory, number>;
+
 export type ProjectAnalytics = {
   revenue_cents: number;
   paid_cents: number;
@@ -39,6 +48,8 @@ export type ProjectAnalytics = {
   budget_consumed_rate: number;
   health_status: ProjectHealthStatus;
   alerts: ProjectAlert[];
+  expenses_by_category: ProjectExpensesByCategory;
+  dominant_expense_category: ProjectExpenseCategory | null;
 };
 
 const CreateProjectSchema = z.object({
@@ -288,6 +299,61 @@ export class ProjectsService {
       healthStatus = "warning";
     }
 
+    const { data: expenseRows, error: expenseRowsError } = await supabaseAdmin
+      .from("project_expenses")
+      .select("category, amount_cents")
+      .eq("user_id", userId)
+      .eq("project_id", projectId);
+
+    if (expenseRowsError) {
+      logger.error("ProjectsService.getAnalytics category query failed", {
+        userId,
+        projectId,
+        message: expenseRowsError.message,
+      });
+      throw new HttpError(500, "Failed to load project expenses by category");
+    }
+
+    const expensesByCategory: ProjectExpensesByCategory = {
+      materials: 0,
+      labor: 0,
+      equipment: 0,
+      transport: 0,
+      other: 0,
+    };
+
+    for (const expenseRow of expenseRows ?? []) {
+      const rawCategory = String(
+        (expenseRow as { category?: unknown }).category ?? "other"
+      );
+      const amount = toInt(
+        (expenseRow as { amount_cents?: unknown }).amount_cents
+      );
+
+      const category: ProjectExpenseCategory =
+        rawCategory === "materials" ||
+        rawCategory === "labor" ||
+        rawCategory === "equipment" ||
+        rawCategory === "transport" ||
+        rawCategory === "other"
+          ? rawCategory
+          : "other";
+
+      expensesByCategory[category] += amount;
+    }
+
+    let dominantExpenseCategory: ProjectExpenseCategory | null = null;
+    let dominantAmount = 0;
+
+    for (const [category, amount] of Object.entries(
+      expensesByCategory
+    ) as Array<[ProjectExpenseCategory, number]>) {
+      if (amount > dominantAmount) {
+        dominantAmount = amount;
+        dominantExpenseCategory = category;
+      }
+    }
+
     return {
       revenue_cents: revenueCents,
       paid_cents: paidCents,
@@ -299,6 +365,8 @@ export class ProjectsService {
       budget_consumed_rate: budgetConsumedRate,
       health_status: healthStatus,
       alerts,
+      expenses_by_category: expensesByCategory,
+      dominant_expense_category: dominantExpenseCategory,
     };
   }
 }

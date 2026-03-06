@@ -262,6 +262,25 @@ export class InvoicesService {
     return updated;
   }
 
+  static async deleteInvoice(userId: string, invoiceId: string): Promise<void> {
+    await InvoicesService.getInvoice(userId, invoiceId);
+
+    const { error } = await supabaseAdmin
+      .from("invoices")
+      .delete()
+      .eq("id", invoiceId)
+      .eq("user_id", userId);
+
+    if (error) {
+      logger.error("InvoicesService.deleteInvoice failed", {
+        userId,
+        invoiceId,
+        message: error.message,
+      });
+      throw new HttpError(500, "Failed to delete invoice");
+    }
+  }
+
   static async finalizeInvoice(userId: string, invoiceId: string): Promise<InvoiceRow> {
     const invoice = await InvoicesService.getInvoice(userId, invoiceId);
 

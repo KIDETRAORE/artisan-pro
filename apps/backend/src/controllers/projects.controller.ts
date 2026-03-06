@@ -43,6 +43,16 @@ function getInvoiceAmountCents(invoice: {
   return Number.isFinite(totalAmountCents) ? totalAmountCents : 0;
 }
 
+function categoryLabel(
+  category: "materials" | "labor" | "equipment" | "transport" | "other"
+): string {
+  if (category === "materials") return "matériaux";
+  if (category === "labor") return "main d’œuvre / sous-traitance";
+  if (category === "equipment") return "équipement / location";
+  if (category === "transport") return "transport / déplacements";
+  return "autres charges";
+}
+
 export class ProjectsController {
   /**
    * GET /projects
@@ -256,7 +266,7 @@ export class ProjectsController {
 
     const { data: expenses, error: expensesError } = await supabaseAdmin
       .from("project_expenses")
-      .select("id, label, amount_cents, occurred_at, created_at")
+      .select("id, description, amount_cents, expense_date, created_at")
       .eq("user_id", user.id)
       .eq("project_id", projectId.data)
       .order("created_at", { ascending: false });
@@ -294,20 +304,15 @@ export class ProjectsController {
 
     const expenseRows = (expenses ?? []) as Array<{
       id: string;
-      label: string | null;
+      description: string | null;
       amount_cents: number | null;
-      occurred_at: string | null;
+      expense_date: string | null;
       created_at: string | null;
     }>;
 
     const draftInvoices = invoiceRows.filter(
       (invoice) => String(invoice.status ?? "").toLowerCase() === "draft"
     );
-
-    const sentLikeInvoices = invoiceRows.filter((invoice) => {
-      const status = String(invoice.status ?? "").toLowerCase();
-      return status === "sent" || status === "overdue" || status === "paid";
-    });
 
     const overdueInvoices = invoiceRows.filter((invoice) => {
       const status = String(invoice.status ?? "").toLowerCase();
@@ -370,7 +375,9 @@ export class ProjectsController {
       findings.push(
         `${overdueInvoices.length} facture(s) du chantier sont en retard de paiement.`
       );
-      issues.push("Le chantier présente un risque de trésorerie lié aux retards d’encaissement.");
+      issues.push(
+        "Le chantier présente un risque de trésorerie lié aux retards d’encaissement."
+      );
       actions.push(
         "Lancer une relance client et vérifier les échéances de paiement du chantier."
       );
@@ -401,16 +408,124 @@ export class ProjectsController {
           findings.push(
             `Une dépense anormale a été détectée : ${formatEuros(
               maxExpenseCents
-            )} sur "${maxExpense.label ?? "dépense"}", soit ${ratio
+            )} sur "${maxExpense.description ?? "dépense"}", soit ${ratio
               .toFixed(1)
               .replace(".", ",")}x la moyenne du chantier.`
           );
-          issues.push("Le chantier présente une dépense significativement supérieure à la moyenne.");
+          issues.push(
+            "Le chantier présente une dépense significativement supérieure à la moyenne."
+          );
           actions.push(
             "Contrôler cette dépense, vérifier si elle était prévue au devis ou si elle doit être refacturée."
           );
         }
       }
+    }
+
+    const expensesByCategory = analytics.expenses_by_category;
+    const dominantCategory = analytics.dominant_expense_category;
+
+    const categoryEntries = Object.entries(expensesByCategory) as Array<
+      ["materials" | "labor" | "equipment" | "transport" | "other", number]
+    >;
+
+    const materialsAmount = expensesByCategory.materials;
+    const laborAmount = expensesByCategory.labor;
+    const equipmentAmount = expensesByCategory.equipment;
+    const transportAmount = expensesByCategory.transport;
+
+    if (expensesCents > 0 && dominantCategory) {
+      const dominantAmount = expensesByCategory[dominantCategory];
+      const dominantShare = (dominantAmount / expensesCents) * 100;
+
+      findings.push(
+        `Le poste dominant du chantier est ${categoryLabel(
+          dominantCategory
+        )} avec ${dominantShare.toFixed(1).replace(".", ",")}% des dépenses.`
+      );
+
+      if (dominantCategory === "materials" && dominantShare >= 50) {
+        issues.push("Les matériaux pèsent fortement dans le coût total du chantier.");
+        actions.push(
+          "Vérifier les achats matériaux, les pertes, et comparer avec le devis initial."
+        );
+      }
+
+      if (dominantCategory === "labor" && dominantShare >= 45) {
+        issues.push(
+          "La main d’œuvre / sous-traitance représente une part très importante du chantier."
+        );
+        actions.push(
+          "Contrôler les heures, les prestations sous-traitées et la marge restante sur l’exécution."
+        );
+      }
+
+      if (dominantCategory === "equipment" && dominantShare >= 30) {
+        issues.push("L’équipement / la location matériel pèse lourd dans le budget chantier.");
+        actions.push(
+          "Vérifier si la location matériel reste rentable par rapport à l’avancement réel du chantier."
+        );
+      }
+
+      if (dominantCategory === "transport" && dominantShare >= 20) {
+        issues.push("Les frais de transport sont élevés pour ce chantier.");
+        actions.push(
+          "Optimiser les déplacements, livraisons et regroupements d’interventions."
+        );
+      }
+    }
+
+    if (expensesCents > 0 && materialsAmount / expensesCents >= 0.6) {
+      findings.push(
+        `Les matériaux représentent ${(
+          (materialsAmount / expensesCents) *
+          100
+        )
+          .toFixed(1)
+          .replace(".", ",")}% des dépenses du chantier.`
+      );
+    }
+
+    if (expensesCents > 0 && laborAmount / expensesCents >= 0.5) {
+      findings.push(
+        `La main d’œuvre / sous-traitance représente ${(
+          (laborAmount / expensesCents) *
+          100
+        )
+          .toFixed(1)
+          .replace(".", ",")}% des dépenses du chantier.`
+      );
+    }
+
+    if (expensesCents > 0 && equipmentAmount / expensesCents >= 0.35) {
+      findings.push(
+        `L’équipement / location matériel représente ${(
+          (equipmentAmount / expensesCents) *
+          100
+        )
+          .toFixed(1)
+          .replace(".", ",")}% des dépenses du chantier.`
+      );
+    }
+
+    if (expensesCents > 0 && transportAmount / expensesCents >= 0.2) {
+      findings.push(
+        `Le transport représente ${(
+          (transportAmount / expensesCents) *
+          100
+        )
+          .toFixed(1)
+          .replace(".", ",")}% des dépenses du chantier.`
+      );
+    }
+
+    if (
+      categoryEntries.filter(([, amount]) => amount > 0).length >= 3 &&
+      expensesCents > 0
+    ) {
+      actions.push(
+        "Comparer la structure des dépenses par catégorie avec tes chantiers rentables pour détecter les dérives."
+      );
     }
 
     if (budgetCents > 0 && budgetConsumedRate >= 85) {

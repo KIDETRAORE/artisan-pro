@@ -79,7 +79,7 @@ export const authMiddleware = async (
     // Fallbacks sûrs
     const role = (profile?.role ? String(profile.role) : "user") as UserRole;
 
-    // ✅ MODIF UNIQUE: fallback permissions par rôle (inclut factures + lignes)
+    // ✅ MODIF UNIQUE: fallback permissions par rôle (inclut factures + lignes + projects)
     const DEFAULT_PERMS_BY_ROLE: Record<UserRole, Permission[]> = {
       user: [
         PERMISSIONS.ACCESS_DASHBOARD,
@@ -92,6 +92,8 @@ export const authMiddleware = async (
         PERMISSIONS.CLIENTS_WRITE,
         PERMISSIONS.INVOICE_LINES_READ,
         PERMISSIONS.INVOICE_LINES_WRITE,
+        PERMISSIONS.PROJECTS_READ,
+        PERMISSIONS.PROJECTS_WRITE,
       ] as Permission[],
       admin: Object.values(PERMISSIONS) as Permission[],
       free: [
@@ -105,6 +107,8 @@ export const authMiddleware = async (
         PERMISSIONS.CLIENTS_WRITE,
         PERMISSIONS.INVOICE_LINES_READ,
         PERMISSIONS.INVOICE_LINES_WRITE,
+        PERMISSIONS.PROJECTS_READ,
+        PERMISSIONS.PROJECTS_WRITE,
       ] as Permission[],
       pro: [
         PERMISSIONS.ACCESS_DASHBOARD,
@@ -117,6 +121,8 @@ export const authMiddleware = async (
         PERMISSIONS.CLIENTS_WRITE,
         PERMISSIONS.INVOICE_LINES_READ,
         PERMISSIONS.INVOICE_LINES_WRITE,
+        PERMISSIONS.PROJECTS_READ,
+        PERMISSIONS.PROJECTS_WRITE,
       ] as Permission[],
     };
 

@@ -1,6 +1,6 @@
 // apps/frontend/src/pages/DashboardUnpaid.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft } from "lucide-react";
+import { AlertTriangle, ArrowLeft, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 
@@ -61,6 +61,7 @@ export default function DashboardUnpaid() {
   const [loading, setLoading] = useState(false);
   const [kpis, setKpis] = useState<DashboardResponse["kpis"] | null>(null);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
   const fetchOnceRef = useRef(false);
 
   useEffect(() => {
@@ -230,9 +231,33 @@ export default function DashboardUnpaid() {
       <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-50 flex items-center justify-between">
           <h3 className="text-lg font-bold text-slate-900">Toutes les factures impayées</h3>
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            {loading ? "…" : `${unpaid.length} éléments`}
-          </span>
+
+          <div className="relative flex items-center gap-3">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              {loading ? "…" : `${unpaid.length} éléments`}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setMenuOpen((prev) => !prev)}
+              className="inline-flex items-center justify-center rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+              aria-label="Ouvrir le menu"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+
+            {menuOpen ? (
+              <div className="absolute right-0 top-12 z-20 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                <Link
+                  to="/invoices"
+                  onClick={() => setMenuOpen(false)}
+                  className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Créer une facture
+                </Link>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="overflow-x-auto">

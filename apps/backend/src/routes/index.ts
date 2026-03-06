@@ -34,6 +34,9 @@ import projectExpensesRoutes from "./projectExpenses.routes";
 // ✅ AJOUT: INTEGRATIONS
 import integrationsRoutes from "./integrations.routes";
 
+// ✅ AJOUT: PROJECT ACCOUNTING IMPORT
+import projectAccountingRoutes from "./projectAccounting.routes";
+
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { requireRole } from "@middlewares/requireRole.middleware";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
@@ -89,6 +92,9 @@ router.use("/projects", authMiddleware, projectsRoutes);
 // On monte aussi à la racine car projectExpenses.routes.ts expose déjà
 // "/projects/:projectId/expenses" et "/project-expenses/:expenseId"
 router.use("/", authMiddleware, projectExpensesRoutes);
+
+// ✅ AJOUT: PROJECT ACCOUNTING IMPORT (AUTH géré dans le router)
+router.use("/", projectAccountingRoutes);
 
 // ✅ AJOUT: USAGE (AUTH)
 router.use("/usage", authMiddleware, usageRouter);

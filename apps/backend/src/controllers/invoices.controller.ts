@@ -83,6 +83,25 @@ export class InvoicesController {
   }
 
   /**
+   * DELETE /invoices/:invoiceId
+   * Supprime une facture
+   */
+  static async remove(req: Request, res: Response) {
+    const user = requireUser(req);
+
+    const invoiceId = InvoiceIdSchema.safeParse(req.params.invoiceId);
+    if (!invoiceId.success) {
+      throw new HttpError(400, "Invalid invoiceId");
+    }
+
+    await InvoicesService.deleteInvoice(user.id, invoiceId.data);
+
+    return res.status(200).json({
+      success: true,
+    });
+  }
+
+  /**
    * ✅ AJOUT: POST /invoices/:invoiceId/finalize
    * Finalise la facture :
    * - vérifie qu'il y a des lignes
