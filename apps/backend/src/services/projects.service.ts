@@ -15,12 +15,30 @@ export type ProjectRow = {
   created_at: string;
 };
 
+export type ProjectHealthStatus = "healthy" | "warning" | "critical";
+
+export type ProjectAlert = {
+  code:
+    | "no_revenue"
+    | "budget_exceeded"
+    | "budget_high_consumption"
+    | "negative_margin"
+    | "low_margin";
+  level: "info" | "warning" | "critical";
+  message: string;
+};
+
 export type ProjectAnalytics = {
   revenue_cents: number;
   paid_cents: number;
   expenses_cents: number;
   profit_cents: number;
   profitability_rate: number;
+  budget_cents: number;
+  remaining_budget_cents: number;
+  budget_consumed_rate: number;
+  health_status: ProjectHealthStatus;
+  alerts: ProjectAlert[];
 };
 
 const CreateProjectSchema = z.object({
@@ -186,8 +204,7 @@ export class ProjectsService {
   }
 
   static async getAnalytics(userId: string, projectId: string): Promise<ProjectAnalytics> {
-    // sécurité: le projet doit appartenir au user
-    await ProjectsService.getProject(userId, projectId);
+    const project = await ProjectsService.getProject(userId, projectId);
 
     const { data, error } = await supabaseAdmin.rpc("get_project_analytics", {
       p_user_id: userId,
@@ -205,12 +222,83 @@ export class ProjectsService {
 
     const row = Array.isArray(data) ? data[0] : data;
 
+    const revenueCents = toInt((row as any)?.revenue_cents);
+    const paidCents = toInt((row as any)?.paid_cents);
+    const expensesCents = toInt((row as any)?.expenses_cents);
+    const profitCents = toInt((row as any)?.profit_cents);
+    const profitabilityRate = toFloat((row as any)?.profitability_rate);
+
+    const budgetCents = toInt(project.budget_cents);
+    const remainingBudgetCents =
+      budgetCents > 0 ? budgetCents - expensesCents : 0;
+    const budgetConsumedRate =
+      budgetCents > 0 ? Math.min(100, (expensesCents / budgetCents) * 100) : 0;
+
+    const alerts: ProjectAlert[] = [];
+
+    if (revenueCents === 0) {
+      alerts.push({
+        code: "no_revenue",
+        level: "info",
+        message: "Aucun chiffre d’affaires n’est encore rattaché à ce chantier.",
+      });
+    }
+
+    if (budgetCents > 0 && expensesCents > budgetCents) {
+      alerts.push({
+        code: "budget_exceeded",
+        level: "critical",
+        message: "Le budget chantier est dépassé.",
+      });
+    } else if (budgetCents > 0 && budgetConsumedRate >= 85) {
+      alerts.push({
+        code: "budget_high_consumption",
+        level: "warning",
+        message: "Le chantier a consommé au moins 85% de son budget.",
+      });
+    }
+
+    if (revenueCents > 0 && profitCents < 0) {
+      alerts.push({
+        code: "negative_margin",
+        level: "critical",
+        message: "Le chantier est actuellement à perte.",
+      });
+    } else if (revenueCents > 0 && profitabilityRate < 15) {
+      alerts.push({
+        code: "low_margin",
+        level: "warning",
+        message: "La marge du chantier est très faible (< 15%).",
+      });
+    }
+
+    let healthStatus: ProjectHealthStatus = "healthy";
+
+    if (
+      alerts.some((alert) => alert.level === "critical") ||
+      (budgetCents > 0 && expensesCents > budgetCents) ||
+      (revenueCents > 0 && profitCents < 0)
+    ) {
+      healthStatus = "critical";
+    } else if (
+      alerts.some((alert) => alert.level === "warning") ||
+      (budgetCents > 0 && budgetConsumedRate >= 85) ||
+      (revenueCents > 0 && profitabilityRate < 30)
+    ) {
+      healthStatus = "warning";
+    }
+
     return {
-      revenue_cents: toInt((row as any)?.revenue_cents),
-      paid_cents: toInt((row as any)?.paid_cents),
-      expenses_cents: toInt((row as any)?.expenses_cents),
-      profit_cents: toInt((row as any)?.profit_cents),
-      profitability_rate: toFloat((row as any)?.profitability_rate),
+      revenue_cents: revenueCents,
+      paid_cents: paidCents,
+      expenses_cents: expensesCents,
+      profit_cents: profitCents,
+      profitability_rate: profitabilityRate,
+      budget_cents: budgetCents,
+      remaining_budget_cents: remainingBudgetCents,
+      budget_consumed_rate: budgetConsumedRate,
+      health_status: healthStatus,
+      alerts,
     };
   }
 }

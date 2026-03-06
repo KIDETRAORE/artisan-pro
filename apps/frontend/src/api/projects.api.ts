@@ -11,22 +11,42 @@ export type Project = {
   updated_at: string | null;
 };
 
+export type ProjectAlert = {
+  code:
+    | "no_revenue"
+    | "budget_exceeded"
+    | "budget_high_consumption"
+    | "negative_margin"
+    | "low_margin";
+  level: "info" | "warning" | "critical";
+  message: string;
+};
+
 export type ProjectAnalytics = {
   revenue_cents: number;
   paid_cents: number;
   expenses_cents: number;
   profit_cents: number;
   profitability_rate: number;
+  budget_cents: number;
+  remaining_budget_cents: number;
+  budget_consumed_rate: number;
+  health_status: "healthy" | "warning" | "critical";
+  alerts: ProjectAlert[];
 };
 
 export type ProjectInsight = {
   title: string;
+  risk_level: "low" | "medium" | "high";
   summary: {
     revenue_eur: number;
     expenses_eur: number;
     profit_eur: number;
     profitability_rate: number;
+    budget_eur: number;
+    remaining_budget_eur: number;
   };
+  findings: string[];
   issues: string[];
   actions: string[];
   recommendation: string;
@@ -44,7 +64,6 @@ export type ProjectExpense = {
   updated_at: string | null;
 };
 
-// ✅ AJOUT: liste des chantiers
 export async function listProjects(): Promise<Project[]> {
   const data = await fetchWithAuth<{ success: boolean; projects: Project[] }>(
     "/projects",
@@ -54,7 +73,6 @@ export async function listProjects(): Promise<Project[]> {
   return data.projects ?? [];
 }
 
-// ✅ AJOUT: création chantier
 export async function createProject(payload: {
   name: string;
   description?: string | null;
@@ -87,21 +105,20 @@ export async function getProjectAnalytics(
 ): Promise<ProjectAnalytics> {
   const data = await fetchWithAuth<{
     success: boolean;
-    revenue_cents: number;
-    expenses_cents: number;
-    profit_cents: number;
+    analytics: ProjectAnalytics;
   }>(`/projects/${projectId}/analytics`, { method: "GET" });
 
   return {
-    revenue_cents: data.revenue_cents ?? 0,
-    paid_cents: 0,
-    expenses_cents: data.expenses_cents ?? 0,
-    profit_cents: data.profit_cents ?? 0,
-    profitability_rate:
-      (data as any).profitability_rate ??
-      ((data.revenue_cents ?? 0) > 0
-        ? Math.round(((data.profit_cents ?? 0) / (data.revenue_cents ?? 1)) * 100)
-        : 0),
+    revenue_cents: data.analytics?.revenue_cents ?? 0,
+    paid_cents: data.analytics?.paid_cents ?? 0,
+    expenses_cents: data.analytics?.expenses_cents ?? 0,
+    profit_cents: data.analytics?.profit_cents ?? 0,
+    profitability_rate: data.analytics?.profitability_rate ?? 0,
+    budget_cents: data.analytics?.budget_cents ?? 0,
+    remaining_budget_cents: data.analytics?.remaining_budget_cents ?? 0,
+    budget_consumed_rate: data.analytics?.budget_consumed_rate ?? 0,
+    health_status: data.analytics?.health_status ?? "healthy",
+    alerts: data.analytics?.alerts ?? [],
   };
 }
 

@@ -12,6 +12,11 @@ import {
   type Invoice,
   type InvoiceLine,
 } from "../services/invoices.api";
+import {
+  getPennylaneInvoiceSyncEvents,
+  resyncPennylaneInvoice,
+  type PennylaneInvoiceSyncEvent,
+} from "../services/integrations.api";
 import InvoiceEditor from "../components//invoices/InvoiceEditor";
 import InvoiceLinesEditor from "../components/invoices/InvoiceLinesEditor";
 
@@ -30,8 +35,11 @@ export default function InvoiceDetail() {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
+  const [resyncLoading, setResyncLoading] = useState(false);
+  const [syncEventsLoading, setSyncEventsLoading] = useState(false);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [lines, setLines] = useState<InvoiceLine[]>([]);
+  const [syncEvents, setSyncEvents] = useState<PennylaneInvoiceSyncEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const fetchOnceRef = useRef(false);
@@ -54,15 +62,28 @@ export default function InvoiceDetail() {
     }
   };
 
+  const loadSyncEvents = async () => {
+    if (!invoiceId) return;
+    setSyncEventsLoading(true);
+    try {
+      const events = await getPennylaneInvoiceSyncEvents(invoiceId);
+      setSyncEvents(events);
+    } catch {
+      setSyncEvents([]);
+    } finally {
+      setSyncEventsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (fetchOnceRef.current) return;
     fetchOnceRef.current = true;
     void load();
+    void loadSyncEvents();
   }, [invoiceId]);
 
   const totals = useMemo(() => {
     const subtotal = lines.reduce((a, l) => a + (l.line_total_cents ?? 0), 0);
-    // MVP: tax_rate appliquée par ligne (en %)
     const tax = lines.reduce((a, l) => {
       const rate = Number.isFinite(l.tax_rate) ? l.tax_rate : 0;
       return a + Math.round((l.line_total_cents ?? 0) * (rate / 100));
@@ -79,25 +100,35 @@ export default function InvoiceDetail() {
     return lines.length > 0;
   }, [invoice, lines.length]);
 
-  // ✅ AJOUT: paiement possible uniquement si facture existe, email client présent,
-  // statut pas déjà payé/annulé et montant > 0.
   const canPay = useMemo(() => {
     if (!invoice) return false;
 
     const st = String(invoice.status ?? "").toLowerCase();
     if (st === "paid" || st === "canceled") return false;
 
-    const emailOk = !!invoice.client_email && String(invoice.client_email).trim().length > 0;
+    const emailOk =
+      !!invoice.client_email && String(invoice.client_email).trim().length > 0;
     if (!emailOk) return false;
 
     const amountCents = moneyCentsFromInvoice(invoice);
     return Number.isFinite(amountCents) && amountCents > 0;
   }, [invoice]);
 
+  const canResyncPennylane = useMemo(() => {
+    if (!invoice) return false;
+    const st = String(invoice.status ?? "").toLowerCase();
+    return st === "sent";
+  }, [invoice]);
+
+  const latestSyncEvent = useMemo(() => {
+    return syncEvents.length > 0 ? syncEvents[0] : null;
+  }, [syncEvents]);
+
   const onSaveHeader = async (patch: {
     client_name: string;
     client_email: string | null;
     due_date: string;
+    project_id: string | null;
   }) => {
     if (!invoice) return;
     setLoading(true);
@@ -124,17 +155,15 @@ export default function InvoiceDetail() {
     setError(null);
 
     try {
-      // Option: s'assurer que le total est cohérent (MVP)
-      // Si ton backend ignore total_amount, ça ne gêne pas.
       await patchInvoice(invoice.id, {
         total_amount_cents: totals.total,
-      } as any);
+      });
 
       const res = await finalizeInvoice(invoice.id);
       setInvoice(res.invoice);
-      // Reload lines too (si jamais backend recalcul)
       const lns = await listInvoiceLines(invoice.id);
       setLines(lns);
+      await loadSyncEvents();
     } catch {
       setError("Finalisation impossible (vérifie lignes, permissions, backend).");
     } finally {
@@ -142,7 +171,6 @@ export default function InvoiceDetail() {
     }
   };
 
-  // ✅ AJOUT: déclenche Stripe Checkout
   const onPay = async () => {
     if (!invoice) return;
 
@@ -177,6 +205,22 @@ export default function InvoiceDetail() {
     }
   };
 
+  const onResyncPennylane = async () => {
+    if (!invoice) return;
+
+    setResyncLoading(true);
+    setError(null);
+
+    try {
+      await resyncPennylaneInvoice(invoice.id);
+      await loadSyncEvents();
+    } catch {
+      setError("Impossible de relancer la synchronisation Pennylane.");
+    } finally {
+      setResyncLoading(false);
+    }
+  };
+
   const status = String(invoice?.status ?? "").toLowerCase();
 
   return (
@@ -207,7 +251,14 @@ export default function InvoiceDetail() {
             Liste
           </button>
 
-          {/* ✅ AJOUT: bouton payer */}
+          <button
+            onClick={onResyncPennylane}
+            disabled={!canResyncPennylane || resyncLoading || loading}
+            className="inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-900 px-4 py-3 rounded-2xl font-bold text-sm hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors disabled:opacity-60"
+          >
+            Resync Pennylane
+          </button>
+
           <button
             onClick={onPay}
             disabled={!canPay || loading}
@@ -283,9 +334,56 @@ export default function InvoiceDetail() {
                 </span>
               </div>
 
+              <div className="mt-4 text-xs text-slate-400 font-medium">
+                Chantier lié:{" "}
+                <span className="font-black text-slate-700">
+                  {invoice?.project_id ? invoice.project_id.slice(0, 8) : "Aucun"}
+                </span>
+              </div>
+
               <div className="mt-5 text-xs text-slate-400 font-medium">
                 Pour déclencher la sync : au moins 1 ligne + finalisation.
               </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+            <div className="p-6 border-b border-slate-50">
+              <h3 className="text-lg font-bold text-slate-900">Sync Pennylane</h3>
+            </div>
+
+            <div className="p-6 space-y-3 text-sm text-slate-600">
+              {syncEventsLoading ? (
+                <div>Chargement des événements…</div>
+              ) : latestSyncEvent ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span>Dernier statut</span>
+                    <span
+                      className={`font-black uppercase tracking-widest text-xs ${
+                        latestSyncEvent.status === "success"
+                          ? "text-emerald-600"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {latestSyncEvent.status}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span>Dernière tentative</span>
+                    <span className="font-bold text-slate-900">
+                      {new Date(latestSyncEvent.created_at).toLocaleString("fr-FR")}
+                    </span>
+                  </div>
+
+                  <div className="pt-2 text-xs text-slate-500">
+                    Message : {latestSyncEvent.message ?? "—"}
+                  </div>
+                </>
+              ) : (
+                <div>Aucun événement de synchronisation pour cette facture.</div>
+              )}
             </div>
           </div>
 
@@ -295,6 +393,7 @@ export default function InvoiceDetail() {
             </div>
             <div className="p-6 space-y-2 text-sm text-slate-600">
               <Bullet>Créer en draft → lignes → finaliser.</Bullet>
+              <Bullet>Rattacher la facture à un chantier pour alimenter les analytics.</Bullet>
               <Bullet>Garder les montants en centimes partout (cohérence).</Bullet>
               <Bullet>Si tu modifies des lignes après “sent”, refais “Finaliser & Sync” pour resync.</Bullet>
             </div>
@@ -305,20 +404,30 @@ export default function InvoiceDetail() {
   );
 }
 
-function Row({ label, value, strong }: any) {
+function Row({
+  label,
+  value,
+  strong,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between">
       <div className={`text-sm ${strong ? "font-bold text-slate-900" : "text-slate-600"}`}>
         {label}
       </div>
-      <div className={`text-sm ${strong ? "font-black text-slate-900" : "font-bold text-slate-900"}`}>
+      <div
+        className={`text-sm ${strong ? "font-black text-slate-900" : "font-bold text-slate-900"}`}
+      >
         {value}
       </div>
     </div>
   );
 }
 
-function Bullet({ children }: any) {
+function Bullet({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex gap-3">
       <span className="mt-2 w-1.5 h-1.5 rounded-full bg-slate-300" />

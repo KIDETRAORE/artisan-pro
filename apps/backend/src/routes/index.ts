@@ -31,6 +31,9 @@ import projectsRoutes from "./projects.routes";
 // ✅ AJOUT: PROJECT EXPENSES
 import projectExpensesRoutes from "./projectExpenses.routes";
 
+// ✅ AJOUT: INTEGRATIONS
+import integrationsRoutes from "./integrations.routes";
+
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { requireRole } from "@middlewares/requireRole.middleware";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
@@ -89,6 +92,9 @@ router.use("/", authMiddleware, projectExpensesRoutes);
 
 // ✅ AJOUT: USAGE (AUTH)
 router.use("/usage", authMiddleware, usageRouter);
+
+// ✅ AJOUT: INTEGRATIONS (AUTH)
+router.use("/integrations", authMiddleware, integrationsRoutes);
 
 /**
  * ============================

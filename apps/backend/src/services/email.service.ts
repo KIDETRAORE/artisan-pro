@@ -5,7 +5,11 @@ import { ENV } from "../config/env";
 import { redactEmail } from "../utils/redact";
 
 // Initialisation Resend via ENV (centralisé + validé en prod)
-const resend = new Resend(ENV.RESEND_API_KEY);
+// ✅ MODIF: ne pas instancier Resend si la clé est absente
+const resend =
+  typeof ENV.RESEND_API_KEY === "string" && ENV.RESEND_API_KEY.trim().length > 0
+    ? new Resend(ENV.RESEND_API_KEY)
+    : null;
 
 type SendReminderResult = { success: true; id?: string };
 
@@ -18,7 +22,7 @@ export async function sendReminderEmail(
   content: string
 ): Promise<SendReminderResult> {
   try {
-    if (!ENV.RESEND_API_KEY) {
+    if (!ENV.RESEND_API_KEY || !resend) {
       throw new Error("RESEND_API_KEY is not configured");
     }
 

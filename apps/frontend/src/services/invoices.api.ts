@@ -10,6 +10,7 @@ export type Invoice = {
   client_email: string | null;
   due_date: string;
   status: InvoiceStatus | string;
+  project_id?: string | null;
   total_amount_cents?: number | null;
   total_amount?: number | null;
   created_at?: string;
@@ -68,6 +69,7 @@ export async function createInvoiceDraft(params: {
   client_name: string;
   client_email?: string | null;
   due_date: string;
+  project_id?: string | null;
 }): Promise<Invoice> {
   return await fetchWithAuth<Invoice>(API.invoices, {
     method: "POST",
@@ -76,6 +78,7 @@ export async function createInvoiceDraft(params: {
       client_name: params.client_name,
       client_email: params.client_email ?? null,
       due_date: params.due_date,
+      project_id: params.project_id ?? null,
       status: "draft",
       // ✅ MVP: compat (si backend attend encore total_amount) + cents si supporté
       total_amount: 0,
@@ -86,7 +89,9 @@ export async function createInvoiceDraft(params: {
 
 export async function patchInvoice(
   id: string,
-  patch: Partial<Pick<Invoice, "client_name" | "client_email" | "due_date" | "status">> & {
+  patch: Partial<
+    Pick<Invoice, "client_name" | "client_email" | "due_date" | "status" | "project_id">
+  > & {
     total_amount?: number;
     total_amount_cents?: number;
   }

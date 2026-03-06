@@ -18,6 +18,26 @@ function formatEurosFromCents(cents: number): string {
   return `${eur.replace(".", ",")} €`;
 }
 
+function healthBadgeClass(status: ProjectAnalytics["health_status"]): string {
+  if (status === "critical") {
+    return "bg-red-100 text-red-700 border border-red-200";
+  }
+  if (status === "warning") {
+    return "bg-amber-100 text-amber-700 border border-amber-200";
+  }
+  return "bg-emerald-100 text-emerald-700 border border-emerald-200";
+}
+
+function riskBadgeClass(risk: ProjectInsight["risk_level"]): string {
+  if (risk === "high") {
+    return "bg-red-100 text-red-700 border border-red-200";
+  }
+  if (risk === "medium") {
+    return "bg-amber-100 text-amber-700 border border-amber-200";
+  }
+  return "bg-emerald-100 text-emerald-700 border border-emerald-200";
+}
+
 export default function ProjectDashboard() {
   const { id } = useParams<{ id: string }>();
 
@@ -77,6 +97,7 @@ export default function ProjectDashboard() {
   const revenue = analytics.revenue_cents;
   const expensesTotal = analytics.expenses_cents;
   const profit = analytics.profit_cents;
+  const remainingBudget = analytics.remaining_budget_cents;
 
   return (
     <div className="p-4 space-y-6">
@@ -93,10 +114,17 @@ export default function ProjectDashboard() {
             Analyse rentabilité & recommandations
           </p>
         </div>
+
+        <div
+          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest ${healthBadgeClass(
+            analytics.health_status
+          )}`}
+        >
+          Santé chantier : {analytics.health_status}
+        </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <div className="text-sm text-gray-500">Facturé</div>
           <div className="mt-1 text-xl font-semibold">
@@ -122,7 +150,36 @@ export default function ProjectDashboard() {
           <div className="text-sm text-gray-500">Rentabilité</div>
           <div className="mt-1 text-xl font-semibold">{profitabilityLabel}</div>
         </div>
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Budget restant</div>
+          <div className="mt-1 text-xl font-semibold">
+            {formatEurosFromCents(remainingBudget)}
+          </div>
+        </div>
       </div>
+
+      {analytics.alerts.length > 0 && (
+        <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-3">
+          <h2 className="text-lg font-semibold">Alertes chantier</h2>
+          <div className="space-y-2">
+            {analytics.alerts.map((alert) => (
+              <div
+                key={alert.code}
+                className={`rounded-xl px-4 py-3 text-sm ${
+                  alert.level === "critical"
+                    ? "bg-red-50 text-red-700 border border-red-200"
+                    : alert.level === "warning"
+                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                    : "bg-blue-50 text-blue-700 border border-blue-200"
+                }`}
+              >
+                {alert.message}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <ProjectExpensesPanel
         projectId={project.id}
@@ -130,10 +187,19 @@ export default function ProjectDashboard() {
         onRefresh={refreshAll}
       />
 
-      {/* IA Insights */}
-      <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-3">
+      <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Analyse IA</h2>
+
+          {insight && (
+            <div
+              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest ${riskBadgeClass(
+                insight.risk_level
+              )}`}
+            >
+              Risque : {insight.risk_level}
+            </div>
+          )}
         </div>
 
         {!insight ? (
@@ -141,6 +207,17 @@ export default function ProjectDashboard() {
         ) : (
           <div className="space-y-4">
             <div className="text-sm text-gray-700">{insight.recommendation}</div>
+
+            {insight.findings?.length > 0 && (
+              <div>
+                <div className="text-sm font-semibold">Diagnostic IA</div>
+                <ul className="mt-1 list-disc pl-5 text-sm text-gray-700 space-y-1">
+                  {insight.findings.map((x, idx) => (
+                    <li key={idx}>{x}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {insight.issues?.length > 0 && (
               <div>

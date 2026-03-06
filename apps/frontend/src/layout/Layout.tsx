@@ -1,7 +1,14 @@
 // apps/frontend/src/layout/Layout.tsx
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, Link, Outlet, useNavigate } from "react-router-dom";
-import { FileText, Camera, PieChart, X, Sparkles } from "lucide-react";
+import {
+  FileText,
+  Camera,
+  PieChart,
+  Briefcase,
+  X,
+  Sparkles,
+} from "lucide-react";
 
 import ExpertHubPanel, { type ExpertTab } from "../features/ai/ExpertHubPanel";
 import { useUser } from "../context/user.context";
@@ -40,9 +47,10 @@ export default function Layout() {
 
   const isPro = plan === "pro" && status === "active";
 
-  const [dailyUsage, setDailyUsage] = useState<{ used: number; limit: number } | null>(
-    null
-  );
+  const [dailyUsage, setDailyUsage] = useState<{
+    used: number;
+    limit: number;
+  } | null>(null);
 
   const [expertAnalysisId, setExpertAnalysisId] = useState<string | null>(null);
 
@@ -86,7 +94,8 @@ export default function Layout() {
   }, [accessToken, quota]);
 
   const displayedUsed = dailyUsage?.used ?? (quota ? Number((quota as any).used ?? 0) : 0);
-  const displayedLimit = dailyUsage?.limit ?? (quota ? Number((quota as any).limit ?? 0) : 0);
+  const displayedLimit =
+    dailyUsage?.limit ?? (quota ? Number((quota as any).limit ?? 0) : 0);
 
   const percentage =
     displayedLimit > 0 ? Math.min(100, (displayedUsed / displayedLimit) * 100) : 0;
@@ -187,6 +196,12 @@ export default function Layout() {
     { name: "DEVIS", href: "/devis", icon: FileText, color: "bg-[#2563eb]" },
     { name: "SUIVI", href: "/vision", icon: Camera, color: "bg-[#4f46e5]" },
     { name: "COMPTA", href: "/compta", icon: PieChart, color: "bg-[#059669]" },
+    {
+      name: "CHANTIERS",
+      href: "/projects",
+      icon: Briefcase,
+      color: "bg-[#ea580c]",
+    },
   ];
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);

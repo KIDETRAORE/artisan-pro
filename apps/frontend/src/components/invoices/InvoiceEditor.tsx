@@ -1,7 +1,7 @@
 // apps/frontend/src/components/invoices/InvoiceEditor.tsx
 import React, { useEffect, useMemo, useState } from "react";
-// ✅ MODIF UNIQUE: corrige le chemin (services est sous src/, donc on remonte de 3 niveaux)
 import type { Invoice } from "../../services/invoices.api";
+import { listProjects, type Project } from "../../api/projects.api";
 
 type Props = {
   loading: boolean;
@@ -10,6 +10,7 @@ type Props = {
     client_name: string;
     client_email: string | null;
     due_date: string;
+    project_id: string | null;
   }) => Promise<void> | void;
 };
 
@@ -17,12 +18,43 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
   const [clientName, setClientName] = useState("");
   const [clientEmail, setClientEmail] = useState<string>("");
   const [dueDate, setDueDate] = useState<string>("");
+  const [projectId, setProjectId] = useState<string>("");
+
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
 
   useEffect(() => {
     setClientName(invoice?.client_name ?? "");
     setClientEmail(invoice?.client_email ?? "");
     setDueDate((invoice?.due_date ?? "").slice(0, 10));
-  }, [invoice?.id]);
+    setProjectId(invoice?.project_id ?? "");
+  }, [invoice?.id, invoice?.client_name, invoice?.client_email, invoice?.due_date, invoice?.project_id]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadProjects = async () => {
+      setProjectsLoading(true);
+      try {
+        const data = await listProjects();
+        if (!isMounted) return;
+        setProjects(Array.isArray(data) ? data : []);
+      } catch {
+        if (!isMounted) return;
+        setProjects([]);
+      } finally {
+        if (isMounted) {
+          setProjectsLoading(false);
+        }
+      }
+    };
+
+    void loadProjects();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const canSave = useMemo(() => {
     if (!invoice) return false;
@@ -33,10 +65,12 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
 
   const submit = async () => {
     if (!canSave) return;
+
     await onSave({
       client_name: clientName.trim(),
       client_email: clientEmail.trim() ? clientEmail.trim() : null,
       due_date: new Date(dueDate).toISOString(),
+      project_id: projectId.trim() ? projectId : null,
     });
   };
 
@@ -45,7 +79,8 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
       <div className="p-6 border-b border-slate-50">
         <h3 className="text-lg font-bold text-slate-900">Informations client</h3>
         <p className="text-[11px] text-slate-500 font-medium mt-1">
-          Renseigne le client et l’échéance. Le reste est calculé via les lignes.
+          Renseigne le client, l’échéance et rattache la facture à un chantier si
+          besoin. Le reste est calculé via les lignes.
         </p>
       </div>
 
@@ -77,7 +112,25 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
           />
         </Field>
 
-        <div className="flex items-end justify-end">
+        <Field label="Chantier (optionnel)">
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className="w-full px-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-300 bg-white text-sm font-semibold text-slate-900"
+          >
+            <option value="">
+              {projectsLoading ? "Chargement des chantiers…" : "Aucun chantier"}
+            </option>
+
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <div className="md:col-span-2 flex items-end justify-end">
           <button
             onClick={submit}
             disabled={!canSave || loading}
@@ -91,7 +144,13 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
   );
 }
 
-function Field({ label, children }: any) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-2">
       <div className="text-xs font-black uppercase tracking-widest text-slate-400">

@@ -4,13 +4,12 @@ import { z } from "zod";
 import { redisOptions } from "../config/redis";
 import { logger } from "../utils/logger";
 import { InvoicesService } from "../services/invoices.service";
-
-// ✅ AJOUTS
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import {
   PennylaneConnector,
   type ArtisanProInvoiceLine,
 } from "../integrations/providers/pennylane/pennylane.connector";
+import { IntegrationsService } from "../services/integrations.service";
 
 /**
  * Worker d'intégration (Pennylane/Sage/EBP/etc.)
@@ -150,14 +149,20 @@ async function findExistingExternalId(params: {
 
   if (!data) return null;
 
-  const externalId = String((data as any).external_id ?? "");
+  const externalId = String(
+    (data as { external_id?: string }).external_id ?? ""
+  );
   return externalId.length > 0 ? externalId : null;
 }
 
-async function loadInvoiceLines(invoiceId: string): Promise<ArtisanProInvoiceLine[]> {
+async function loadInvoiceLines(
+  invoiceId: string
+): Promise<ArtisanProInvoiceLine[]> {
   const { data, error } = await supabaseAdmin
     .from("invoice_lines")
-    .select("id, description, quantity, unit_price_cents, tax_rate, line_total_cents")
+    .select(
+      "id, description, quantity, unit_price_cents, tax_rate, line_total_cents"
+    )
     .eq("invoice_id", invoiceId)
     .order("created_at", { ascending: true });
 
@@ -173,16 +178,13 @@ async function loadInvoiceLines(invoiceId: string): Promise<ArtisanProInvoiceLin
 }
 
 function isSentStatus(status: unknown): boolean {
-  return String(status ?? "")
-    .toLowerCase()
-    .trim() === "sent";
+  return String(status ?? "").toLowerCase().trim() === "sent";
 }
 
 function isStubExternalId(externalId: string): boolean {
   return externalId.startsWith("pennylane_stub_");
 }
 
-// ✅ AJOUT : log dans sync_events
 async function logSyncEvent(params: {
   userId: string;
   provider: string;
@@ -238,12 +240,16 @@ export const integrationWorker = new Worker(
       });
 
       if (payload.provider === "pennylane") {
-
-        // ✅ CIRCUIT BREAKER CHECK
         if (isCircuitOpen("pennylane")) {
           logger.warn("⛔ [WORKER-INTEGRATION] Circuit open, skipping job", {
             invoiceId: invoice.id,
           });
+
+          await IntegrationsService.markPennylaneSyncError(
+            payload.userId,
+            "circuit_open"
+          );
+
           throw new Error("circuit_open");
         }
 
@@ -266,7 +272,8 @@ export const integrationWorker = new Worker(
         const totalAmount =
           typeof invoice.total_amount === "number"
             ? invoice.total_amount
-            : ((invoice as any).total_amount_cents ?? 0) / 100;
+            : ((invoice as { total_amount_cents?: number }).total_amount_cents ??
+                0) / 100;
 
         const lines = await loadInvoiceLines(invoice.id);
 
@@ -278,23 +285,30 @@ export const integrationWorker = new Worker(
           });
 
           if (existingExternalId) {
-            const updated = await PennylaneConnector.updateInvoice(existingExternalId, {
-              id: invoice.id,
-              client_name: invoice.client_name,
-              client_email: invoice.client_email,
-              total_amount: totalAmount,
-              due_date: invoice.due_date,
-              status: invoice.status,
-              lines,
-            });
+            const updated = await PennylaneConnector.updateInvoice(
+              existingExternalId,
+              {
+                id: invoice.id,
+                client_name: invoice.client_name,
+                client_email: invoice.client_email,
+                total_amount: totalAmount,
+                due_date: invoice.due_date,
+                status: invoice.status,
+                lines,
+              }
+            );
 
             recordSuccess("pennylane");
+            await IntegrationsService.markPennylaneSyncSuccess(payload.userId);
 
-            logger.info("🔄 [WORKER-INTEGRATION] Pennylane updateInvoice success", {
-              jobId: job.id,
-              invoiceId: invoice.id,
-              externalId: updated.externalId,
-            });
+            logger.info(
+              "🔄 [WORKER-INTEGRATION] Pennylane updateInvoice success",
+              {
+                jobId: job.id,
+                invoiceId: invoice.id,
+                externalId: updated.externalId,
+              }
+            );
 
             await logSyncEvent({
               userId: payload.userId,
@@ -325,6 +339,7 @@ export const integrationWorker = new Worker(
           });
 
           recordSuccess("pennylane");
+          await IntegrationsService.markPennylaneSyncSuccess(payload.userId);
 
           logger.info("✅ [WORKER-INTEGRATION] Pennylane pushInvoice success", {
             jobId: job.id,
@@ -340,11 +355,14 @@ export const integrationWorker = new Worker(
               internalId: invoice.id,
             });
           } else {
-            logger.info("🧪 [WORKER-INTEGRATION] Skip external_id_map upsert (stub)", {
-              jobId: job.id,
-              invoiceId: invoice.id,
-              externalId: result.externalId,
-            });
+            logger.info(
+              "🧪 [WORKER-INTEGRATION] Skip external_id_map upsert (stub)",
+              {
+                jobId: job.id,
+                invoiceId: invoice.id,
+                externalId: result.externalId,
+              }
+            );
           }
 
           await logSyncEvent({
@@ -363,8 +381,15 @@ export const integrationWorker = new Worker(
             externalId: result.externalId,
           };
         } catch (err) {
-
           recordFailure("pennylane");
+
+          const errorMessage =
+            err instanceof Error ? err.message : "unknown_error";
+
+          await IntegrationsService.markPennylaneSyncError(
+            payload.userId,
+            errorMessage
+          );
 
           await logSyncEvent({
             userId: payload.userId,
@@ -372,7 +397,7 @@ export const integrationWorker = new Worker(
             objectType: "invoice",
             objectId: invoice.id,
             status: "error",
-            message: err instanceof Error ? err.message : "unknown_error",
+            message: errorMessage,
           });
 
           throw err;
