@@ -11,7 +11,7 @@ import {
 import { Link } from "react-router-dom";
 import { useComptaReportStore } from "../store/comptaReport.store";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
-import { ComptaReportSchema } from "../pages/Compta";
+import { ComptaReportSchema } from "../schemas/comptaReport.schema";
 
 type InvoicePreview = {
   id: string;
@@ -46,6 +46,11 @@ type DashboardResponse = {
   kpis?: DashboardKpis;
 };
 
+type LatestComptaResponse = {
+  id?: string;
+  report?: unknown;
+};
+
 function formatEuroFromCents(cents: number): string {
   const euros = (Number.isFinite(cents) ? cents : 0) / 100;
   return new Intl.NumberFormat("fr-FR", {
@@ -53,6 +58,14 @@ function formatEuroFromCents(cents: number): string {
     currency: "EUR",
     maximumFractionDigits: 2,
   }).format(euros);
+}
+
+function formatEuro(value: number): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(value) ? value : 0);
 }
 
 function formatDateFr(iso: string): string {
@@ -65,6 +78,21 @@ function formatDateFr(iso: string): string {
   }).format(d);
 }
 
+function safeParseResult(value: unknown): unknown {
+  if (!value) return value;
+
+  if (typeof value === "string") {
+    const cleaned = value.replace(/```json|```/gi, "").trim();
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      return cleaned;
+    }
+  }
+
+  return value;
+}
+
 export default function Dashboard() {
   const report = useComptaReportStore((s) => s.report);
   const setReport = useComptaReportStore((s) => s.setReport);
@@ -72,7 +100,6 @@ export default function Dashboard() {
   const [kpis, setKpis] = useState<DashboardKpis | null>(null);
   const [kpisLoading, setKpisLoading] = useState(false);
 
-  // ✅ évite double fetch en dev (React 18 StrictMode)
   const restoreFetchOnceRef = useRef(false);
 
   useEffect(() => {
@@ -84,11 +111,13 @@ export default function Dashboard() {
 
     (async () => {
       try {
-        // 1) KPIs Dashboard (factures)
         const dash = await fetchWithAuth<DashboardResponse>("/dashboard", {
           method: "GET",
         });
-        if (!cancelled) setKpis(dash?.kpis ?? null);
+
+        if (!cancelled) {
+          setKpis(dash?.kpis ?? null);
+        }
       } catch {
         if (!cancelled) setKpis(null);
       } finally {
@@ -96,15 +125,21 @@ export default function Dashboard() {
       }
 
       try {
-        // 2) hydrate compta report (inchangé)
-        const data = await fetchWithAuth<unknown>("/ai/compta/latest", {
-          method: "GET",
-        });
+        const data = await fetchWithAuth<LatestComptaResponse>(
+          "/ai/compta/latest",
+          {
+            method: "GET",
+          }
+        );
 
-        const parsed = ComptaReportSchema.safeParse(data);
+        const parsedRaw = safeParseResult(data?.report);
+        const parsed = ComptaReportSchema.safeParse(parsedRaw);
+
         if (!parsed.success) return;
 
-        if (!cancelled) setReport(parsed.data);
+        if (!cancelled) {
+          setReport(parsed.data);
+        }
       } catch {
         // best effort
       }
@@ -115,36 +150,60 @@ export default function Dashboard() {
     };
   }, [setReport]);
 
-  // ✅ NOUVEAU: valeurs factures (source of truth)
-  const caMois = kpis?.revenue?.paidMonthCents ?? 0;
-  const devisPending = kpis?.quotes?.pendingCount ?? 0;
-  const impayes = kpis?.invoices?.unpaidTotalCents ?? 0;
+  const hasComptaReport = !!report;
+
+  const kpiCaMois = kpis?.revenue?.paidMonthCents ?? 0;
+  const kpiDevisPending = kpis?.quotes?.pendingCount ?? 0;
+  const kpiImpayes = kpis?.invoices?.unpaidTotalCents ?? 0;
   const overdueCount = kpis?.invoices?.overdueCount ?? 0;
   const impayesCount = kpis?.invoices?.unpaidCount ?? 0;
 
   const preview = kpis?.invoices?.preview ?? [];
 
-  const trendCA = useMemo(() => {
-    if (kpisLoading) return "Chargement";
-    return "Payé ce mois";
-  }, [kpisLoading]);
-
-  const trendDevis = useMemo(() => {
-    if (kpisLoading) return "Chargement";
-    return devisPending > 0 ? `${devisPending} en attente` : "Aucun";
-  }, [kpisLoading, devisPending]);
-
-  const trendImpayes = useMemo(() => {
-    if (kpisLoading) return "Chargement";
-    if (impayesCount === 0) return "RAS";
-    if (overdueCount > 0) return `${overdueCount} en retard`;
-    return "Action requise";
-  }, [kpisLoading, impayesCount, overdueCount]);
-
-  // (Compta report conservé pour d'autres usages / sections si tu veux)
   const recettesHT = report?.totals?.recettesHT ?? 0;
   const depensesHT = report?.totals?.depensesHT ?? 0;
   const resultatNet = report?.totals?.resultatNet ?? 0;
+
+  const card1Title = hasComptaReport ? "Recettes" : "Chiffre d'Affaires";
+  const card1Value = hasComptaReport
+    ? formatEuro(recettesHT)
+    : formatEuroFromCents(kpiCaMois);
+  const card1Trend = hasComptaReport
+    ? "Analyse compta IA"
+    : kpisLoading
+    ? "Chargement"
+    : "Payé ce mois";
+  const card1To = "/dashboard/revenue";
+
+  const card2Title = hasComptaReport ? "Dépenses" : "Devis en attente";
+  const card2Value = hasComptaReport
+    ? formatEuro(depensesHT)
+    : `${kpiDevisPending}`;
+  const card2Trend = hasComptaReport
+    ? "Analyse compta IA"
+    : kpisLoading
+    ? "Chargement"
+    : kpiDevisPending > 0
+    ? `${kpiDevisPending} en attente`
+    : "Aucun";
+  const card2To = "/dashboard/quotes";
+
+  const card3Title = hasComptaReport ? "Résultat net" : "Factures impayées";
+  const card3Value = hasComptaReport
+    ? formatEuro(resultatNet)
+    : formatEuroFromCents(kpiImpayes);
+  const card3Trend = hasComptaReport
+    ? resultatNet >= 0
+      ? "Analyse compta IA"
+      : "Vigilance"
+    : kpisLoading
+    ? "Chargement"
+    : impayesCount === 0
+    ? "RAS"
+    : overdueCount > 0
+    ? `${overdueCount} en retard`
+    : "Action requise";
+  const card3To = "/dashboard/unpaid";
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
@@ -157,33 +216,31 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* 2. STATS RAPIDES (FACTURES) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard
-          title="Chiffre d'Affaires"
-          value={formatEuroFromCents(caMois)}
-          trend={trendCA}
+          title={card1Title}
+          value={card1Value}
+          trend={card1Trend}
           icon={<TrendingUp className="text-emerald-500" />}
-          to="/dashboard/revenue"
+          to={card1To}
         />
         <StatCard
-          title="Devis en attente"
-          value={`${devisPending}`}
-          trend={trendDevis}
+          title={card2Title}
+          value={card2Value}
+          trend={card2Trend}
           icon={<Clock className="text-amber-500" />}
-          to="/dashboard/quotes"
+          to={card2To}
         />
         <StatCard
-          title="Factures impayées"
-          value={formatEuroFromCents(impayes)}
-          trend={trendImpayes}
+          title={card3Title}
+          value={card3Value}
+          trend={card3Trend}
           icon={<AlertTriangle className="text-red-500" />}
-          to="/dashboard/unpaid"
+          to={card3To}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* 3. SECTION FACTURES & RELANCES */}
         <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden flex flex-col">
           <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white">
             <div>
@@ -221,7 +278,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 4. SECTION DEVIS RÉCENTS (placeholder actuel) */}
         <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex justify-between items-center">
             <h3 className="text-lg font-bold text-slate-900">Derniers Devis</h3>
@@ -266,16 +322,10 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {/* (Optionnel) tu peux garder ces valeurs compta si tu veux les afficher ailleurs */}
-      <div className="hidden">
-        {recettesHT} {depensesHT} {resultatNet}
-      </div>
     </div>
   );
 }
 
-// --- SOUS-COMPOSANTS INTERNES ---
 function StatCard({ title, value, trend, icon, to }: any) {
   return (
     <Link

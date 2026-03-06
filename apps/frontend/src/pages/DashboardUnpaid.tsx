@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
+import { useComptaReportStore } from "../store/comptaReport.store";
 
 type DashboardResponse = {
   kpis?: {
@@ -41,6 +42,14 @@ function formatEurFromCents(cents: number): string {
   }).format(euros);
 }
 
+function formatEur(value: number): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(value) ? value : 0);
+}
+
 function formatDateFr(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -58,6 +67,8 @@ function invoiceAmountCents(inv: InvoiceRow): number {
 }
 
 export default function DashboardUnpaid() {
+  const report = useComptaReportStore((s) => s.report);
+
   const [loading, setLoading] = useState(false);
   const [kpis, setKpis] = useState<DashboardResponse["kpis"] | null>(null);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -113,6 +124,12 @@ export default function DashboardUnpaid() {
     return unpaid.filter((i) => new Date(i.due_date).getTime() < now);
   }, [unpaid]);
 
+  const hasComptaReport = !!report;
+  const resultatNet = report?.totals?.resultatNet ?? 0;
+  const anomalies = report?.anomalies ?? [];
+  const criticalAnomalies = anomalies.filter((a) => a.severity === "critical");
+  const warnAnomalies = anomalies.filter((a) => a.severity === "warn");
+
   const unpaidTotalCents =
     kpis?.invoices?.unpaidTotalCents ??
     unpaid.reduce((a, it) => a + invoiceAmountCents(it), 0);
@@ -126,6 +143,27 @@ export default function DashboardUnpaid() {
   const preview = kpis?.invoices?.preview ?? [];
 
   const recommendations = useMemo(() => {
+    if (hasComptaReport) {
+      const actions: string[] = [];
+
+      if (resultatNet < 0) {
+        actions.push("Le résultat net est négatif : réduire les charges non essentielles en priorité.");
+      }
+
+      if (criticalAnomalies.length > 0) {
+        actions.push("Traiter immédiatement les anomalies critiques détectées par l’analyse IA.");
+      }
+
+      if (warnAnomalies.length > 0) {
+        actions.push("Contrôler les anomalies de niveau avertissement pour éviter une dérive future.");
+      }
+
+      actions.push("Comparer résultat net, dépenses et recettes mois par mois pour détecter les déséquilibres.");
+      actions.push("Vérifier les postes de dépenses dominants avant la clôture de période.");
+
+      return actions;
+    }
+
     const actions: string[] = [];
 
     if (overdueCount > 0) {
@@ -141,7 +179,7 @@ export default function DashboardUnpaid() {
     actions.push("Suivre le DSO (délai moyen de paiement) et fixer un objectif de réduction.");
 
     return actions;
-  }, [overdueCount, unpaidCount]);
+  }, [hasComptaReport, resultatNet, criticalAnomalies.length, warnAnomalies.length, overdueCount, unpaidCount]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
@@ -154,40 +192,134 @@ export default function DashboardUnpaid() {
             <ArrowLeft size={16} /> Retour
           </Link>
           <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-2">
-            Factures impayées
+            {hasComptaReport ? "Résultat net" : "Factures impayées"}
           </h2>
           <p className="text-slate-500 mt-1">
-            Pilotage trésorerie: impayés, retards et actions recommandées.
+            {hasComptaReport
+              ? "Pilotage du résultat net issu de l’analyse comptable."
+              : "Pilotage trésorerie: impayés, retards et actions recommandées."}
           </p>
         </div>
 
         <div className="hidden sm:flex items-center gap-2 bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-sm">
           <AlertTriangle className="text-red-500" size={18} />
           <span className="text-sm font-black text-slate-900">
-            {loading ? "…" : formatEurFromCents(unpaidTotalCents)}
+            {loading
+              ? "…"
+              : hasComptaReport
+              ? formatEur(resultatNet)
+              : formatEurFromCents(unpaidTotalCents)}
           </span>
-          <span className="text-xs font-bold text-slate-400">à encaisser</span>
+          <span className="text-xs font-bold text-slate-400">
+            {hasComptaReport ? "résultat net" : "à encaisser"}
+          </span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <Kpi label="Impayés" value={loading ? "…" : String(unpaidCount)} hint="factures sent/overdue" />
-        <Kpi label="Montant impayé" value={loading ? "…" : formatEurFromCents(unpaidTotalCents)} hint="total à encaisser" />
-        <Kpi label="En retard" value={loading ? "…" : String(overdueCount)} hint="échéance dépassée" />
-        <Kpi label="Montant en retard" value={loading ? "…" : formatEurFromCents(overdueTotalCents)} hint="priorité relance" />
+        <Kpi
+          label={hasComptaReport ? "Résultat net" : "Impayés"}
+          value={
+            loading
+              ? "…"
+              : hasComptaReport
+              ? formatEur(resultatNet)
+              : String(unpaidCount)
+          }
+          hint={
+            hasComptaReport
+              ? "Issu de l’analyse compta."
+              : "factures sent/overdue"
+          }
+        />
+        <Kpi
+          label={hasComptaReport ? "Anomalies critiques" : "Montant impayé"}
+          value={
+            loading
+              ? "…"
+              : hasComptaReport
+              ? String(criticalAnomalies.length)
+              : formatEurFromCents(unpaidTotalCents)
+          }
+          hint={
+            hasComptaReport
+              ? "Points les plus urgents."
+              : "total à encaisser"
+          }
+        />
+        <Kpi
+          label={hasComptaReport ? "Anomalies avertissement" : "En retard"}
+          value={
+            loading
+              ? "…"
+              : hasComptaReport
+              ? String(warnAnomalies.length)
+              : String(overdueCount)
+          }
+          hint={
+            hasComptaReport
+              ? "Vigilance recommandée."
+              : "échéance dépassée"
+          }
+        />
+        <Kpi
+          label={hasComptaReport ? "Anomalies totales" : "Montant en retard"}
+          value={
+            loading
+              ? "…"
+              : hasComptaReport
+              ? String(anomalies.length)
+              : formatEurFromCents(overdueTotalCents)
+          }
+          hint={
+            hasComptaReport
+              ? "Détectées par l’IA."
+              : "priorité relance"
+          }
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
           <div className="p-6 border-b border-slate-50">
-            <h3 className="text-lg font-bold text-slate-900">À relancer en priorité</h3>
+            <h3 className="text-lg font-bold text-slate-900">
+              {hasComptaReport ? "Anomalies prioritaires" : "À relancer en priorité"}
+            </h3>
             <p className="text-[11px] text-slate-500 font-medium mt-1">
-              Top impayés (retard, puis montant).
+              {hasComptaReport
+                ? "Issues de l’analyse IA."
+                : "Top impayés (retard, puis montant)."}
             </p>
           </div>
 
           <div className="divide-y divide-slate-50">
-            {preview.length > 0 ? (
+            {hasComptaReport ? (
+              anomalies.length > 0 ? (
+                anomalies.slice(0, 10).map((it, idx) => (
+                  <div key={`${it.message}-${idx}`} className="p-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">{it.message}</p>
+                      <p className="text-xs text-slate-500 font-medium">
+                        {it.sheet ? `Feuille: ${it.sheet}` : "Analyse générale"}
+                      </p>
+                    </div>
+                    <span
+                      className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest ${
+                        it.severity === "critical"
+                          ? "bg-red-100 text-red-700"
+                          : it.severity === "warn"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-blue-100 text-blue-700"
+                      }`}
+                    >
+                      {it.severity}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="p-6 text-sm text-slate-500">Aucune anomalie détectée.</div>
+              )
+            ) : preview.length > 0 ? (
               preview.map((it) => (
                 <div key={it.id} className="p-4 flex items-center justify-between">
                   <div>
@@ -212,7 +344,7 @@ export default function DashboardUnpaid() {
           <div className="p-6 border-b border-slate-50">
             <h3 className="text-lg font-bold text-slate-900">Analyse & plan d’action</h3>
             <p className="text-[11px] text-slate-500 font-medium mt-1">
-              Suggestions pour améliorer l’encaissement.
+              Suggestions pour améliorer la situation.
             </p>
           </div>
           <div className="p-6">
@@ -230,11 +362,17 @@ export default function DashboardUnpaid() {
 
       <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-50 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900">Toutes les factures impayées</h3>
+          <h3 className="text-lg font-bold text-slate-900">
+            {hasComptaReport ? "Détail des anomalies" : "Toutes les factures impayées"}
+          </h3>
 
           <div className="relative flex items-center gap-3">
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              {loading ? "…" : `${unpaid.length} éléments`}
+              {loading
+                ? "…"
+                : hasComptaReport
+                ? `${anomalies.length} éléments`
+                : `${unpaid.length} éléments`}
             </span>
 
             <button
@@ -249,11 +387,11 @@ export default function DashboardUnpaid() {
             {menuOpen ? (
               <div className="absolute right-0 top-12 z-20 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
                 <Link
-                  to="/invoices"
+                  to={hasComptaReport ? "/compta" : "/invoices"}
                   onClick={() => setMenuOpen(false)}
                   className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  Créer une facture
+                  {hasComptaReport ? "Ouvrir Compta IA" : "Créer une facture"}
                 </Link>
               </div>
             ) : null}
@@ -264,14 +402,47 @@ export default function DashboardUnpaid() {
           <table className="min-w-full text-left">
             <thead className="bg-slate-50/60">
               <tr className="text-xs font-black uppercase tracking-widest text-slate-400">
-                <th className="px-4 py-3">Client</th>
-                <th className="px-4 py-3">Échéance</th>
-                <th className="px-4 py-3">Statut</th>
-                <th className="px-4 py-3 text-right">Montant</th>
+                <th className="px-4 py-3">{hasComptaReport ? "Élément" : "Client"}</th>
+                <th className="px-4 py-3">{hasComptaReport ? "Source" : "Échéance"}</th>
+                <th className="px-4 py-3">{hasComptaReport ? "Niveau" : "Statut"}</th>
+                <th className="px-4 py-3 text-right">
+                  {hasComptaReport ? "Ligne" : "Montant"}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {unpaid.length > 0 ? (
+              {hasComptaReport ? (
+                anomalies.length > 0 ? (
+                  anomalies.map((it, idx) => (
+                    <tr key={`${it.message}-${idx}`} className="text-sm">
+                      <td className="px-4 py-3 font-bold text-slate-900">{it.message}</td>
+                      <td className="px-4 py-3 text-slate-600">{it.sheet ?? "—"}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest ${
+                            it.severity === "critical"
+                              ? "bg-red-100 text-red-700"
+                              : it.severity === "warn"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-blue-100 text-blue-700"
+                          }`}
+                        >
+                          {it.severity}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-slate-900">
+                        {typeof it.rowIndex === "number" ? String(it.rowIndex) : "—"}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="px-4 py-6 text-sm text-slate-500" colSpan={4}>
+                      Aucune anomalie détectée.
+                    </td>
+                  </tr>
+                )
+              ) : unpaid.length > 0 ? (
                 unpaid.map((it) => {
                   const status = String(it.status).toLowerCase();
                   const overdueFlag = new Date(it.due_date).getTime() < Date.now();

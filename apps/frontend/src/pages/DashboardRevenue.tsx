@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
+import { useComptaReportStore } from "../store/comptaReport.store";
 
 type DashboardResponse = {
   kpis?: {
@@ -28,6 +29,14 @@ function formatEurFromCents(cents: number): string {
   }).format(euros);
 }
 
+function formatEur(value: number): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(value) ? value : 0);
+}
+
 function startOfCurrentMonthIso(): string {
   const now = new Date();
   const d = new Date(now);
@@ -43,6 +52,8 @@ function invoiceAmountCents(inv: InvoiceRow): number {
 }
 
 export default function DashboardRevenue() {
+  const report = useComptaReportStore((s) => s.report);
+
   const [loading, setLoading] = useState(false);
   const [kpis, setKpis] = useState<DashboardResponse["kpis"] | null>(null);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -95,10 +106,29 @@ export default function DashboardRevenue() {
     return paidMonth.reduce((acc, it) => acc + invoiceAmountCents(it), 0);
   }, [paidMonth]);
 
+  const hasComptaReport = !!report;
+  const recettesHT = report?.totals?.recettesHT ?? 0;
+  const recettesTTC = report?.totals?.recettesTTC ?? 0;
+  const parMois = report?.breakdown?.parMois ?? [];
+  const topRecettes = report?.breakdown?.topRecettes ?? [];
+
   const paidAllTimeCents = kpis?.revenue?.paidAllTimeCents ?? 0;
   const paidMonthCents = kpis?.revenue?.paidMonthCents ?? paidMonthTotalCents;
 
   const analysis = useMemo(() => {
+    if (hasComptaReport) {
+      return {
+        summary: `Recettes issues de l’analyse compta : ${formatEur(
+          recettesTTC
+        )} TTC pour ${formatEur(recettesHT)} HT.`,
+        actions: [
+          "Comparer les recettes du mois avec les dépenses pour suivre la marge réelle.",
+          "Vérifier les mois les plus faibles pour anticiper la trésorerie.",
+          "Rattacher les recettes aux chantiers pour une lecture par activité.",
+        ],
+      };
+    }
+
     if (paidMonth.length === 0) {
       return {
         summary: "Aucun encaissement enregistré ce mois-ci.",
@@ -119,7 +149,7 @@ export default function DashboardRevenue() {
         "Ajouter un lien facture → chantier pour analyser le CA par chantier.",
       ],
     };
-  }, [paidMonth.length, paidMonthCents]);
+  }, [hasComptaReport, recettesTTC, recettesHT, paidMonth.length, paidMonthCents]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
@@ -137,34 +167,64 @@ export default function DashboardRevenue() {
             Chiffre d&apos;affaires
           </h2>
           <p className="text-slate-500 mt-1">
-            Analyse structurée basée sur vos factures.
+            Analyse structurée basée sur vos données comptables.
           </p>
         </div>
 
         <div className="hidden sm:flex items-center gap-2 bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-sm">
           <TrendingUp className="text-emerald-500" size={18} />
           <span className="text-sm font-black text-slate-900">
-            {loading ? "…" : formatEurFromCents(paidMonthCents)}
+            {loading
+              ? "…"
+              : hasComptaReport
+              ? formatEur(recettesTTC)
+              : formatEurFromCents(paidMonthCents)}
           </span>
-          <span className="text-xs font-bold text-slate-400">mois en cours</span>
+          <span className="text-xs font-bold text-slate-400">
+            {hasComptaReport ? "analyse compta" : "mois en cours"}
+          </span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <KpiCard
-          label="Encaissements mois"
-          value={loading ? "…" : formatEurFromCents(paidMonthCents)}
-          hint="Basé sur les factures au statut paid."
+          label={hasComptaReport ? "Recettes HT" : "Encaissements mois"}
+          value={
+            loading
+              ? "…"
+              : hasComptaReport
+              ? formatEur(recettesHT)
+              : formatEurFromCents(paidMonthCents)
+          }
+          hint={
+            hasComptaReport
+              ? "Issu de l’analyse compta."
+              : "Basé sur les factures au statut paid."
+          }
         />
         <KpiCard
-          label="Encaissements total"
-          value={loading ? "…" : formatEurFromCents(paidAllTimeCents)}
-          hint="Historique complet."
+          label={hasComptaReport ? "Recettes TTC" : "Encaissements total"}
+          value={
+            loading
+              ? "…"
+              : hasComptaReport
+              ? formatEur(recettesTTC)
+              : formatEurFromCents(paidAllTimeCents)
+          }
+          hint={
+            hasComptaReport
+              ? "Synthèse globale de l’analyse."
+              : "Historique complet."
+          }
         />
         <KpiCard
-          label="Nb. factures payées (mois)"
-          value={loading ? "…" : String(paidMonth.length)}
-          hint="Nombre de factures marked paid ce mois-ci."
+          label={hasComptaReport ? "Nb. mois analysés" : "Nb. factures payées (mois)"}
+          value={loading ? "…" : hasComptaReport ? String(parMois.length) : String(paidMonth.length)}
+          hint={
+            hasComptaReport
+              ? "Périodes détectées dans le fichier."
+              : "Nombre de factures marked paid ce mois-ci."
+          }
         />
       </div>
 
@@ -173,7 +233,7 @@ export default function DashboardRevenue() {
           <div className="p-6 border-b border-slate-50">
             <h3 className="text-lg font-bold text-slate-900">Analyse & optimisation</h3>
             <p className="text-[11px] text-slate-500 font-medium mt-1">
-              Recommandations pragmatiques (MVP).
+              Recommandations pragmatiques.
             </p>
           </div>
 
@@ -192,14 +252,38 @@ export default function DashboardRevenue() {
 
         <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex items-center justify-between">
-            <h3 className="text-lg font-bold text-slate-900">Factures payées (mois)</h3>
+            <h3 className="text-lg font-bold text-slate-900">
+              {hasComptaReport ? "Top recettes" : "Factures payées (mois)"}
+            </h3>
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              {loading ? "…" : `${paidMonth.length} éléments`}
+              {loading
+                ? "…"
+                : hasComptaReport
+                ? `${topRecettes.length} éléments`
+                : `${paidMonth.length} éléments`}
             </span>
           </div>
 
           <div className="divide-y divide-slate-50">
-            {paidMonth.length > 0 ? (
+            {hasComptaReport ? (
+              topRecettes.length > 0 ? (
+                topRecettes.slice(0, 10).map((it) => (
+                  <div key={it.label} className="p-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">{it.label}</p>
+                      <p className="text-xs text-slate-500 font-medium">
+                        {it.count} occurrence(s)
+                      </p>
+                    </div>
+                    <span className="text-sm font-black text-slate-900">
+                      {formatEur(it.amountHT)}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="p-6 text-sm text-slate-500">Aucune recette détectée.</div>
+              )
+            ) : paidMonth.length > 0 ? (
               paidMonth.slice(0, 10).map((it) => (
                 <div key={it.id} className="p-4 flex items-center justify-between">
                   <div>
@@ -215,6 +299,7 @@ export default function DashboardRevenue() {
               <div className="p-6 text-sm text-slate-500">Aucune facture payée ce mois.</div>
             )}
           </div>
+
           <div className="p-4 bg-slate-50/50 text-center">
             <Link
               to="/dashboard"
