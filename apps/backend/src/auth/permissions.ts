@@ -8,8 +8,24 @@ export type UserRole = "user" | "admin" | "free" | "pro";
  */
 export const PERMISSIONS = {
   ACCESS_DASHBOARD: "dashboard:read",
+
   DEVIS_READ: "devis:read",
   DEVIS_WRITE: "devis:write",
+
+  // ✅ NOUVEAU: permissions dédiées (factures + clients)
+  INVOICES_READ: "invoices:read",
+  INVOICES_WRITE: "invoices:write",
+  CLIENTS_READ: "clients:read",
+  CLIENTS_WRITE: "clients:write",
+
+  // ✅ AJOUT: projets / chantiers
+  PROJECTS_READ: "projects:read",
+  PROJECTS_WRITE: "projects:write",
+
+  // ✅ AJOUT: permissions lignes de facture
+  INVOICE_LINES_READ: "invoice_lines:read",
+  INVOICE_LINES_WRITE: "invoice_lines:write",
+
   AI_USE: "ai:use",
   AUTOMATION_USE: "automation:use",
   MANAGE_USERS: "users:manage",

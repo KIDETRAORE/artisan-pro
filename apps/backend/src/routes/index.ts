@@ -16,6 +16,21 @@ import automationRoutes from "./automation.routes";
 // ✅ AJOUT
 import { usageRouter } from "./usage.routes";
 
+// ✅ AJOUT: INVOICES
+import invoicesRoutes from "./invoices.routes";
+
+// ✅ AJOUT: CLIENTS
+import clientsRoutes from "./clients.routes";
+
+// ✅ AJOUT: INVOICE LINES
+import invoiceLinesRoutes from "./invoiceLines.routes";
+
+// ✅ AJOUT: PROJECTS
+import projectsRoutes from "./projects.routes";
+
+// ✅ AJOUT: PROJECT EXPENSES
+import projectExpensesRoutes from "./projectExpenses.routes";
+
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { requireRole } from "@middlewares/requireRole.middleware";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
@@ -52,6 +67,25 @@ router.use(
 );
 
 router.use("/devis", authMiddleware, devisRouter);
+
+// ✅ AJOUT: INVOICES (AUTH)
+router.use("/invoices", authMiddleware, invoicesRoutes);
+
+// ✅ AJOUT: INVOICE LINES (AUTH)
+// On monte le router à la racine pour éviter de doubler "/invoice-lines"
+// car invoiceLines.routes.ts expose déjà "/invoice-lines"
+router.use("/", authMiddleware, invoiceLinesRoutes);
+
+// ✅ AJOUT: CLIENTS (AUTH)
+router.use("/clients", authMiddleware, clientsRoutes);
+
+// ✅ AJOUT: PROJECTS (AUTH)
+router.use("/projects", authMiddleware, projectsRoutes);
+
+// ✅ AJOUT: PROJECT EXPENSES (AUTH)
+// On monte aussi à la racine car projectExpenses.routes.ts expose déjà
+// "/projects/:projectId/expenses" et "/project-expenses/:expenseId"
+router.use("/", authMiddleware, projectExpensesRoutes);
 
 // ✅ AJOUT: USAGE (AUTH)
 router.use("/usage", authMiddleware, usageRouter);

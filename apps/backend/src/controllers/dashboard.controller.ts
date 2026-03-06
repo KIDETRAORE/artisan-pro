@@ -29,6 +29,32 @@ type CopilotSnapshot = {
   };
 };
 
+type InvoicePreview = {
+  id: string;
+  client: string;
+  totalAmountCents: number;
+  dueDate: string;
+  status: string;
+  daysLate: number;
+};
+
+function daysBetween(fromIso: string, toIso: string): number {
+  const a = new Date(fromIso).getTime();
+  const b = new Date(toIso).getTime();
+  const diff = b - a;
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
+// ✅ helper: parse cents from rpc (number | string | null)
+function toCentsFromUnknown(v: unknown): number {
+  if (typeof v === "number") return Number.isFinite(v) ? Math.round(v) : 0;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n) : 0;
+  }
+  return 0;
+}
+
 export class DashboardController {
   /**
    * GET /dashboard
@@ -95,8 +121,113 @@ export class DashboardController {
     };
 
     // ===============================
+    // ✅ KPI FACTURES via RPC (perf)
+    // ===============================
+    const { data: kpis, error: kpisErr } = await supabaseAdmin.rpc(
+      "get_dashboard_kpis",
+      { p_user_id: user.id }
+    );
+
+    if (kpisErr) {
+      logger.error("Dashboard: erreur RPC get_dashboard_kpis", {
+        userId: user.id,
+        message: kpisErr.message,
+      });
+      throw new HttpError(500, "Erreur lors du chargement du dashboard");
+    }
+
+    const kpisData: any = kpis ?? {};
+
+    const paidAllTimeCents = toCentsFromUnknown(kpisData.paid_all_time_cents);
+    const paidMonthCents = toCentsFromUnknown(kpisData.paid_month_cents);
+    const unpaidTotalCents = toCentsFromUnknown(kpisData.unpaid_total_cents);
+
+    // ===============================
+    // ✅ Preview relances (best effort, léger)
+    // (On ne fait plus de reduce global; on charge uniquement impayés)
+    // ===============================
+    const nowIso = new Date().toISOString();
+
+    const { data: unpaidRows, error: unpaidErr } = await supabaseAdmin
+      .from("invoices")
+      .select("id, client_name, total_amount_cents, due_date, status")
+      .eq("user_id", user.id)
+      .in("status", ["sent", "overdue"]);
+
+    if (unpaidErr) {
+      logger.warn("Dashboard: erreur récupération preview unpaid invoices", {
+        userId: user.id,
+        message: unpaidErr.message,
+      });
+    }
+
+    const unpaid = ((unpaidRows ?? []) as Array<{
+      id: string;
+      client_name: string;
+      total_amount_cents: unknown;
+      due_date: string;
+      status: string;
+    }>).map((it) => ({
+      id: it.id,
+      client_name: it.client_name,
+      total_amount_cents: it.total_amount_cents,
+      due_date: it.due_date,
+      status: it.status,
+    }));
+
+    const overdue = unpaid.filter((it) => {
+      const dueIso = new Date(it.due_date).toISOString();
+      return dueIso < nowIso;
+    });
+
+    const overdueTotalCents = overdue.reduce(
+      (acc, it) => acc + toCentsFromUnknown(it.total_amount_cents),
+      0
+    );
+
+    const preview: InvoicePreview[] = unpaid
+      .map((it) => {
+        const dueIso = new Date(it.due_date).toISOString();
+        const late = dueIso < nowIso ? daysBetween(dueIso, nowIso) : 0;
+        return {
+          id: it.id,
+          client: it.client_name,
+          totalAmountCents: toCentsFromUnknown(it.total_amount_cents),
+          dueDate: dueIso,
+          status: String(it.status),
+          daysLate: late,
+        };
+      })
+      .sort((a, b) => {
+        if (b.daysLate !== a.daysLate) return b.daysLate - a.daysLate;
+        if (b.totalAmountCents !== a.totalAmountCents)
+          return b.totalAmountCents - a.totalAmountCents;
+        return a.dueDate.localeCompare(b.dueDate);
+      })
+      .slice(0, 3);
+
+    // Devis: pas de table/feature devis dans ce repo (routes devis = stub)
+    const quotesPendingCount = 0;
+
+    const kpisPayload = {
+      revenue: {
+        paidAllTimeCents,
+        paidMonthCents,
+      },
+      invoices: {
+        unpaidCount: unpaid.length,
+        unpaidTotalCents,
+        overdueCount: overdue.length,
+        overdueTotalCents,
+        preview,
+      },
+      quotes: {
+        pendingCount: quotesPendingCount,
+      },
+    };
+
+    // ===============================
     // ✅ AJOUT UNIQUE: dernier snapshot copilote (best effort)
-    // - Ne casse pas l'existant : champs optionnels
     // ===============================
     let copilotSnapshot: CopilotSnapshot | null = null;
     let copilotAnalysisId: string | null = null;
@@ -141,7 +272,10 @@ export class DashboardController {
         resetAt,
       },
 
-      // ✅ AJOUT UNIQUE: optionnel, compat backward
+      // ✅ KPI via RPC (Postgres calcule)
+      kpis: kpisPayload,
+
+      // ✅ optionnel, compat backward
       copilotSnapshot,
       copilotAnalysisId,
     });

@@ -25,9 +25,26 @@ import openApiRoutes from "./routes/openapi.routes";
 // ✅ AJOUT: Expert routes (mount direct /ai/expert)
 import expertRouter from "./routes/expert.routes";
 
+// ✅ AJOUT: Scheduler relances (cron BullMQ)
+import { startInvoiceRemindersScheduler } from "./schedulers/reminders.scheduler";
+
+// ✅ AJOUT: workers relances (side-effect imports)
+import "./workers/remindersScan.worker";
+import "./workers/invoiceReminder.worker";
+
 const app = express();
 
 const isProd = ENV.NODE_ENV === "production"; // ✅ ajout
+
+/**
+ * ✅ AJOUT: démarre le scheduler (non bloquant)
+ * - le job repeatable "invoice_reminders_scan" sera programmé (02:00 Europe/Paris)
+ */
+startInvoiceRemindersScheduler().catch((e) => {
+  logger.error("Failed to start invoice reminders scheduler", {
+    message: e instanceof Error ? e.message : String(e),
+  });
+});
 
 /**
  * ======================

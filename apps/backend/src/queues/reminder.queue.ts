@@ -1,3 +1,4 @@
+// apps/backend/src/queues/reminder.queue.ts
 import { Queue } from "bullmq";
 import { redisOptions } from "../config/redis"; // On utilise redisOptions au lieu de redisConnection
 
@@ -14,5 +15,6 @@ export const reminderQueue = new Queue("reminderQueue", {
       delay: 5000,
     },
     removeOnComplete: true,
+    removeOnFail: false, // ✅ AJOUT : permet d'inspecter les jobs échoués
   },
 });

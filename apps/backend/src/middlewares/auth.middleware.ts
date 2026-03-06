@@ -1,3 +1,4 @@
+// apps/backend/src/middlewares/auth.middleware.ts
 import type { Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
@@ -78,13 +79,45 @@ export const authMiddleware = async (
     // Fallbacks sûrs
     const role = (profile?.role ? String(profile.role) : "user") as UserRole;
 
-    // ✅ MODIF : fallback permissions par rôle si vide
-    // (UserRole inclut aussi "free"/"pro" chez toi, donc on les couvre)
+    // ✅ MODIF UNIQUE: fallback permissions par rôle (inclut factures + lignes)
     const DEFAULT_PERMS_BY_ROLE: Record<UserRole, Permission[]> = {
-      user: ["dashboard:read", "ai:use", "vision:use", "devis:read"] as Permission[],
+      user: [
+        PERMISSIONS.ACCESS_DASHBOARD,
+        PERMISSIONS.AI_USE,
+        PERMISSIONS.USE_VISION,
+        PERMISSIONS.DEVIS_READ,
+        PERMISSIONS.INVOICES_READ,
+        PERMISSIONS.INVOICES_WRITE,
+        PERMISSIONS.CLIENTS_READ,
+        PERMISSIONS.CLIENTS_WRITE,
+        PERMISSIONS.INVOICE_LINES_READ,
+        PERMISSIONS.INVOICE_LINES_WRITE,
+      ] as Permission[],
       admin: Object.values(PERMISSIONS) as Permission[],
-      free: ["dashboard:read", "ai:use", "vision:use", "devis:read"] as Permission[],
-      pro: ["dashboard:read", "ai:use", "vision:use", "devis:read"] as Permission[],
+      free: [
+        PERMISSIONS.ACCESS_DASHBOARD,
+        PERMISSIONS.AI_USE,
+        PERMISSIONS.USE_VISION,
+        PERMISSIONS.DEVIS_READ,
+        PERMISSIONS.INVOICES_READ,
+        PERMISSIONS.INVOICES_WRITE,
+        PERMISSIONS.CLIENTS_READ,
+        PERMISSIONS.CLIENTS_WRITE,
+        PERMISSIONS.INVOICE_LINES_READ,
+        PERMISSIONS.INVOICE_LINES_WRITE,
+      ] as Permission[],
+      pro: [
+        PERMISSIONS.ACCESS_DASHBOARD,
+        PERMISSIONS.AI_USE,
+        PERMISSIONS.USE_VISION,
+        PERMISSIONS.DEVIS_READ,
+        PERMISSIONS.INVOICES_READ,
+        PERMISSIONS.INVOICES_WRITE,
+        PERMISSIONS.CLIENTS_READ,
+        PERMISSIONS.CLIENTS_WRITE,
+        PERMISSIONS.INVOICE_LINES_READ,
+        PERMISSIONS.INVOICE_LINES_WRITE,
+      ] as Permission[],
     };
 
     const effectivePermissions =

@@ -8,7 +8,7 @@ import {
   acquireStripeEventLock,
   markStripeEventProcessed,
 } from "../services/stripe/stripeIdempotency";
-import { normalizePlan } from "../domain/plan"; // ✅ MODIF: helper unique
+import { normalizePlan } from "../domain/plan";
 import { sendError } from "../utils/apiError";
 
 const router = Router();
@@ -112,7 +112,31 @@ router.post("/", async (req: Request, res: Response) => {
             ? session.subscription
             : session.subscription?.id;
 
-        if (!subscriptionId) break;
+        // ✅ AJOUT: si pas d’abonnement => paiement facture (mode payment)
+        if (!subscriptionId) {
+          const { error: invErr } = await supabaseAdmin
+            .from("invoices")
+            .update({
+              status: "paid",
+              paid_at: new Date().toISOString(),
+            })
+            .eq("stripe_checkout_id", session.id);
+
+          if (invErr) {
+            logger.error("Failed to mark invoice paid from checkout session", {
+              eventId,
+              sessionId: session.id,
+              message: invErr.message,
+            });
+          } else {
+            logger.info("Invoice marked paid from checkout session", {
+              eventId,
+              sessionId: session.id,
+            });
+          }
+
+          break;
+        }
 
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
@@ -189,7 +213,6 @@ router.post("/", async (req: Request, res: Response) => {
 
         if (!userId) break;
 
-        // ✅ MODIF: remplacer "FREE" par un plan normalisé
         const plan = normalizePlan("free");
 
         const { error: subErr } = await supabaseAdmin
@@ -258,7 +281,6 @@ async function syncSubscriptionTruth(
   const isActive = status === "active" || status === "trialing";
   const periodEnd = getCurrentPeriodEnd(subscription);
 
-  // ✅ MODIF: remplacer "PRO"/"FREE" par plan normalisé
   const rawPlanFromMappingOrFallback = isActive ? "pro" : "free";
   const plan = normalizePlan(rawPlanFromMappingOrFallback);
 

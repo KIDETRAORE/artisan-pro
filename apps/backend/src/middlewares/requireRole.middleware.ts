@@ -5,11 +5,11 @@ import { sendError } from "@utils/apiError";
 
 /**
  * requireRole
- * - Supporte un rôle unique ou une liste de rôles.
+ * - Supporte 1 ou plusieurs rôles: requireRole("admin") / requireRole("admin", "user")
  * - Suppose que req.user est injecté par authMiddleware (Supabase JWT vérifié).
  */
-export const requireRole = (allowedRole: UserRole | readonly UserRole[]) => {
-  const roles = Array.isArray(allowedRole) ? allowedRole : [allowedRole];
+export const requireRole = (...allowedRoles: readonly UserRole[]) => {
+  const roles = allowedRoles;
 
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
@@ -19,7 +19,7 @@ export const requireRole = (allowedRole: UserRole | readonly UserRole[]) => {
     const userRole = req.user.role;
 
     if (!roles.includes(userRole)) {
-      logger.warn("[Security] Unauthorized role access attempt", {
+      logger.warn("Forbidden: role not allowed", {
         userId: req.user.id,
         userRole,
         requiredRoles: roles,
@@ -32,8 +32,7 @@ export const requireRole = (allowedRole: UserRole | readonly UserRole[]) => {
         res,
         403,
         "forbidden",
-        "Accès interdit (droits insuffisants)",
-        { requiredRoles: roles, userRole }
+        "Accès interdit (droits insuffisants)"
       );
     }
 

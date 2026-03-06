@@ -1,3 +1,4 @@
+// apps/backend/src/config/env.ts
 import dotenv from "dotenv";
 import { logger } from "../utils/logger";
 
@@ -155,6 +156,15 @@ export const ENV = {
 
   /**
    * =========================
+   * PENNYLANE (Integrations)
+   * =========================
+   */
+  PENNYLANE_API_KEY: optional("PENNYLANE_API_KEY"),
+  PENNYLANE_BASE_URL: optional("PENNYLANE_BASE_URL", "https://api.pennylane.com"),
+  PENNYLANE_SYNC_ENABLED: optionalBoolean("PENNYLANE_SYNC_ENABLED", false),
+
+  /**
+   * =========================
    * SCHEDULER / AUTOMATION (infra)
    * =========================
    */
@@ -227,5 +237,8 @@ if (ENV.NODE_ENV === "development") {
     ENABLE_SCHEDULER: ENV.ENABLE_SCHEDULER,
     SCHEDULER_ENABLED: ENV.SCHEDULER_ENABLED,
     REMINDER_CRON: ENV.REMINDER_CRON,
+    // ✅ Pennylane flags (safe)
+    PENNYLANE_SYNC_ENABLED: ENV.PENNYLANE_SYNC_ENABLED,
+    PENNYLANE_BASE_URL: ENV.PENNYLANE_BASE_URL,
   });
 }

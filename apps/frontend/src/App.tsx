@@ -29,6 +29,22 @@ const Compta = lazy(() => import("./pages/Compta"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Assistant = lazy(() => import("./pages/Assistant"));
 
+// ✅ AJOUT: pages dashboard détaillées
+const DashboardRevenue = lazy(() => import("./pages/DashboardRevenue"));
+const DashboardUnpaid = lazy(() => import("./pages/DashboardUnpaid"));
+const DashboardQuotes = lazy(() => import("./pages/DashboardQuotes"));
+
+// ✅ AJOUT: Factures module
+const Invoices = lazy(() => import("./pages/Invoices"));
+const InvoiceDetail = lazy(() => import("./pages/InvoiceDetail"));
+
+// ✅ AJOUT: page publique paiement OK
+const InvoicePaid = lazy(() => import("./pages/InvoicePaid"));
+
+// ✅ AJOUT: pages chantiers
+const Projects = lazy(() => import("./pages/Projects"));
+const ProjectDashboard = lazy(() => import("./pages/ProjectDashboard"));
+
 type DashboardResponse = {
   user?: { id: string; email?: string | null };
   subscription?: {
@@ -56,7 +72,6 @@ export default function App() {
 
   useEffect(() => {
     const run = async () => {
-      // ✅ MODIF UNIQUE: ne plus dépendre de userEmail (peut être null après refresh)
       if (!accessToken) return;
       if (dashboardFetchInFlightRef.current) return;
 
@@ -67,7 +82,6 @@ export default function App() {
           method: "GET",
         });
 
-        // ✅ MODIF UNIQUE: prendre l'email depuis l'API si userEmail n'est pas encore hydraté
         const finalEmail = data?.user?.email ?? userEmail;
         if (!finalEmail) {
           clearUserData();
@@ -102,7 +116,6 @@ export default function App() {
     };
 
     run();
-    // ✅ MODIF UNIQUE: on dépend de accessToken (sinon au refresh on ne fetch jamais)
   }, [accessToken, userEmail, setUserData, clearUserData]);
 
   return (
@@ -113,8 +126,11 @@ export default function App() {
           element={!accessToken ? <Login /> : <Navigate to="/vision" replace />}
         />
 
-        {/* ✅ Route publique reset password (doit être accessible sans session) */}
+        {/* ✅ Route publique reset password */}
         <Route path="/reset-password" element={<ResetPassword />} />
+
+        {/* ✅ AJOUT: route publique de succès paiement facture */}
+        <Route path="/invoice-paid" element={<InvoicePaid />} />
 
         <Route
           element={accessToken ? <Layout /> : <Navigate to="/login" replace />}
@@ -122,11 +138,23 @@ export default function App() {
           <Route path="/vision" element={<Vision />} />
           <Route path="/devis" element={<Devis />} />
           <Route path="/compta" element={<Compta />} />
+
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard/revenue" element={<DashboardRevenue />} />
+          <Route path="/dashboard/unpaid" element={<DashboardUnpaid />} />
+          <Route path="/dashboard/quotes" element={<DashboardQuotes />} />
+
+          <Route path="/invoices" element={<Invoices />} />
+          <Route path="/invoices/:id" element={<InvoiceDetail />} />
+          <Route path="/factures" element={<Navigate to="/invoices" replace />} />
+
+          {/* ✅ AJOUT: routes chantiers */}
+          <Route path="/projects" element={<Projects />} />
+          <Route path="/projects/:id" element={<ProjectDashboard />} />
+
           <Route path="/settings" element={<Settings />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/assistant" element={<Assistant />} />
-          <Route path="/factures" element={<Navigate to="/devis" replace />} />
 
           {/* ✅ routes Stripe */}
           <Route path="/upgrade" element={<Upgrade />} />

@@ -5,6 +5,11 @@ import { logger } from "./utils/logger";
 import { startScheduler } from "./automation/scheduler";
 import "./workers/ai.worker";
 
+// ✅ AJOUT: scheduler relances + workers relances
+import { startInvoiceRemindersScheduler } from "./schedulers/reminders.scheduler";
+import "./workers/remindersScan.worker";
+import "./workers/invoiceReminder.worker";
+
 if (!ENV.PORT || Number.isNaN(ENV.PORT)) {
   logger.error("Invalid or missing ENV.PORT");
   process.exit(1);
@@ -34,6 +39,20 @@ server.listen(PORT, () => {
     });
   } catch (err: unknown) {
     logger.error("Scheduler start failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // ✅ AJOUT: scheduler relances (même philosophie, non bloquant)
+  try {
+    startInvoiceRemindersScheduler();
+    logger.info("Invoice reminders scheduler start requested", {
+      ENABLE_SCHEDULER: ENV.ENABLE_SCHEDULER,
+      SCHEDULER_ENABLED: ENV.SCHEDULER_ENABLED,
+      REMINDER_CRON: ENV.REMINDER_CRON,
+    });
+  } catch (err: unknown) {
+    logger.error("Invoice reminders scheduler start failed", {
       message: err instanceof Error ? err.message : String(err),
     });
   }
