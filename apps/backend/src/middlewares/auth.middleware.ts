@@ -79,7 +79,7 @@ export const authMiddleware = async (
     // Fallbacks sûrs
     const role = (profile?.role ? String(profile.role) : "user") as UserRole;
 
-    // ✅ MODIF UNIQUE: fallback permissions par rôle (inclut factures + lignes + projects)
+    // ✅ Fallback permissions par rôle
     const DEFAULT_PERMS_BY_ROLE: Record<UserRole, Permission[]> = {
       user: [
         PERMISSIONS.ACCESS_DASHBOARD,

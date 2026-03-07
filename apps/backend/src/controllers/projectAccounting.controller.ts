@@ -4,8 +4,9 @@ import * as XLSX from "xlsx";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { requireUser } from "../utils/requireUser";
 import { HttpError } from "../utils/httpError";
+import { ProjectsService } from "../services/projects.service";
 
-// ✅ AJOUT : mapping compte comptable → catégorie
+// ✅ Mapping compte comptable → catégorie
 function mapAccountToCategory(
   account: string
 ): "materials" | "labor" | "equipment" | "transport" | "other" {
@@ -36,7 +37,7 @@ function mapAccountToCategory(
   return "other";
 }
 
-// ✅ AJOUT : conversion date fichier comptable -> YYYY-MM-DD
+// ✅ Conversion date fichier comptable -> YYYY-MM-DD
 function normalizeExpenseDate(value: unknown): string | null {
   if (value == null || value === "") return null;
 
@@ -82,7 +83,13 @@ export class ProjectAccountingController {
   static async importAccountingFile(req: Request, res: Response) {
     const user = requireUser(req);
 
-    const projectId = req.params.projectId;
+    const projectId = String(req.params.projectId ?? "");
+    if (!projectId) {
+      throw new HttpError(400, "Invalid projectId");
+    }
+
+    // ✅ Ownership / existence check
+    await ProjectsService.getProject(user.id, projectId);
 
     if (!req.file) {
       throw new HttpError(400, "File missing");
@@ -99,8 +106,6 @@ export class ProjectAccountingController {
     }
 
     const sheet = workbook.Sheets[firstSheetName];
-
-    // ✅ FIX: garantir que sheet existe pour TypeScript
     if (!sheet) {
       throw new HttpError(400, "Invalid sheet");
     }
@@ -109,18 +114,25 @@ export class ProjectAccountingController {
       raw: false,
     });
 
-    const expenses = [];
+    const expenses: Array<{
+      user_id: string;
+      project_id: string;
+      description: string;
+      amount_cents: number;
+      category: "materials" | "labor" | "equipment" | "transport" | "other";
+      expense_date: string | null;
+    }> = [];
 
     for (const row of rows) {
-      const account = String(row["Compte"] ?? "");
-      const label = String(row["Libellé"] ?? "");
+      const account = String(row["Compte"] ?? "").trim();
+      const label = String(row["Libellé"] ?? "").trim();
       const debit = Number(row["Débit (€)"] ?? 0);
       const expenseDate = normalizeExpenseDate(row["Date"]);
 
       if (!account.startsWith("6")) continue;
       if (!debit || debit <= 0) continue;
+      if (!label) continue;
 
-      // ✅ AJOUT : catégorisation automatique
       const category = mapAccountToCategory(account);
 
       expenses.push({
@@ -129,7 +141,7 @@ export class ProjectAccountingController {
         description: label,
         amount_cents: Math.round(debit * 100),
         category,
-        expense_date: expenseDate, // ✅ AJOUT
+        expense_date: expenseDate,
       });
     }
 

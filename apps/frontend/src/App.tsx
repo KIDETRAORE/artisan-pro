@@ -116,7 +116,7 @@ export default function App() {
       }
     };
 
-    run();
+    void run();
   }, [accessToken, userEmail, setUserData, clearUserData]);
 
   return (

@@ -10,14 +10,11 @@ import {
   type ArtisanProInvoiceLine,
 } from "../integrations/providers/pennylane/pennylane.connector";
 import { IntegrationsService } from "../services/integrations.service";
+import type { IntegrationJobPayload } from "../queues/integration.queue";
 
 /**
  * Worker d'intégration (Pennylane/Sage/EBP/etc.)
  * MVP Phase 1 : push invoice (ArtisanPro -> Pennylane)
- *
- * Jobs attendus:
- * - type: "push_invoice"
- *   data: { userId, invoiceId, provider }
  */
 
 const ProviderSchema = z
@@ -211,9 +208,9 @@ async function logSyncEvent(params: {
   }
 }
 
-export const integrationWorker = new Worker(
+export const integrationWorker = new Worker<IntegrationJobPayload>(
   "integrationQueue",
-  async (job: Job) => {
+  async (job: Job<IntegrationJobPayload>) => {
     const payload = parseJobData(job.data);
 
     logger.info("🔁 [WORKER-INTEGRATION] Job start", {
@@ -277,6 +274,29 @@ export const integrationWorker = new Worker(
 
         const lines = await loadInvoiceLines(invoice.id);
 
+        if (lines.length === 0) {
+          logger.info("⏭️ [WORKER-INTEGRATION] Skip invoice without lines", {
+            jobId: job.id,
+            invoiceId: invoice.id,
+          });
+
+          await logSyncEvent({
+            userId: payload.userId,
+            provider: "pennylane",
+            objectType: "invoice",
+            objectId: invoice.id,
+            status: "error",
+            message: "invoice_without_lines",
+          });
+
+          await IntegrationsService.markPennylaneSyncError(
+            payload.userId,
+            "invoice_without_lines"
+          );
+
+          throw new Error("invoice_without_lines");
+        }
+
         try {
           const existingExternalId = await findExistingExternalId({
             provider: "pennylane",
@@ -309,6 +329,15 @@ export const integrationWorker = new Worker(
                 externalId: updated.externalId,
               }
             );
+
+            if (!isStubExternalId(updated.externalId)) {
+              await upsertExternalIdMap({
+                provider: "pennylane",
+                objectType: "invoice",
+                externalId: updated.externalId,
+                internalId: invoice.id,
+              });
+            }
 
             await logSyncEvent({
               userId: payload.userId,

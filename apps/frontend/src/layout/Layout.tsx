@@ -8,11 +8,17 @@ import {
   Briefcase,
   X,
   Sparkles,
+  Palette,
 } from "lucide-react";
 
 import ExpertHubPanel, { type ExpertTab } from "../features/ai/ExpertHubPanel";
 import { useUser } from "../context/user.context";
 import { useAuth } from "../store/auth.store";
+import {
+  useUIThemeStore,
+  type UITheme,
+  UI_THEME_LABELS,
+} from "../store/uiTheme.store";
 
 type DailyUsageResponse = {
   success: boolean;
@@ -40,6 +46,11 @@ export default function Layout() {
 
   const { userData } = useUser();
   const { accessToken } = useAuth();
+
+  // ✅ AJOUT : thème UI
+  const { theme, setTheme } = useUIThemeStore();
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
+  const themeWrapRef = useRef<HTMLDivElement | null>(null);
 
   const plan = userData?.plan ?? "free";
   const status = userData?.status ?? "inactive";
@@ -174,24 +185,6 @@ export default function Layout() {
     return () => window.removeEventListener("openExpertChat", onOpenExpert);
   }, [getWelcomeMessage]);
 
-  // ✅ MODIF UNIQUE : on ne force PLUS un "welcome" ici (sinon ça écrase l'historique hydraté)
-  // (le welcome doit être géré côté panel, ou via l'event openExpertChat)
-  // useEffect(() => {
-  //   if (!expertAnalysisId) return;
-  //
-  //   setExpertMessages((prev) => {
-  //     if (prev.length > 1) return prev;
-  //     return [
-  //       {
-  //         id: "welcome",
-  //         role: "assistant",
-  //         content: getWelcomeMessage(expertAnalysisId),
-  //         timestamp: new Date(),
-  //       },
-  //     ];
-  //   });
-  // }, [expertAnalysisId, getWelcomeMessage]);
-
   const navigation = [
     { name: "DEVIS", href: "/devis", icon: FileText, color: "bg-[#2563eb]" },
     { name: "SUIVI", href: "/vision", icon: Camera, color: "bg-[#4f46e5]" },
@@ -209,9 +202,10 @@ export default function Layout() {
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
-      if (!settingsWrapRef.current) return;
-      if (settingsWrapRef.current.contains(e.target as Node)) return;
+      if (settingsWrapRef.current?.contains(e.target as Node)) return;
+      if (themeWrapRef.current?.contains(e.target as Node)) return;
       setIsSettingsOpen(false);
+      setIsThemeMenuOpen(false);
     };
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
@@ -274,23 +268,28 @@ export default function Layout() {
     navigate(target);
   };
 
+  const handleThemeSelect = (nextTheme: UITheme) => {
+    setTheme(nextTheme);
+    setIsThemeMenuOpen(false);
+  };
+
   const SettingsMenu = () => (
-    <div className="absolute right-0 top-12 w-56 bg-white border border-slate-100 shadow-xl rounded-2xl overflow-hidden z-50">
-      <div className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50">
+    <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl">
+      <div className="bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
         Paramètres
       </div>
 
       <button
         type="button"
         onClick={() => goToSettingsSection("account")}
-        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
       >
         Compte
       </button>
       <button
         type="button"
         onClick={() => goToSettingsSection("subscription")}
-        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
       >
         Abonnement
       </button>
@@ -298,7 +297,7 @@ export default function Layout() {
       <button
         type="button"
         onClick={() => goToSettingsSection("ai")}
-        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
       >
         IA
       </button>
@@ -306,14 +305,14 @@ export default function Layout() {
       <button
         type="button"
         onClick={() => goToSettingsSection("billing")}
-        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
       >
         Facturation
       </button>
       <button
         type="button"
         onClick={() => goToSettingsSection("security")}
-        className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
       >
         Sécurité
       </button>
@@ -326,121 +325,166 @@ export default function Layout() {
           setIsSettingsOpen(false);
           navigate("/settings");
         }}
-        className="w-full text-left px-4 py-3 text-sm font-black text-slate-900 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-black text-slate-900 hover:bg-slate-50"
       >
         Ouvrir tous les réglages
       </button>
     </div>
   );
 
-  return (
-    <div className="flex h-screen bg-[#f8fafc] overflow-hidden flex-col font-sans relative">
-      <div className="bg-[#4f46e5] text-white text-[10px] font-black py-1 flex justify-center items-center gap-2 uppercase tracking-tighter shrink-0 z-50">
-        <span>⚡ Mode Direct (IA Local)</span>
+  const ThemeMenu = () => (
+    <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl">
+      <div className="bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+        Designs
       </div>
 
-      <header className="bg-white px-6 py-4 flex justify-between items-center shadow-sm border-b border-slate-100 shrink-0 z-40">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#2563eb] rounded-full flex items-center justify-center text-white shadow-lg">
-            <span className="text-lg">🛠️</span>
-          </div>
+      {(["classic", "midnight", "sunset"] as UITheme[]).map((themeOption) => (
+        <button
+          key={themeOption}
+          type="button"
+          onClick={() => handleThemeSelect(themeOption)}
+          className={`w-full px-4 py-3 text-left text-sm font-bold hover:bg-slate-50 ${
+            theme === themeOption ? "bg-slate-100 text-slate-900" : "text-slate-700"
+          }`}
+        >
+          {UI_THEME_LABELS[themeOption]}
+        </button>
+      ))}
+    </div>
+  );
 
-          <Link to="/dashboard" className="hover:opacity-90 transition-opacity">
-            <div>
-              <h1 className="text-xl font-black text-slate-900 leading-none flex items-center gap-1">
-                Artisan<span className="text-[#2563eb]">Pro</span>
-              </h1>
+  return (
+    <div className={`app-theme app-theme-${theme} relative flex h-screen flex-col overflow-hidden font-sans`}>
+      <div className="shrink-0 bg-[var(--theme-primary)] py-1 text-[10px] font-black uppercase tracking-tighter text-[var(--theme-primary-contrast)] z-50">
+        <div className="flex items-center justify-center gap-2">
+          <span>⚡ Mode Direct (IA Local)</span>
+        </div>
+      </div>
 
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                  Plan {String(plan).toUpperCase()}
-                </span>
+      <header className="shrink-0 border-b border-[var(--theme-border)] bg-[var(--theme-card)] px-6 py-4 shadow-sm z-40">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--theme-primary)] text-[var(--theme-primary-contrast)] shadow-lg">
+              <span className="text-lg">🛠️</span>
+            </div>
 
-                {isPro ? (
-                  <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">
-                    Illimité
+            <Link to="/dashboard" className="transition-opacity hover:opacity-90">
+              <div>
+                <h1 className="flex items-center gap-1 text-xl font-black leading-none text-[var(--theme-text)]">
+                  Artisan<span className="text-[var(--theme-primary)]">Pro</span>
+                </h1>
+
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
+                    Plan {String(plan).toUpperCase()}
                   </span>
-                ) : displayedLimit > 0 ? (
-                  <div className="w-28">
-                    <div className="flex justify-between text-[9px] text-slate-400 font-black uppercase tracking-widest">
-                      <span>
-                        {displayedUsed}/{displayedLimit}
-                      </span>
+
+                  {isPro ? (
+                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">
+                      Illimité
+                    </span>
+                  ) : displayedLimit > 0 ? (
+                    <div className="w-28">
+                      <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
+                        <span>
+                          {displayedUsed}/{displayedLimit}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className={`${getBarColor()} h-full rounded-full`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className={`${getBarColor()} h-full rounded-full`}
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
+                  ) : (
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
+                      —
+                    </span>
+                  )}
+                </div>
+
+                {!isPro && dailyUsage && (
+                  <div className="mt-1 text-[9px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
+                    IA aujourd’hui
                   </div>
-                ) : (
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                    —
-                  </span>
                 )}
               </div>
-
-              {!isPro && dailyUsage && (
-                <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">
-                  IA aujourd’hui
-                </div>
-              )}
-            </div>
-          </Link>
-        </div>
-
-        <div className="flex gap-2 items-center">
-          {!isPro && (
-            <Link
-              to="/upgrade"
-              className={`px-3 py-2 rounded-xl text-white text-xs font-bold uppercase tracking-widest transition-colors ${getUpgradeCtaClass()}`}
-            >
-              Passer PRO
             </Link>
-          )}
+          </div>
 
-          <button className="w-10 h-10 rounded-full border border-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-50">
-            ?
-          </button>
+          <div className="flex items-center gap-2">
+            {!isPro && (
+              <Link
+                to="/upgrade"
+                className={`rounded-xl px-3 py-2 text-xs font-bold uppercase tracking-widest text-white transition-colors ${getUpgradeCtaClass()}`}
+              >
+                Passer PRO
+              </Link>
+            )}
 
-          <div className="relative" ref={settingsWrapRef}>
-            <button
-              onClick={() => setIsSettingsOpen((v) => !v)}
-              className="w-10 h-10 rounded-full border border-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-50"
-              aria-haspopup="menu"
-              aria-expanded={isSettingsOpen}
-              aria-label="Réglages"
-            >
-              ⚙️
+            <button className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)] hover:bg-slate-50">
+              ?
             </button>
 
-            {isSettingsOpen && <SettingsMenu />}
+            <div className="relative" ref={themeWrapRef}>
+              <button
+                onClick={() => {
+                  setIsThemeMenuOpen((v) => !v);
+                  setIsSettingsOpen(false);
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)] hover:bg-slate-50"
+                aria-haspopup="menu"
+                aria-expanded={isThemeMenuOpen}
+                aria-label="Changer le design"
+              >
+                <Palette size={16} />
+              </button>
+
+              {isThemeMenuOpen && <ThemeMenu />}
+            </div>
+
+            <div className="relative" ref={settingsWrapRef}>
+              <button
+                onClick={() => {
+                  setIsSettingsOpen((v) => !v);
+                  setIsThemeMenuOpen(false);
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)] hover:bg-slate-50"
+                aria-haspopup="menu"
+                aria-expanded={isSettingsOpen}
+                aria-label="Réglages"
+              >
+                ⚙️
+              </button>
+
+              {isSettingsOpen && <SettingsMenu />}
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto relative pb-32">
+      <main className="relative flex-1 overflow-y-auto bg-[var(--theme-bg)] pb-32 text-[var(--theme-text)]">
         <Outlet />
       </main>
 
       <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-end gap-4">
         {isChatOpen && (
-          <div className="bg-white w-[380px] max-h-[650px] rounded-[2.5rem] shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
-            <div className="p-5 bg-slate-900 text-white flex justify-between items-center">
-              <span className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
+          <div className="flex max-h-[650px] w-[380px] flex-col overflow-hidden rounded-[2.5rem] border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-2xl animate-in slide-in-from-bottom-5 duration-300">
+            <div className="flex items-center justify-between bg-slate-900 p-5 text-white">
+              <span className="flex items-center gap-2 text-xs font-black uppercase tracking-widest">
                 <Sparkles size={14} className="text-purple-400" />
                 Mode Expert IA
               </span>
               <button
                 onClick={() => setIsChatOpen(false)}
-                className="p-1.5 hover:bg-white/10 rounded-xl transition-colors"
+                className="rounded-xl p-1.5 transition-colors hover:bg-white/10"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
+            <div className="custom-scrollbar flex-1 overflow-y-auto bg-slate-50">
               <ExpertHubPanel
                 activeTab={activeTab}
                 onChangeTab={setActiveTab}
@@ -454,7 +498,6 @@ export default function Layout() {
         )}
 
         <button
-          // ✅ MODIF UNIQUE (Option B): quand on ouvre la bulle, on force l'onglet "chat"
           onClick={() => {
             setIsChatOpen((prev) => {
               const next = !prev;
@@ -462,9 +505,9 @@ export default function Layout() {
               return next;
             });
           }}
-          className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 border-4 border-white ${
+          className={`flex h-14 w-14 items-center justify-center rounded-full border-4 border-white shadow-2xl transition-all duration-300 ${
             isChatOpen
-              ? "bg-slate-900 text-white rotate-90 scale-90"
+              ? "scale-90 rotate-90 bg-slate-900 text-white"
               : "bg-gradient-to-tr from-purple-600 to-blue-600 text-white hover:scale-110 active:scale-95"
           }`}
           title="Mode Expert IA"
@@ -474,7 +517,7 @@ export default function Layout() {
       </div>
 
       <div className="fixed bottom-6 left-4 right-4 z-50">
-        <div className="bg-white shadow-2xl rounded-full px-6 py-3 flex justify-around items-center border border-slate-100">
+        <div className="flex items-center justify-around rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] px-6 py-3 shadow-2xl">
           {navigation.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.href;
@@ -487,13 +530,13 @@ export default function Layout() {
                 }`}
               >
                 <div
-                  className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${
+                  className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg ${
                     isActive ? item.color : "bg-slate-200"
                   }`}
                 >
                   <Icon size={18} className={isActive ? "text-white" : "text-slate-600"} />
                 </div>
-                <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">
+                <span className="text-[9px] font-black uppercase tracking-widest text-[var(--theme-text)]">
                   {item.name}
                 </span>
               </Link>

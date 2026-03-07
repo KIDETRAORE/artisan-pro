@@ -1,17 +1,24 @@
 // apps/backend/src/routes/projects.routes.ts
 import { Router } from "express";
-import { authMiddleware } from "@middlewares/auth.middleware";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
-import { PERMISSIONS } from "@auth/permissions";
 import { asyncHandler } from "@utils/asyncHandler";
+import { PERMISSIONS } from "@auth/permissions";
 import { ProjectsController } from "@controllers/projects.controller";
 
 const router = Router();
 
+/**
+ * Monté dans routes/index.ts via :
+ * router.use("/projects", authMiddleware, projectsRoutes);
+ *
+ * Donc ici :
+ * - PAS de authMiddleware
+ * - seulement les permissions + handlers
+ */
+
 // GET /projects
 router.get(
   "/",
-  authMiddleware,
   requirePermission(PERMISSIONS.PROJECTS_READ),
   asyncHandler(ProjectsController.list)
 );
@@ -19,7 +26,6 @@ router.get(
 // POST /projects
 router.post(
   "/",
-  authMiddleware,
   requirePermission(PERMISSIONS.PROJECTS_WRITE),
   asyncHandler(ProjectsController.create)
 );
@@ -27,7 +33,6 @@ router.post(
 // GET /projects/:id
 router.get(
   "/:id",
-  authMiddleware,
   requirePermission(PERMISSIONS.PROJECTS_READ),
   asyncHandler(ProjectsController.get)
 );
@@ -35,7 +40,6 @@ router.get(
 // PATCH /projects/:id
 router.patch(
   "/:id",
-  authMiddleware,
   requirePermission(PERMISSIONS.PROJECTS_WRITE),
   asyncHandler(ProjectsController.update)
 );
@@ -43,7 +47,6 @@ router.patch(
 // DELETE /projects/:id
 router.delete(
   "/:id",
-  authMiddleware,
   requirePermission(PERMISSIONS.PROJECTS_WRITE),
   asyncHandler(ProjectsController.remove)
 );
@@ -51,7 +54,6 @@ router.delete(
 // GET /projects/:id/analytics
 router.get(
   "/:id/analytics",
-  authMiddleware,
   requirePermission(PERMISSIONS.PROJECTS_READ),
   asyncHandler(ProjectsController.analytics)
 );
@@ -59,7 +61,6 @@ router.get(
 // GET /projects/:id/insights
 router.get(
   "/:id/insights",
-  authMiddleware,
   requirePermission(PERMISSIONS.PROJECTS_READ),
   asyncHandler(ProjectsController.insights)
 );

@@ -9,18 +9,6 @@ import { logger } from "../utils/logger";
 
 const ProjectIdSchema = z.string().uuid();
 
-const CreateProjectSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional().nullable(),
-  status: z.string().optional().default("active"),
-});
-
-const UpdateProjectSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional().nullable(),
-  status: z.string().optional(),
-});
-
 function centsToEuros(cents: number): number {
   return Math.round(cents) / 100;
 }
@@ -37,8 +25,8 @@ function getInvoiceAmountCents(invoice: {
     typeof invoice.total_amount_cents === "number"
       ? invoice.total_amount_cents
       : typeof invoice.total_amount === "number"
-      ? Math.round(invoice.total_amount * 100)
-      : 0;
+        ? Math.round(invoice.total_amount * 100)
+        : 0;
 
   return Number.isFinite(totalAmountCents) ? totalAmountCents : 0;
 }
@@ -60,23 +48,11 @@ export class ProjectsController {
   static async list(req: Request, res: Response) {
     const user = requireUser(req);
 
-    const { data, error } = await supabaseAdmin
-      .from("projects")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      logger.error("ProjectsController.list failed", {
-        userId: user.id,
-        message: error.message,
-      });
-      throw new HttpError(500, "Failed to list projects");
-    }
+    const projects = await ProjectsService.listProjects(user.id);
 
     return res.status(200).json({
       success: true,
-      projects: data ?? [],
+      projects,
     });
   }
 
@@ -86,35 +62,11 @@ export class ProjectsController {
   static async create(req: Request, res: Response) {
     const user = requireUser(req);
 
-    const parsed = CreateProjectSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new HttpError(400, "Invalid project payload");
-    }
-
-    const payload = parsed.data;
-
-    const { data, error } = await supabaseAdmin
-      .from("projects")
-      .insert({
-        user_id: user.id,
-        name: payload.name,
-        description: payload.description ?? null,
-        status: payload.status ?? "active",
-      })
-      .select("*")
-      .single();
-
-    if (error) {
-      logger.error("ProjectsController.create failed", {
-        userId: user.id,
-        message: error.message,
-      });
-      throw new HttpError(500, "Failed to create project");
-    }
+    const project = await ProjectsService.createProject(user.id, req.body);
 
     return res.status(201).json({
       success: true,
-      project: data,
+      project,
     });
   }
 
@@ -148,36 +100,15 @@ export class ProjectsController {
       throw new HttpError(400, "Invalid project id");
     }
 
-    const parsed = UpdateProjectSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new HttpError(400, "Invalid project payload");
-    }
-
-    await ProjectsService.getProject(user.id, projectId.data);
-
-    const { data, error } = await supabaseAdmin
-      .from("projects")
-      .update({
-        ...parsed.data,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", projectId.data)
-      .eq("user_id", user.id)
-      .select("*")
-      .single();
-
-    if (error) {
-      logger.error("ProjectsController.update failed", {
-        userId: user.id,
-        projectId: projectId.data,
-        message: error.message,
-      });
-      throw new HttpError(500, "Failed to update project");
-    }
+    const project = await ProjectsService.updateProject(
+      user.id,
+      projectId.data,
+      req.body
+    );
 
     return res.status(200).json({
       success: true,
-      project: data,
+      project,
     });
   }
 
@@ -192,22 +123,7 @@ export class ProjectsController {
       throw new HttpError(400, "Invalid project id");
     }
 
-    await ProjectsService.getProject(user.id, projectId.data);
-
-    const { error } = await supabaseAdmin
-      .from("projects")
-      .delete()
-      .eq("id", projectId.data)
-      .eq("user_id", user.id);
-
-    if (error) {
-      logger.error("ProjectsController.remove failed", {
-        userId: user.id,
-        projectId: projectId.data,
-        message: error.message,
-      });
-      throw new HttpError(500, "Failed to delete project");
-    }
+    await ProjectsService.deleteProject(user.id, projectId.data);
 
     return res.status(200).json({
       success: true,
@@ -577,8 +493,8 @@ export class ProjectsController {
       risk_level === "high"
         ? "Conseil IA : ce chantier doit être traité en priorité. Réduis les dépenses non essentielles, finalise les factures en attente et sécurise l’encaissement client."
         : risk_level === "medium"
-        ? "Conseil IA : le chantier reste maîtrisable, mais il faut accélérer la facturation et surveiller étroitement les dépenses."
-        : "Conseil IA : le chantier semble sain. Maintiens un suivi régulier des dépenses et facture sans délai les prestations terminées.";
+          ? "Conseil IA : le chantier reste maîtrisable, mais il faut accélérer la facturation et surveiller étroitement les dépenses."
+          : "Conseil IA : le chantier semble sain. Maintiens un suivi régulier des dépenses et facture sans délai les prestations terminées.";
 
     const insight = {
       title: `Analyse chantier — ${project.name}`,

@@ -4,23 +4,37 @@ import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
 
+export type ProjectExpenseCategory =
+  | "materials"
+  | "labor"
+  | "equipment"
+  | "transport"
+  | "other";
+
 export type ProjectExpenseRow = {
   id: string;
   user_id: string;
   project_id: string;
-  label: string;
+  description: string;
   amount_cents: number;
-  vendor: string | null;
-  occurred_at: string | null;
+  category: ProjectExpenseCategory | null;
+  expense_date: string | null;
   created_at: string;
-  updated_at: string | null;
 };
+
+const ExpenseCategorySchema = z.enum([
+  "materials",
+  "labor",
+  "equipment",
+  "transport",
+  "other",
+]);
 
 const CreateExpenseSchema = z.object({
   label: z.string().min(1),
   amount_cents: z.number().int().nonnegative(),
   vendor: z.string().optional().nullable(),
-  occurred_at: z.string().optional().nullable(), // ISO
+  occurred_at: z.string().optional().nullable(),
 });
 
 const UpdateExpenseSchema = z.object({
@@ -28,7 +42,19 @@ const UpdateExpenseSchema = z.object({
   amount_cents: z.number().int().nonnegative().optional(),
   vendor: z.string().optional().nullable(),
   occurred_at: z.string().optional().nullable(),
+  category: ExpenseCategorySchema.optional().nullable(),
 });
+
+function normalizeExpenseDate(value?: string | null): string | null {
+  if (!value) return null;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString().slice(0, 10);
+}
 
 export class ProjectExpensesService {
   static async listExpenses(
@@ -37,7 +63,7 @@ export class ProjectExpensesService {
   ): Promise<ProjectExpenseRow[]> {
     const { data, error } = await supabaseAdmin
       .from("project_expenses")
-      .select("*")
+      .select("id, user_id, project_id, description, amount_cents, category, expense_date, created_at")
       .eq("user_id", userId)
       .eq("project_id", projectId)
       .order("created_at", { ascending: false });
@@ -71,12 +97,12 @@ export class ProjectExpensesService {
       .insert({
         user_id: userId,
         project_id: projectId,
-        label: payload.label,
+        description: payload.label,
         amount_cents: payload.amount_cents,
-        vendor: payload.vendor ?? null,
-        occurred_at: payload.occurred_at ?? null,
+        expense_date: normalizeExpenseDate(payload.occurred_at),
+        category: "other",
       })
-      .select("*")
+      .select("id, user_id, project_id, description, amount_cents, category, expense_date, created_at")
       .single();
 
     if (error) {
@@ -97,7 +123,7 @@ export class ProjectExpensesService {
   ): Promise<ProjectExpenseRow> {
     const { data, error } = await supabaseAdmin
       .from("project_expenses")
-      .select("*")
+      .select("id, user_id, project_id, description, amount_cents, category, expense_date, created_at")
       .eq("id", expenseId)
       .eq("user_id", userId)
       .maybeSingle();
@@ -128,20 +154,36 @@ export class ProjectExpensesService {
       throw new HttpError(400, "Invalid project expense payload");
     }
 
-    // ✅ Ownership check
     await ProjectExpensesService.getExpense(userId, expenseId);
 
     const patch = parsed.data;
 
+    const updatePayload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (typeof patch.label === "string") {
+      updatePayload.description = patch.label;
+    }
+
+    if (typeof patch.amount_cents === "number") {
+      updatePayload.amount_cents = patch.amount_cents;
+    }
+
+    if (patch.occurred_at !== undefined) {
+      updatePayload.expense_date = normalizeExpenseDate(patch.occurred_at);
+    }
+
+    if (patch.category !== undefined) {
+      updatePayload.category = patch.category ?? "other";
+    }
+
     const { data, error } = await supabaseAdmin
       .from("project_expenses")
-      .update({
-        ...patch,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq("id", expenseId)
       .eq("user_id", userId)
-      .select("*")
+      .select("id, user_id, project_id, description, amount_cents, category, expense_date, created_at")
       .single();
 
     if (error) {
@@ -157,7 +199,6 @@ export class ProjectExpensesService {
   }
 
   static async deleteExpense(userId: string, expenseId: string): Promise<void> {
-    // ✅ Ownership check
     await ProjectExpensesService.getExpense(userId, expenseId);
 
     const { error } = await supabaseAdmin

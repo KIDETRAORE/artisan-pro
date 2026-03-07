@@ -83,6 +83,21 @@ export class IntegrationsController {
 
     const { invoiceId } = parsed.data;
 
+    const { data: invoice, error: invoiceError } = await supabaseAdmin
+      .from("invoices")
+      .select("id, user_id")
+      .eq("id", invoiceId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (invoiceError) {
+      throw new HttpError(500, "Failed to load invoice");
+    }
+
+    if (!invoice) {
+      throw new HttpError(404, "Invoice not found");
+    }
+
     await integrationQueue.add("push_invoice", {
       type: "push_invoice",
       userId: user.id,
@@ -107,6 +122,21 @@ export class IntegrationsController {
     }
 
     const { invoiceId } = parsed.data;
+
+    const { data: invoice, error: invoiceError } = await supabaseAdmin
+      .from("invoices")
+      .select("id, user_id")
+      .eq("id", invoiceId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (invoiceError) {
+      throw new HttpError(500, "Failed to load invoice");
+    }
+
+    if (!invoice) {
+      throw new HttpError(404, "Invoice not found");
+    }
 
     const { data, error } = await supabaseAdmin
       .from("sync_events")

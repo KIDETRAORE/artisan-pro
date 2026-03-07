@@ -6,17 +6,8 @@ import {
   listProjectExpenses,
   type Project,
   type ProjectExpense,
-  type ProjectExpenseCategory,
 } from "../api/projects.api";
 import ProjectExpensesPanel from "../components/projects/ProjectExpensesPanel";
-
-function categoryLabel(category: ProjectExpenseCategory | null): string {
-  if (category === "materials") return "Matériaux";
-  if (category === "labor") return "Main d’œuvre";
-  if (category === "equipment") return "Équipement";
-  if (category === "transport") return "Transport";
-  return "Autres";
-}
 
 function formatCurrencyFromCents(value: number): string {
   return new Intl.NumberFormat("fr-FR", {
@@ -89,7 +80,7 @@ export default function ProjectExpensesPage() {
             / <span>Dépenses</span>
           </div>
 
-          <h1 className="text-2xl font-semibold mt-1">
+          <h1 className="mt-1 text-2xl font-semibold">
             Dépenses — {project.name}
           </h1>
 
@@ -106,60 +97,11 @@ export default function ProjectExpensesPage() {
         </Link>
       </div>
 
-      <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Liste complète</h2>
-          <div className="text-sm text-gray-500">
-            {expenses.length} dépense{expenses.length > 1 ? "s" : ""}
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-500">
-                <th className="py-3 pr-4 font-medium">Libellé</th>
-                <th className="py-3 pr-4 font-medium">Montant</th>
-                <th className="py-3 pr-4 font-medium">Catégorie</th>
-                <th className="py-3 pr-0 font-medium">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="py-6 text-center text-slate-500">
-                    Aucune dépense pour ce chantier.
-                  </td>
-                </tr>
-              ) : (
-                expenses.map((expense) => (
-                  <tr key={expense.id} className="border-b border-slate-100">
-                    <td className="py-3 pr-4 text-slate-900">
-                      {expense.description}
-                    </td>
-                    <td className="py-3 pr-4 text-slate-900">
-                      {formatCurrencyFromCents(expense.amount_cents)}
-                    </td>
-                    <td className="py-3 pr-4 text-slate-700">
-                      {categoryLabel(expense.category)}
-                    </td>
-                    <td className="py-3 pr-0 text-slate-700">
-                      {expense.expense_date
-                        ? new Date(expense.expense_date).toLocaleDateString("fr-FR")
-                        : "—"}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       <ProjectExpensesPanel
         projectId={project.id}
         expenses={expenses}
         onRefresh={refreshAll}
+        showCreateForm
       />
     </div>
   );

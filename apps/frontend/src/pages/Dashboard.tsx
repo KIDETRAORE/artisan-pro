@@ -1,5 +1,5 @@
 // apps/frontend/src/pages/Dashboard.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   TrendingUp,
   Clock,
@@ -176,9 +176,7 @@ export default function Dashboard() {
   const card1To = "/dashboard/revenue";
 
   const card2Title = hasComptaReport ? "Dépenses" : "Devis en attente";
-  const card2Value = hasComptaReport
-    ? formatEuro(depensesHT)
-    : `${kpiDevisPending}`;
+  const card2Value = hasComptaReport ? formatEuro(depensesHT) : `${kpiDevisPending}`;
   const card2Trend = hasComptaReport
     ? "Analyse compta IA"
     : kpisLoading
@@ -206,17 +204,17 @@ export default function Dashboard() {
   const card3To = "/dashboard/unpaid";
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
+    <div className="mx-auto max-w-7xl space-y-8 animate-in fade-in duration-700">
       <div>
-        <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+        <h2 className="text-3xl font-extrabold tracking-tight text-[var(--theme-text)]">
           Tableau de bord
         </h2>
-        <p className="text-slate-500 mt-1">
+        <p className="mt-1 text-[var(--theme-muted)]">
           Bienvenue sur votre centre de pilotage ArtisanPro.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <StatCard
           title={card1Title}
           value={card1Value}
@@ -240,28 +238,28 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden flex flex-col">
-          <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="flex flex-col overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
+          <div className="flex items-center justify-between border-b border-[var(--theme-border)] bg-[var(--theme-card)] p-6">
             <div>
-              <h3 className="text-lg font-bold text-slate-900">
+              <h3 className="text-lg font-bold text-[var(--theme-text)]">
                 Factures & Relances
               </h3>
-              <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-1">
+              <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
                 Trésorerie active
               </p>
             </div>
             <Link
               to="/dashboard/unpaid"
-              className="text-blue-600 text-sm font-bold flex items-center gap-1 hover:gap-2 transition-all"
+              className="flex items-center gap-1 text-sm font-bold text-[var(--theme-primary)] transition-all hover:gap-2"
             >
               Gérer les impayés <ArrowRight size={14} />
             </Link>
           </div>
 
-          <div className="p-4 space-y-3 flex-1">
+          <div className="flex-1 space-y-3 p-4">
             {preview.length === 0 ? (
-              <div className="p-4 text-sm text-slate-500">
+              <div className="p-4 text-sm text-[var(--theme-muted)]">
                 Aucune facture impayée détectée (ou données en cours de chargement).
               </div>
             ) : (
@@ -278,44 +276,48 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
-          <div className="p-6 border-b border-slate-50 flex justify-between items-center">
-            <h3 className="text-lg font-bold text-slate-900">Derniers Devis</h3>
+        <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
+          <div className="flex items-center justify-between border-b border-[var(--theme-border)] p-6">
+            <h3 className="text-lg font-bold text-[var(--theme-text)]">
+              Derniers Devis
+            </h3>
             <Link
               to="/devis"
-              className="text-slate-400 hover:text-blue-600 transition-colors"
+              className="text-[var(--theme-muted)] transition-colors hover:text-[var(--theme-primary)]"
             >
               <ArrowRight size={20} />
             </Link>
           </div>
 
-          <div className="divide-y divide-slate-50">
+          <div className="divide-y divide-[var(--theme-border)]">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                className="flex items-center justify-between p-4 transition-colors hover:bg-slate-50"
               >
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
                     <FileText size={18} />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-slate-900">
+                    <p className="text-sm font-bold text-[var(--theme-text)]">
                       Projet Rénovation #{i}42
                     </p>
-                    <p className="text-xs text-slate-500 font-medium">
+                    <p className="text-xs font-medium text-[var(--theme-muted)]">
                       Client #00{i}
                     </p>
                   </div>
                 </div>
-                <span className="text-sm font-bold text-slate-700">950 €</span>
+                <span className="text-sm font-bold text-[var(--theme-text)]">
+                  950 €
+                </span>
               </div>
             ))}
           </div>
-          <div className="p-4 bg-slate-50/50 text-center">
+          <div className="bg-slate-50/50 p-4 text-center">
             <Link
               to="/devis"
-              className="text-xs font-bold text-slate-400 hover:text-blue-600 uppercase tracking-widest"
+              className="text-xs font-bold uppercase tracking-widest text-[var(--theme-muted)] hover:text-[var(--theme-primary)]"
             >
               Voir tout l&apos;historique
             </Link>
@@ -330,19 +332,19 @@ function StatCard({ title, value, trend, icon, to }: any) {
   return (
     <Link
       to={to}
-      className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all group block"
+      className="group block rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-6 shadow-sm transition-all hover:shadow-md"
     >
-      <div className="flex justify-between items-start mb-4">
-        <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+      <div className="mb-4 flex items-start justify-between">
+        <div className="rounded-2xl bg-slate-50 p-3 transition-colors group-hover:bg-blue-50 group-hover:text-blue-600">
           {icon}
         </div>
-        <span className="text-[10px] font-bold px-2 py-1 bg-slate-100 rounded-lg text-slate-500">
+        <span className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-[var(--theme-muted)]">
           {trend}
         </span>
       </div>
-      <p className="text-slate-500 text-sm font-medium">{title}</p>
-      <h4 className="text-2xl font-black text-slate-900 mt-1">{value}</h4>
-      <div className="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+      <p className="text-sm font-medium text-[var(--theme-muted)]">{title}</p>
+      <h4 className="mt-1 text-2xl font-black text-[var(--theme-text)]">{value}</h4>
+      <div className="mt-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--theme-muted)]">
         Voir le détail <ArrowRight size={14} />
       </div>
     </Link>
@@ -353,10 +355,10 @@ function InvoiceReminderItem({ client, amount, daysLate, dueDate }: any) {
   const status = daysLate >= 10 ? "CRITIQUE" : daysLate > 0 ? "RETARD" : "À VENIR";
 
   return (
-    <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-50 hover:border-blue-100 hover:bg-blue-50/30 transition-all group">
+    <div className="group flex items-center justify-between rounded-2xl border border-[var(--theme-border)] p-4 transition-all hover:border-blue-100 hover:bg-blue-50/30">
       <div className="flex items-center gap-4">
         <div
-          className={`w-1.5 h-8 rounded-full ${
+          className={`h-8 w-1.5 rounded-full ${
             status === "CRITIQUE"
               ? "bg-red-500"
               : status === "RETARD"
@@ -365,8 +367,8 @@ function InvoiceReminderItem({ client, amount, daysLate, dueDate }: any) {
           }`}
         />
         <div>
-          <p className="text-sm font-bold text-slate-900">{client}</p>
-          <p className="text-[11px] text-slate-500 font-medium">
+          <p className="text-sm font-bold text-[var(--theme-text)]">{client}</p>
+          <p className="text-[11px] font-medium text-[var(--theme-muted)]">
             {status === "À VENIR"
               ? `Échéance : ${formatDateFr(dueDate)}`
               : `${daysLate} jours de retard`}
@@ -375,8 +377,8 @@ function InvoiceReminderItem({ client, amount, daysLate, dueDate }: any) {
       </div>
 
       <div className="flex items-center gap-4">
-        <span className="text-sm font-black text-slate-900">{amount}</span>
-        <button className="flex items-center gap-2 bg-slate-900 text-white px-3 py-2 rounded-xl text-xs font-bold hover:bg-blue-600 transition-all opacity-0 group-hover:opacity-100 shadow-lg shadow-slate-200">
+        <span className="text-sm font-black text-[var(--theme-text)]">{amount}</span>
+        <button className="flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white opacity-0 shadow-lg shadow-slate-200 transition-all group-hover:opacity-100 hover:bg-blue-600">
           <Send size={12} /> Relancer
         </button>
       </div>

@@ -63,26 +63,26 @@ export default function CreateProjectForm({ onCreated }: Props) {
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h3 className="text-lg font-semibold text-slate-900">
+    <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+      <h3 className="text-lg font-semibold text-[var(--theme-text)]">
         Nouveau chantier
       </h3>
 
       <form onSubmit={handleSubmit} className="mt-4 space-y-4">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
+          <label className="mb-1 block text-sm font-medium text-[var(--theme-text)]">
             Nom
           </label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ex: Maison Dupont"
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-slate-400"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
+          <label className="mb-1 block text-sm font-medium text-[var(--theme-text)]">
             Description
           </label>
           <textarea
@@ -90,30 +90,30 @@ export default function CreateProjectForm({ onCreated }: Props) {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Travaux, contexte, infos utiles…"
             rows={4}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-slate-400"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
+          <label className="mb-1 block text-sm font-medium text-[var(--theme-text)]">
             Budget (€)
           </label>
           <input
             value={budget}
             onChange={(e) => setBudget(e.target.value)}
             placeholder="Ex: 5000"
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-slate-400"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
+          <label className="mb-1 block text-sm font-medium text-[var(--theme-text)]">
             Statut
           </label>
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-slate-400"
           >
             <option value="active">Actif</option>
             <option value="paused">En pause</option>

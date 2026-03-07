@@ -7,13 +7,10 @@ import { ENV } from "../../../config/env";
 /**
  * Pennylane Connector (MVP)
  *
- * ⚠️ Ici on ne fait PAS encore l'appel réel à l'API (tu n'as pas encore branché l'auth / tokens).
- * On met un squelette propre, avec :
+ * - support stub mode via PENNYLANE_SYNC_ENABLED
  * - validation config
- * - fonction request() centralisée (ready pour rate-limit / retries)
- * - transform minimal facture -> payload Pennylane
- *
- * Prochaine étape : brancher l'auth (API key / OAuth) + appeler endpoints réels.
+ * - request() centralisée
+ * - transform facture -> payload Pennylane
  */
 
 export type PennylaneAuth =
@@ -21,8 +18,6 @@ export type PennylaneAuth =
   | { type: "oauth"; accessToken: string };
 
 const PennylaneConfigSchema = z.object({
-  // MVP: on supporte API key via ENV.
-  // Plus tard, on utilisera integration_tokens (OAuth) par user.
   apiKey: z.string().min(1).optional(),
   baseUrl: z.string().min(1).default("https://api.pennylane.com"),
 });
@@ -46,12 +41,10 @@ function getConfig() {
 function getAuth(): PennylaneAuth {
   const { apiKey } = getConfig();
 
-  // MVP : API key uniquement
   if (apiKey && apiKey.trim().length > 0) {
     return { type: "api_key", apiKey };
   }
 
-  // OAuth viendra plus tard (integration_tokens)
   throw new HttpError(400, "Pennylane is not connected (missing credentials)");
 }
 
@@ -84,7 +77,6 @@ async function requestJson<T>(opts: PennylaneRequestOpts): Promise<T> {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
 
-  // Gestion erreurs standardisées
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     const meta = {
@@ -94,24 +86,20 @@ async function requestJson<T>(opts: PennylaneRequestOpts): Promise<T> {
       response: text?.slice(0, 500),
     };
 
-    // 401/403 => credentials
     if (res.status === 401 || res.status === 403) {
       logger.warn("Pennylane request unauthorized/forbidden", meta);
       throw new HttpError(401, "Pennylane unauthorized");
     }
 
-    // 429 => rate limit
     if (res.status === 429) {
       logger.warn("Pennylane request rate-limited", meta);
       throw new HttpError(429, "Pennylane rate limit");
     }
 
-    // autres
     logger.error("Pennylane request failed", meta);
     throw new HttpError(502, "Pennylane API error");
   }
 
-  // Certaines APIs peuvent renvoyer 204
   if (res.status === 204) {
     return undefined as T;
   }
@@ -126,9 +114,6 @@ async function requestJson<T>(opts: PennylaneRequestOpts): Promise<T> {
 
 /**
  * ====== Transforms (MVP minimal) ======
- *
- * IMPORTANT: Le modèle exact Pennylane sera affiné quand on branchera
- * les endpoints réels + ton mapping lignes/taxes.
  */
 
 export type ArtisanProInvoiceLine = {
@@ -147,8 +132,6 @@ export type ArtisanProInvoice = {
   total_amount: number;
   due_date: string;
   status: string;
-
-  // ✅ AJOUT: lignes (pour sync correcte)
   lines: ArtisanProInvoiceLine[];
 };
 
@@ -156,21 +139,25 @@ function centsToEuros(cents: number): number {
   return Math.round(cents) / 100;
 }
 
+function normalizeDueDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
 function transformInvoice(invoice: ArtisanProInvoice) {
-  // ✅ Payload enrichi avec lignes (toujours MVP)
   return {
     external_id: invoice.id,
     customer: {
       name: invoice.client_name,
       email: invoice.client_email ?? undefined,
     },
-    due_date: invoice.due_date,
+    due_date: normalizeDueDate(invoice.due_date),
     status: invoice.status,
     origin: "artisanpro",
-
-    // On conserve le total pour compat, mais la source de vérité devient lines
     total_amount: invoice.total_amount,
-
     line_items: invoice.lines.map((l) => ({
       external_id: l.id,
       description: l.description,
@@ -186,7 +173,9 @@ function transformInvoice(invoice: ArtisanProInvoice) {
  * ====== Public API (Connector) ======
  */
 export class PennylaneConnector {
-  static async pushInvoice(invoice: ArtisanProInvoice): Promise<{ externalId: string }> {
+  static async pushInvoice(
+    invoice: ArtisanProInvoice
+  ): Promise<{ externalId: string }> {
     const payload = transformInvoice(invoice);
 
     logger.info("PennylaneConnector.pushInvoice ready", {
@@ -207,7 +196,6 @@ export class PennylaneConnector {
     return { externalId: created.id };
   }
 
-  // ✅ UPDATE (si déjà sync => update au lieu de skip)
   static async updateInvoice(
     externalId: string,
     invoice: ArtisanProInvoice
@@ -226,7 +214,9 @@ export class PennylaneConnector {
 
     await requestJson<unknown>({
       method: "PATCH",
-      path: `/api/external/v1/customer_invoices/${encodeURIComponent(externalId)}`,
+      path: `/api/external/v1/customer_invoices/${encodeURIComponent(
+        externalId
+      )}`,
       body: payload,
     });
 

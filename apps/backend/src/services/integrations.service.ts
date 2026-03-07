@@ -31,6 +31,15 @@ function hasWorkspacePennylaneKey(): boolean {
   );
 }
 
+function getWorkspacePennylaneKey(): string | null {
+  const apiKey =
+    typeof ENV.PENNYLANE_API_KEY === "string"
+      ? ENV.PENNYLANE_API_KEY.trim()
+      : "";
+
+  return apiKey.length > 0 ? apiKey : null;
+}
+
 export class IntegrationsService {
   static async getPennylaneStatus(
     userId: string
@@ -228,6 +237,8 @@ export class IntegrationsService {
   }
 
   static async getPennylaneApiKey(userId: string): Promise<string | null> {
+    const workspaceKey = getWorkspacePennylaneKey();
+
     const { data: integration, error } = await supabaseAdmin
       .from("integrations")
       .select("id, status")
@@ -240,11 +251,15 @@ export class IntegrationsService {
         userId,
         message: error.message,
       });
-      return null;
+      return workspaceKey;
     }
 
-    if (!integration || String(integration.status ?? "") !== "connected") {
-      return null;
+    if (!integration) {
+      return workspaceKey;
+    }
+
+    if (String(integration.status ?? "") !== "connected") {
+      return workspaceKey;
     }
 
     const { data: token, error: tokenError } = await supabaseAdmin
@@ -259,7 +274,7 @@ export class IntegrationsService {
         integrationId: integration.id,
         message: tokenError.message,
       });
-      return null;
+      return workspaceKey;
     }
 
     const apiKey =
@@ -267,7 +282,7 @@ export class IntegrationsService {
         ? token.access_token.trim()
         : "";
 
-    return apiKey.length > 0 ? apiKey : null;
+    return apiKey.length > 0 ? apiKey : workspaceKey;
   }
 
   static async markPennylaneSyncSuccess(userId: string): Promise<void> {

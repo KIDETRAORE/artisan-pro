@@ -12,27 +12,33 @@ export const PERMISSIONS = {
   DEVIS_READ: "devis:read",
   DEVIS_WRITE: "devis:write",
 
-  // ✅ NOUVEAU: permissions dédiées (factures + clients)
+  // ✅ Factures
   INVOICES_READ: "invoices:read",
   INVOICES_WRITE: "invoices:write",
+
+  // ✅ Clients
   CLIENTS_READ: "clients:read",
   CLIENTS_WRITE: "clients:write",
 
-  // ✅ AJOUT: projets / chantiers
+  // ✅ Projets / chantiers
   PROJECTS_READ: "projects:read",
   PROJECTS_WRITE: "projects:write",
 
-  // ✅ AJOUT: permissions lignes de facture
+  // ✅ Lignes de facture
   INVOICE_LINES_READ: "invoice_lines:read",
   INVOICE_LINES_WRITE: "invoice_lines:write",
 
+  // ✅ IA
   AI_USE: "ai:use",
+
+  // ✅ Automatisation
   AUTOMATION_USE: "automation:use",
+
+  // ✅ Admin
   MANAGE_USERS: "users:manage",
 
-  // ✅ Ajout pour correspondre à planPermission.mapper.ts
+  // ✅ Modules IA spécifiques
   USE_VISION: "vision:use",
-  // (optionnel) si tu veux aussi une permission vocal
   USE_VOCAL: "vocal:use",
 } as const;
 

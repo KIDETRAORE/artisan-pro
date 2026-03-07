@@ -93,7 +93,8 @@ router.use("/projects", authMiddleware, projectsRoutes);
 // "/projects/:projectId/expenses" et "/project-expenses/:expenseId"
 router.use("/", authMiddleware, projectExpensesRoutes);
 
-// ✅ AJOUT: PROJECT ACCOUNTING IMPORT (AUTH géré dans le router)
+// ✅ AJOUT: PROJECT ACCOUNTING IMPORT
+// Ce router gère l'upload multer pour /projects/:projectId/import-accounting
 router.use("/", projectAccountingRoutes);
 
 // ✅ AJOUT: USAGE (AUTH)

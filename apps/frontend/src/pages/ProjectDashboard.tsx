@@ -115,7 +115,7 @@ export default function ProjectDashboard() {
   }, [id]);
 
   useEffect(() => {
-    refreshAll();
+    void refreshAll();
   }, [refreshAll]);
 
   const handleAccountingImport = async (file: File) => {
@@ -241,8 +241,8 @@ export default function ProjectDashboard() {
                   alert.level === "critical"
                     ? "bg-red-50 text-red-700 border border-red-200"
                     : alert.level === "warning"
-                    ? "bg-amber-50 text-amber-700 border border-amber-200"
-                    : "bg-blue-50 text-blue-700 border border-blue-200"
+                      ? "bg-amber-50 text-amber-700 border border-amber-200"
+                      : "bg-blue-50 text-blue-700 border border-blue-200"
                 }`}
               >
                 {alert.message}
@@ -307,6 +307,7 @@ export default function ProjectDashboard() {
           projectId={project.id}
           expenses={previewExpenses}
           onRefresh={refreshAll}
+          showCreateForm={false}
         />
       </div>
 

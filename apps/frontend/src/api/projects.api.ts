@@ -7,6 +7,7 @@ export type Project = {
   name: string;
   description: string | null;
   status: string;
+  budget_cents: number | null;
   created_at: string;
   updated_at: string | null;
 };
@@ -145,10 +146,11 @@ export async function getProjectAnalytics(
 export async function getProjectInsights(
   projectId: string
 ): Promise<ProjectInsight> {
-  const data = await fetchWithAuth<{ success: boolean; insight: ProjectInsight }>(
-    `/projects/${projectId}/insights`,
-    { method: "GET" }
-  );
+  const data = await fetchWithAuth<{
+    success: boolean;
+    insight: ProjectInsight;
+  }>(`/projects/${projectId}/insights`, { method: "GET" });
+
   return data.insight;
 }
 
@@ -197,7 +199,7 @@ export async function deleteProjectExpense(
   );
 }
 
-// ✅ AJOUT: import fichier comptable vers dépenses chantier
+// ✅ Import fichier comptable vers dépenses chantier
 export async function importProjectAccountingFile(
   projectId: string,
   file: File

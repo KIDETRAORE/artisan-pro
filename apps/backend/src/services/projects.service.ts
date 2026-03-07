@@ -8,11 +8,11 @@ export type ProjectRow = {
   id: string;
   user_id: string;
   name: string;
-  client_name: string | null;
-  address: string | null;
+  description: string | null;
   status: string;
   budget_cents: number | null;
   created_at: string;
+  updated_at: string | null;
 };
 
 export type ProjectHealthStatus = "healthy" | "warning" | "critical";
@@ -54,16 +54,14 @@ export type ProjectAnalytics = {
 
 const CreateProjectSchema = z.object({
   name: z.string().min(1),
-  client_name: z.string().optional().nullable(),
-  address: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
   status: z.string().optional().default("active"),
   budget_cents: z.number().int().nonnegative().optional().nullable(),
 });
 
 const UpdateProjectSchema = z.object({
   name: z.string().min(1).optional(),
-  client_name: z.string().optional().nullable(),
-  address: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
   status: z.string().optional(),
   budget_cents: z.number().int().nonnegative().optional().nullable(),
 });
@@ -118,8 +116,7 @@ export class ProjectsService {
       .insert({
         user_id: userId,
         name: payload.name,
-        client_name: payload.client_name ?? null,
-        address: payload.address ?? null,
+        description: payload.description ?? null,
         status: payload.status ?? "active",
         budget_cents: payload.budget_cents ?? null,
       })
@@ -177,7 +174,10 @@ export class ProjectsService {
 
     const { data, error } = await supabaseAdmin
       .from("projects")
-      .update(patch)
+      .update({
+        ...patch,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", projectId)
       .eq("user_id", userId)
       .select("*")

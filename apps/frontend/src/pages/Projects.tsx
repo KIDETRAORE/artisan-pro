@@ -12,6 +12,15 @@ function formatDate(value: string): string {
   }
 }
 
+function formatCurrencyFromCents(value: number | null): string {
+  if (value == null) return "—";
+
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value / 100);
+}
+
 function getStatusLabel(status: string): string {
   switch (status) {
     case "active":
@@ -58,7 +67,7 @@ export default function Projects() {
   };
 
   useEffect(() => {
-    loadProjects();
+    void loadProjects();
   }, []);
 
   const handleCreated = (project: Project) => {
@@ -66,37 +75,37 @@ export default function Projects() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Chantiers</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-3xl font-bold text-[var(--theme-text)]">Chantiers</h1>
+        <p className="mt-1 text-sm text-[var(--theme-muted)]">
           Suivi des chantiers, rentabilité et dépenses.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="xl:col-span-1">
           <CreateProjectForm onCreated={handleCreated} />
         </div>
 
         <div className="xl:col-span-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
             <div className="flex items-center justify-between gap-4">
-              <h3 className="text-lg font-semibold text-slate-900">
+              <h3 className="text-lg font-semibold text-[var(--theme-text)]">
                 Liste des chantiers
               </h3>
 
               <button
                 type="button"
-                onClick={loadProjects}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                onClick={() => void loadProjects()}
+                className="rounded-xl border border-[var(--theme-border)] px-3 py-2 text-sm font-medium text-[var(--theme-text)] hover:bg-slate-50"
               >
                 Rafraîchir
               </button>
             </div>
 
             {loading ? (
-              <div className="mt-6 text-sm text-slate-500">
+              <div className="mt-6 text-sm text-[var(--theme-muted)]">
                 Chargement des chantiers…
               </div>
             ) : error ? (
@@ -104,16 +113,17 @@ export default function Projects() {
                 {error}
               </div>
             ) : projects.length === 0 ? (
-              <div className="mt-6 rounded-xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+              <div className="mt-6 rounded-xl border border-dashed border-[var(--theme-border)] px-4 py-6 text-sm text-[var(--theme-muted)]">
                 Aucun chantier pour le moment.
               </div>
             ) : (
               <div className="mt-6 overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead>
-                    <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <tr className="border-b border-[var(--theme-border)] text-left text-[var(--theme-muted)]">
                       <th className="py-3 pr-4 font-medium">Nom</th>
                       <th className="py-3 pr-4 font-medium">Description</th>
+                      <th className="py-3 pr-4 font-medium">Budget</th>
                       <th className="py-3 pr-4 font-medium">Statut</th>
                       <th className="py-3 pr-4 font-medium">Créé le</th>
                       <th className="py-3 pr-0 font-medium">Action</th>
@@ -121,12 +131,15 @@ export default function Projects() {
                   </thead>
                   <tbody>
                     {projects.map((project) => (
-                      <tr key={project.id} className="border-b border-slate-100">
-                        <td className="py-3 pr-4 text-slate-900 font-medium">
+                      <tr key={project.id} className="border-b border-[var(--theme-border)]">
+                        <td className="py-3 pr-4 font-medium text-[var(--theme-text)]">
                           {project.name}
                         </td>
-                        <td className="py-3 pr-4 text-slate-700">
+                        <td className="py-3 pr-4 text-[var(--theme-text)]">
                           {project.description?.trim() || "—"}
+                        </td>
+                        <td className="py-3 pr-4 text-[var(--theme-text)]">
+                          {formatCurrencyFromCents(project.budget_cents)}
                         </td>
                         <td className="py-3 pr-4">
                           <span
@@ -137,7 +150,7 @@ export default function Projects() {
                             {getStatusLabel(project.status)}
                           </span>
                         </td>
-                        <td className="py-3 pr-4 text-slate-700">
+                        <td className="py-3 pr-4 text-[var(--theme-text)]">
                           {formatDate(project.created_at)}
                         </td>
                         <td className="py-3 pr-0">
