@@ -140,13 +140,13 @@ export default function Settings() {
   }, [pennylaneConnection]);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 animate-in fade-in duration-500">
+    <div className="mx-auto max-w-5xl space-y-8 animate-in fade-in duration-500">
       <div>
         <h2 className="text-3xl font-extrabold text-[var(--theme-text)]">
-          Paramètres
+          Compte
         </h2>
         <p className="mt-1 text-[var(--theme-muted)]">
-          Configuration de votre espace ArtisanPro
+          Gérez votre profil, vos intégrations et votre abonnement ArtisanPro.
         </p>
       </div>
 
@@ -157,7 +157,7 @@ export default function Settings() {
         </div>
       </Section>
 
-      <Section id="ai" icon={<Brain size={18} />} title="Paramètres IA">
+      <Section id="ai" icon={<Brain size={18} />} title="Configuration IA">
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <span className="text-sm font-medium text-[var(--theme-text)]">
@@ -360,7 +360,8 @@ export default function Settings() {
         title="Abonnement"
       >
         <div className="text-sm text-[var(--theme-muted)]">
-          Plan actuel : <span className="font-bold text-[var(--theme-text)]">PRO</span>
+          Plan actuel :{" "}
+          <span className="font-bold text-[var(--theme-text)]">PRO</span>
         </div>
       </Section>
 
@@ -408,7 +409,9 @@ function Input({
 }) {
   return (
     <div>
-      <label className="text-sm font-medium text-[var(--theme-text)]">{label}</label>
+      <label className="text-sm font-medium text-[var(--theme-text)]">
+        {label}
+      </label>
       <input
         placeholder={placeholder}
         className="mt-2 w-full rounded-xl bg-[var(--theme-bg)] px-4 py-2 text-[var(--theme-text)]"

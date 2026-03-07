@@ -76,10 +76,26 @@ export default function Projects() {
 
   return (
     <div className="space-y-6 p-6">
+
+      {/* ===== AI INSIGHT ===== */}
+      <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+        <h3 className="text-sm font-bold text-[var(--theme-text)] mb-2">
+          Conseil IA
+        </h3>
+
+        <p className="text-sm text-[var(--theme-muted)]">
+          Vérifiez la marge de vos chantiers actifs. Un suivi régulier des dépenses
+          permet d'améliorer la rentabilité globale.
+        </p>
+      </div>
+
       <div>
-        <h1 className="text-3xl font-bold text-[var(--theme-text)]">Chantiers</h1>
+        <div className="text-sm text-[var(--theme-muted)]">Accueil / Chantiers</div>
+        <h1 className="text-3xl font-bold text-[var(--theme-text)]">
+          Tous les chantiers
+        </h1>
         <p className="mt-1 text-sm text-[var(--theme-muted)]">
-          Suivi des chantiers, rentabilité et dépenses.
+          Vue détaillée des chantiers, budgets, statuts et accès aux analyses.
         </p>
       </div>
 
@@ -92,7 +108,7 @@ export default function Projects() {
           <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
             <div className="flex items-center justify-between gap-4">
               <h3 className="text-lg font-semibold text-[var(--theme-text)]">
-                Liste des chantiers
+                Vue détaillée
               </h3>
 
               <button
@@ -131,7 +147,10 @@ export default function Projects() {
                   </thead>
                   <tbody>
                     {projects.map((project) => (
-                      <tr key={project.id} className="border-b border-[var(--theme-border)]">
+                      <tr
+                        key={project.id}
+                        className="border-b border-[var(--theme-border)]"
+                      >
                         <td className="py-3 pr-4 font-medium text-[var(--theme-text)]">
                           {project.name}
                         </td>

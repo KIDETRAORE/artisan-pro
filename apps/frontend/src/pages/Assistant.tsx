@@ -1,4 +1,7 @@
+// apps/frontend/src/pages/Assistant.tsx
+
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import {
   Send,
   Bot,
@@ -7,6 +10,12 @@ import {
   Loader2,
   Sparkles,
   Trash2,
+  ArrowRight,
+  FileText,
+  Camera,
+  PieChart,
+  Briefcase,
+  Receipt,
 } from "lucide-react";
 import { useUser } from "../context/user.context";
 import { useAuth } from "../store/auth.store";
@@ -35,6 +44,39 @@ function stringifyResult(result: any): string {
     return String(result);
   }
 }
+
+const QUICK_ACTIONS = [
+  {
+    title: "Nouveau devis",
+    description: "Créer ou reprendre un devis rapidement.",
+    to: "/devis",
+    icon: FileText,
+  },
+  {
+    title: "Scanner / Vision",
+    description: "Analyser une image ou un document.",
+    to: "/vision",
+    icon: Camera,
+  },
+  {
+    title: "Suivi compta",
+    description: "Ouvrir les analyses et le pilotage comptable.",
+    to: "/compta",
+    icon: PieChart,
+  },
+  {
+    title: "Chantiers",
+    description: "Voir les chantiers et leur avancement.",
+    to: "/projects",
+    icon: Briefcase,
+  },
+  {
+    title: "Factures",
+    description: "Créer, consulter et relancer les factures.",
+    to: "/invoices",
+    icon: Receipt,
+  },
+];
 
 export default function Assistant() {
   const { userData } = useUser();
@@ -240,9 +282,46 @@ export default function Assistant() {
   };
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-140px)] max-w-4xl flex-col animate-in fade-in slide-in-from-bottom-4 duration-700 px-4">
-      {/* Barre d'outils supérieure */}
-      <div className="mb-4 flex items-center justify-between px-2 pt-2">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 pb-6 pt-2 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="space-y-2">
+        <h2 className="text-3xl font-extrabold tracking-tight text-[var(--theme-text)]">
+          Actions
+        </h2>
+        <p className="text-sm text-[var(--theme-muted)]">
+          Lance rapidement une action métier ou demande un appui IA contextuel.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+        {QUICK_ACTIONS.map((action) => {
+          const Icon = action.icon;
+
+          return (
+            <Link
+              key={action.title}
+              to={action.to}
+              className="group rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--theme-bg)] text-[var(--theme-primary)]">
+                <Icon size={22} />
+              </div>
+
+              <div className="text-sm font-black text-[var(--theme-text)]">
+                {action.title}
+              </div>
+              <p className="mt-2 min-h-[40px] text-xs leading-relaxed text-[var(--theme-muted)]">
+                {action.description}
+              </p>
+
+              <div className="mt-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[var(--theme-primary)]">
+                Ouvrir <ArrowRight size={14} />
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center justify-between px-2 pt-2">
         <div className="flex items-center gap-2">
           <div
             className="rounded-lg p-1.5"
@@ -251,7 +330,7 @@ export default function Assistant() {
             <Sparkles className="text-[var(--theme-primary-contrast)]" size={14} />
           </div>
           <span className="text-xs font-black uppercase tracking-widest text-[var(--theme-text)]">
-            {analysisContext ? "Analyse Expert Active" : "Expert AI Mode"}
+            {analysisContext ? "Analyse Expert Active" : "Assistant d’action IA"}
           </span>
         </div>
 
@@ -266,7 +345,7 @@ export default function Assistant() {
         </button>
       </div>
 
-      <div className="mb-4 flex flex-1 flex-col overflow-hidden rounded-[2.5rem] border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-2xl">
+      <div className="flex h-[calc(100vh-360px)] min-h-[420px] flex-col overflow-hidden rounded-[2.5rem] border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-2xl">
         {/* Messages */}
         <div
           ref={scrollRef}
@@ -306,7 +385,7 @@ export default function Assistant() {
                 <div
                   className={`whitespace-pre-wrap rounded-2xl p-4 text-[13px] leading-relaxed shadow-sm ${
                     msg.role === "user"
-                      ? "rounded-tr-none text-white font-medium"
+                      ? "rounded-tr-none font-medium text-white"
                       : "rounded-tl-none border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-text)]"
                   }`}
                   style={
@@ -350,7 +429,7 @@ export default function Assistant() {
                 placeholder={
                   analysisContext
                     ? "Posez une question sur l'analyse..."
-                    : "Posez votre question technique..."
+                    : "Demandez une aide rapide sur un devis, une facture ou un chantier..."
                 }
                 className="w-full rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] py-4 pl-6 pr-12 text-sm text-[var(--theme-text)] outline-none transition-all placeholder:text-[var(--theme-muted)] focus:bg-[var(--theme-card)]"
               />

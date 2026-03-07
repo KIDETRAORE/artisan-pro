@@ -481,6 +481,24 @@ export default function Compta() {
         </div>
       </div>
 
+      {/* ✅ AJOUT UNIQUE : bloc IA comptable */}
+      <div className="mb-6 rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm space-y-3">
+        <h3 className="text-lg font-semibold text-[var(--theme-text)]">
+          Pilotage IA comptable
+        </h3>
+
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-4 py-3 text-sm text-[var(--theme-text)]">
+          Surveillez les écarts entre recettes, dépenses et résultat net pour
+          anticiper les tensions de trésorerie.
+        </div>
+
+        <ul className="list-disc pl-5 text-sm text-[var(--theme-muted)] space-y-1">
+          <li>Identifier les charges qui progressent trop vite</li>
+          <li>Vérifier les périodes où la marge nette baisse</li>
+          <li>Prioriser les actions qui améliorent le cash à court terme</li>
+        </ul>
+      </div>
+
       {/* Upload Card */}
       <div className="bg-[var(--theme-card)] rounded-3xl border border-[var(--theme-border)] shadow-sm p-5">
         <div className="flex flex-col gap-3">

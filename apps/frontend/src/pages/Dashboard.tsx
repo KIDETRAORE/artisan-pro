@@ -1,5 +1,5 @@
 // apps/frontend/src/pages/Dashboard.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   TrendingUp,
   Clock,
@@ -7,11 +7,14 @@ import {
   Send,
   ArrowRight,
   FileText,
+  Sparkles,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import AIInsightCard from "../components/ai/AIInsightCard";
 import { useComptaReportStore } from "../store/comptaReport.store";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 import { ComptaReportSchema } from "../schemas/comptaReport.schema";
+import { useUIExperienceStore } from "../store/uiExperience.store";
 
 type InvoicePreview = {
   id: string;
@@ -43,12 +46,25 @@ type DashboardKpis = {
 };
 
 type DashboardResponse = {
+  insights?: {
+    revenue?: string;
+    quotes?: string;
+    unpaid?: string;
+  };
   kpis?: DashboardKpis;
 };
 
 type LatestComptaResponse = {
   id?: string;
   report?: unknown;
+};
+
+type DashboardAiInsight = {
+  title: string;
+  summary: string;
+  bullets: string[];
+  action: string;
+  tone: "healthy" | "warning" | "critical";
 };
 
 function formatEuroFromCents(cents: number): string {
@@ -93,12 +109,145 @@ function safeParseResult(value: unknown): unknown {
   return value;
 }
 
+function buildDashboardInsight(params: {
+  hasComptaReport: boolean;
+  recettesHT: number;
+  depensesHT: number;
+  resultatNet: number;
+  overdueCount: number;
+  impayesCount: number;
+  kpiDevisPending: number;
+  kpiImpayes: number;
+}): DashboardAiInsight {
+  const {
+    hasComptaReport,
+    recettesHT,
+    depensesHT,
+    resultatNet,
+    overdueCount,
+    impayesCount,
+    kpiDevisPending,
+    kpiImpayes,
+  } = params;
+
+  if (hasComptaReport) {
+    if (resultatNet < 0) {
+      return {
+        title: "Alerte rentabilité",
+        summary:
+          "Le résultat net ressort en négatif. L'activité doit être surveillée immédiatement.",
+        bullets: [
+          `Recettes estimées : ${formatEuro(recettesHT)}`,
+          `Dépenses estimées : ${formatEuro(depensesHT)}`,
+          "Les charges dépassent actuellement la capacité de couverture.",
+        ],
+        action:
+          "Identifier les postes de dépenses à réduire et sécuriser les encaissements prioritaires.",
+        tone: "critical",
+      };
+    }
+
+    if (depensesHT > 0 && recettesHT > 0 && resultatNet / recettesHT < 0.15) {
+      return {
+        title: "Marge fragile",
+        summary:
+          "La rentabilité reste positive mais la marge de sécurité semble faible.",
+        bullets: [
+          `Résultat net estimé : ${formatEuro(resultatNet)}`,
+          "La moindre dérive de coût peut dégrader le mois en cours.",
+          "Un suivi plus fin des dépenses est recommandé.",
+        ],
+        action:
+          "Surveiller les dépenses de chantier et renforcer la marge sur les prochains devis.",
+        tone: "warning",
+      };
+    }
+
+    return {
+      title: "Activité saine",
+      summary:
+        "Les indicateurs comptables sont cohérents et ne montrent pas de tension immédiate.",
+      bullets: [
+        `Résultat net estimé : ${formatEuro(resultatNet)}`,
+        "Les équilibres recettes / dépenses restent corrects.",
+        "Tu peux te concentrer sur l'optimisation et la relance proactive.",
+      ],
+      action:
+        "Capitaliser sur les chantiers les plus rentables et standardiser les bonnes pratiques.",
+      tone: "healthy",
+    };
+  }
+
+  if (overdueCount > 0 || impayesCount > 0) {
+    return {
+      title: "Priorité trésorerie",
+      summary:
+        "Des factures impayées ou en retard pèsent sur la visibilité de trésorerie.",
+      bullets: [
+        `${impayesCount} facture(s) impayée(s) détectée(s)`,
+        `${overdueCount} facture(s) en retard`,
+        `Montant à sécuriser : ${formatEuroFromCents(kpiImpayes)}`,
+      ],
+      action:
+        "Relancer en priorité les dossiers en retard pour sécuriser les encaissements.",
+      tone: overdueCount > 0 ? "critical" : "warning",
+    };
+  }
+
+  if (kpiDevisPending > 0) {
+    return {
+      title: "Pipeline commercial actif",
+      summary:
+        "Des devis sont en attente de validation. Ils représentent le prochain levier d'activité.",
+      bullets: [
+        `${kpiDevisPending} devis en attente`,
+        "Le suivi rapide peut accélérer la conversion.",
+        "Une relance structurée améliore le taux d'acceptation.",
+      ],
+      action:
+        "Prioriser les relances des devis les plus récents ou les plus stratégiques.",
+      tone: "warning",
+    };
+  }
+
+  return {
+    title: "Vue d'ensemble stable",
+    summary:
+      "Aucune alerte majeure n'est détectée pour le moment sur l'activité courante.",
+    bullets: [
+      "Pas d'impayé critique détecté",
+      "Pas de tension immédiate visible sur les indicateurs principaux",
+      "Le focus peut être mis sur les prochaines opportunités",
+    ],
+    action:
+      "Conserver un rythme de suivi régulier et anticiper les prochaines actions commerciales.",
+    tone: "healthy",
+  };
+}
+
+function getInsightToneClasses(tone: DashboardAiInsight["tone"]): string {
+  if (tone === "critical") {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+  if (tone === "warning") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
+// IA_INSIGHTS_SECTION
+// Future intelligent suggestions area
+
 export default function Dashboard() {
+
   const report = useComptaReportStore((s) => s.report);
   const setReport = useComptaReportStore((s) => s.setReport);
+  const { mode } = useUIExperienceStore();
 
   const [kpis, setKpis] = useState<DashboardKpis | null>(null);
+  const [insights, setInsights] = useState<any>(null);
   const [kpisLoading, setKpisLoading] = useState(false);
+  const [isInsightOpen, setIsInsightOpen] = useState(false);
 
   const restoreFetchOnceRef = useRef(false);
 
@@ -117,6 +266,7 @@ export default function Dashboard() {
 
         if (!cancelled) {
           setKpis(dash?.kpis ?? null);
+          setInsights((dash as any)?.insights ?? null);
         }
       } catch {
         if (!cancelled) setKpis(null);
@@ -164,6 +314,30 @@ export default function Dashboard() {
   const depensesHT = report?.totals?.depensesHT ?? 0;
   const resultatNet = report?.totals?.resultatNet ?? 0;
 
+  const dashboardInsight = useMemo(
+    () =>
+      buildDashboardInsight({
+        hasComptaReport,
+        recettesHT,
+        depensesHT,
+        resultatNet,
+        overdueCount,
+        impayesCount,
+        kpiDevisPending,
+        kpiImpayes,
+      }),
+    [
+      hasComptaReport,
+      recettesHT,
+      depensesHT,
+      resultatNet,
+      overdueCount,
+      impayesCount,
+      kpiDevisPending,
+      kpiImpayes,
+    ]
+  );
+
   const card1Title = hasComptaReport ? "Recettes" : "Chiffre d'Affaires";
   const card1Value = hasComptaReport
     ? formatEuro(recettesHT)
@@ -171,8 +345,8 @@ export default function Dashboard() {
   const card1Trend = hasComptaReport
     ? "Analyse compta IA"
     : kpisLoading
-    ? "Chargement"
-    : "Payé ce mois";
+      ? "Chargement"
+      : "Payé ce mois";
   const card1To = "/dashboard/revenue";
 
   const card2Title = hasComptaReport ? "Dépenses" : "Devis en attente";
@@ -180,10 +354,10 @@ export default function Dashboard() {
   const card2Trend = hasComptaReport
     ? "Analyse compta IA"
     : kpisLoading
-    ? "Chargement"
-    : kpiDevisPending > 0
-    ? `${kpiDevisPending} en attente`
-    : "Aucun";
+      ? "Chargement"
+      : kpiDevisPending > 0
+        ? `${kpiDevisPending} en attente`
+        : "Aucun";
   const card2To = "/dashboard/quotes";
 
   const card3Title = hasComptaReport ? "Résultat net" : "Factures impayées";
@@ -195,23 +369,105 @@ export default function Dashboard() {
       ? "Analyse compta IA"
       : "Vigilance"
     : kpisLoading
-    ? "Chargement"
-    : impayesCount === 0
-    ? "RAS"
-    : overdueCount > 0
-    ? `${overdueCount} en retard`
-    : "Action requise";
+      ? "Chargement"
+      : impayesCount === 0
+        ? "RAS"
+        : overdueCount > 0
+          ? `${overdueCount} en retard`
+          : "Action requise";
   const card3To = "/dashboard/unpaid";
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 animate-in fade-in duration-700">
       <div>
         <h2 className="text-3xl font-extrabold tracking-tight text-[var(--theme-text)]">
-          Tableau de bord
+          Accueil
         </h2>
         <p className="mt-1 text-[var(--theme-muted)]">
-          Bienvenue sur votre centre de pilotage ArtisanPro.
+          Bienvenue sur votre centre de pilotage intelligent ArtisanPro.
         </p>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-sm">
+        <div className="flex items-start justify-between gap-4 p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--theme-bg)] text-[var(--theme-primary)]">
+              <Sparkles size={20} />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold text-[var(--theme-text)]">
+                  Conseil IA
+                </h3>
+                <span
+                  className={`rounded-full border px-2 py-1 text-[10px] font-black uppercase tracking-widest ${getInsightToneClasses(
+                    dashboardInsight.tone
+                  )}`}
+                >
+                  {mode === "embedded-lite" ? "Mode A" : "Mode B"}
+                </span>
+              </div>
+
+              <p className="text-sm font-semibold text-[var(--theme-text)]">
+                {dashboardInsight.title}
+              </p>
+              <p className="text-sm text-[var(--theme-muted)]">
+                {dashboardInsight.summary}
+              </p>
+
+              {mode === "embedded-lite" ? (
+                <p className="text-xs font-bold uppercase tracking-widest text-[var(--theme-primary)]">
+                  {dashboardInsight.action}
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <p className="text-xs font-bold uppercase tracking-widest text-[var(--theme-primary)]">
+                    {dashboardInsight.action}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsInsightOpen((prev) => !prev)}
+                    className="rounded-xl border border-[var(--theme-border)] px-3 py-2 text-xs font-bold uppercase tracking-widest text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
+                  >
+                    {isInsightOpen ? "Masquer l'analyse" : "Voir l'analyse"}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {mode === "embedded-panel" && isInsightOpen && (
+          <div className="border-t border-[var(--theme-border)] bg-[var(--theme-bg)]/50 px-6 py-5">
+            <div className="space-y-3">
+              <div className="text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]">
+                Analyse détaillée
+              </div>
+
+              <ul className="space-y-2">
+                {dashboardInsight.bullets.map((item) => (
+                  <li
+                    key={item}
+                    className="flex gap-3 text-sm text-[var(--theme-text)]"
+                  >
+                    <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-[var(--theme-primary)]" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4">
+                <div className="text-[11px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
+                  Action recommandée
+                </div>
+                <div className="mt-2 text-sm font-medium text-[var(--theme-text)]">
+                  {dashboardInsight.action}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -279,7 +535,8 @@ export default function Dashboard() {
         <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
           <div className="flex items-center justify-between border-b border-[var(--theme-border)] p-6">
             <h3 className="text-lg font-bold text-[var(--theme-text)]">
-              Derniers Devis
+              CHANTIER_PREVIEW_SECTION
+Derniers Devis
             </h3>
             <Link
               to="/devis"
@@ -328,7 +585,19 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ title, value, trend, icon, to }: any) {
+function StatCard({
+  title,
+  value,
+  trend,
+  icon,
+  to,
+}: {
+  title: string;
+  value: string;
+  trend: string;
+  icon: React.ReactNode;
+  to: string;
+}) {
   return (
     <Link
       to={to}
@@ -343,7 +612,9 @@ function StatCard({ title, value, trend, icon, to }: any) {
         </span>
       </div>
       <p className="text-sm font-medium text-[var(--theme-muted)]">{title}</p>
-      <h4 className="mt-1 text-2xl font-black text-[var(--theme-text)]">{value}</h4>
+      <h4 className="mt-1 text-2xl font-black text-[var(--theme-text)]">
+        {value}
+      </h4>
       <div className="mt-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--theme-muted)]">
         Voir le détail <ArrowRight size={14} />
       </div>
@@ -351,7 +622,17 @@ function StatCard({ title, value, trend, icon, to }: any) {
   );
 }
 
-function InvoiceReminderItem({ client, amount, daysLate, dueDate }: any) {
+function InvoiceReminderItem({
+  client,
+  amount,
+  daysLate,
+  dueDate,
+}: {
+  client: string;
+  amount: string;
+  daysLate: number;
+  dueDate: string;
+}) {
   const status = daysLate >= 10 ? "CRITIQUE" : daysLate > 0 ? "RETARD" : "À VENIR";
 
   return (
@@ -362,8 +643,8 @@ function InvoiceReminderItem({ client, amount, daysLate, dueDate }: any) {
             status === "CRITIQUE"
               ? "bg-red-500"
               : status === "RETARD"
-              ? "bg-amber-500"
-              : "bg-blue-500"
+                ? "bg-amber-500"
+                : "bg-blue-500"
           }`}
         />
         <div>

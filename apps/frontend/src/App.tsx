@@ -124,7 +124,7 @@ export default function App() {
       <Routes>
         <Route
           path="/login"
-          element={!accessToken ? <Login /> : <Navigate to="/vision" replace />}
+          element={!accessToken ? <Login /> : <Navigate to="/dashboard" replace />}
         />
 
         {/* ✅ Route publique reset password */}
@@ -141,9 +141,13 @@ export default function App() {
           <Route path="/compta" element={<Compta />} />
 
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/accueil" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard/revenue" element={<DashboardRevenue />} />
           <Route path="/dashboard/unpaid" element={<DashboardUnpaid />} />
           <Route path="/dashboard/quotes" element={<DashboardQuotes />} />
+
+          <Route path="/assistant" element={<Assistant />} />
+          <Route path="/actions" element={<Navigate to="/assistant" replace />} />
 
           <Route path="/invoices" element={<Invoices />} />
           <Route path="/invoices/:id" element={<InvoiceDetail />} />
@@ -158,8 +162,8 @@ export default function App() {
           />
 
           <Route path="/settings" element={<Settings />} />
+          <Route path="/compte" element={<Navigate to="/settings" replace />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/assistant" element={<Assistant />} />
 
           {/* ✅ routes Stripe */}
           <Route path="/upgrade" element={<Upgrade />} />

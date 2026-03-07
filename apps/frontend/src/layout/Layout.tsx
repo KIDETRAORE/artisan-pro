@@ -1,13 +1,13 @@
+// apps/frontend/src/layout/Layout.tsx
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, Link, Outlet, useNavigate } from "react-router-dom";
 import {
-  FileText,
-  Camera,
-  PieChart,
-  Briefcase,
+  Home,
   X,
   Sparkles,
   Palette,
+  UserRound,
 } from "lucide-react";
 
 import ExpertHubPanel, { type ExpertTab } from "../features/ai/ExpertHubPanel";
@@ -18,6 +18,11 @@ import {
   type UITheme,
   UI_THEME_LABELS,
 } from "../store/uiTheme.store";
+import {
+  useUIExperienceStore,
+  type UIExperienceMode,
+  UI_EXPERIENCE_LABELS,
+} from "../store/uiExperience.store";
 
 type DailyUsageResponse = {
   success: boolean;
@@ -48,6 +53,7 @@ export default function Layout() {
 
   // ✅ AJOUT : thème UI
   const { theme, setTheme } = useUIThemeStore();
+  const { mode, setMode } = useUIExperienceStore();
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const themeWrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -186,14 +192,41 @@ export default function Layout() {
   }, [getWelcomeMessage]);
 
   const navigation = [
-    { name: "DEVIS", href: "/devis", icon: FileText, color: "bg-[#2563eb]" },
-    { name: "SUIVI", href: "/vision", icon: Camera, color: "bg-[#4f46e5]" },
-    { name: "COMPTA", href: "/compta", icon: PieChart, color: "bg-[#059669]" },
     {
-      name: "CHANTIERS",
-      href: "/projects",
-      icon: Briefcase,
-      color: "bg-[#ea580c]",
+      name: "ACCUEIL",
+      href: "/dashboard",
+      icon: Home,
+      matches: (pathname: string) =>
+        pathname === "/dashboard" ||
+        pathname.startsWith("/dashboard") ||
+        pathname.startsWith("/projects") ||
+        pathname.startsWith("/compta"),
+    },
+    {
+      name: "ACTIONS",
+      href: "/assistant",
+      icon: Sparkles,
+      matches: (pathname: string) =>
+        pathname === "/assistant" ||
+        pathname.startsWith("/devis") ||
+        pathname.startsWith("/vision") ||
+        pathname.startsWith("/invoices") ||
+        pathname.startsWith("/invoice") ||
+        pathname.startsWith("/facture"),
+    },
+    {
+      name: "COMPTE",
+      href: "/settings",
+      icon: UserRound,
+      matches: (pathname: string) =>
+        pathname === "/settings" ||
+        pathname.startsWith("/settings") ||
+        pathname.startsWith("/billing") ||
+        pathname.startsWith("/upgrade") ||
+        pathname.startsWith("/success") ||
+        pathname.startsWith("/cancel") ||
+        pathname.startsWith("/login") ||
+        pathname.startsWith("/reset-password"),
     },
   ];
 
@@ -273,6 +306,11 @@ export default function Layout() {
     setIsThemeMenuOpen(false);
   };
 
+  const handleExperienceSelect = (nextMode: UIExperienceMode) => {
+    setMode(nextMode);
+    setIsThemeMenuOpen(false);
+  };
+
   const SettingsMenu = () => (
     <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
       <div className="bg-[var(--theme-bg)] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
@@ -333,7 +371,7 @@ export default function Layout() {
   );
 
   const ThemeMenu = () => (
-    <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
+    <div className="absolute right-0 top-12 z-50 w-64 overflow-hidden rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
       <div className="bg-[var(--theme-bg)] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
         Designs
       </div>
@@ -352,6 +390,29 @@ export default function Layout() {
           {UI_THEME_LABELS[themeOption]}
         </button>
       ))}
+
+      <div className="h-px bg-[var(--theme-border)]" />
+
+      <div className="bg-[var(--theme-bg)] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
+        Expérience IA
+      </div>
+
+      {(["embedded-lite", "embedded-panel"] as UIExperienceMode[]).map(
+        (modeOption) => (
+          <button
+            key={modeOption}
+            type="button"
+            onClick={() => handleExperienceSelect(modeOption)}
+            className={`w-full px-4 py-3 text-left text-sm font-bold hover:bg-[var(--theme-bg)] ${
+              mode === modeOption
+                ? "bg-[var(--theme-bg)] text-[var(--theme-text)]"
+                : "text-[var(--theme-text)]"
+            }`}
+          >
+            {UI_EXPERIENCE_LABELS[modeOption]}
+          </button>
+        )
+      )}
     </div>
   );
 
@@ -475,14 +536,14 @@ export default function Layout() {
       <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-end gap-4">
         {isChatOpen && (
           <div className="flex max-h-[650px] w-[380px] flex-col overflow-hidden rounded-[2.5rem] border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-2xl animate-in slide-in-from-bottom-5 duration-300">
-            <div className="flex items-center justify-between bg-[var(--theme-primary)] p-5 text-white">
+            <div className="flex items-center justify-between bg-slate-900 p-5 text-white">
               <span className="flex items-center gap-2 text-xs font-black uppercase tracking-widest">
                 <Sparkles size={14} className="text-purple-400" />
                 Mode Expert IA
               </span>
               <button
                 onClick={() => setIsChatOpen(false)}
-                className="rounded-xl p-1.5 transition-colors hover:bg-[var(--theme-card)]/10"
+                className="rounded-xl p-1.5 transition-colors hover:bg-white/10"
               >
                 <X size={18} />
               </button>
@@ -511,7 +572,7 @@ export default function Layout() {
           }}
           className={`flex h-14 w-14 items-center justify-center rounded-full border-4 border-white shadow-2xl transition-all duration-300 ${
             isChatOpen
-              ? "scale-90 rotate-90 bg-[var(--theme-primary)] text-white"
+              ? "scale-90 rotate-90 bg-slate-900 text-white"
               : "bg-gradient-to-tr from-purple-600 to-blue-600 text-white hover:scale-110 active:scale-95"
           }`}
           title="Mode Expert IA"
@@ -528,7 +589,8 @@ export default function Layout() {
         <div className="flex items-center justify-around rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] px-6 py-3 shadow-2xl">
           {navigation.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.href;
+            const isActive = item.matches(location.pathname);
+
             return (
               <Link
                 key={item.name}
@@ -539,7 +601,7 @@ export default function Layout() {
               >
                 <div
                   className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg ${
-                    isActive ? item.color : "bg-[var(--theme-bg)]"
+                    isActive ? "bg-[var(--theme-primary)]" : "bg-[var(--theme-bg)]"
                   }`}
                 >
                   <Icon
