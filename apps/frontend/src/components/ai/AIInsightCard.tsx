@@ -1,4 +1,6 @@
+// apps/frontend/src/components/ai/AIInsightCard.tsx
 import React from "react";
+import { useAIInsight } from "../../hooks/useAIInsight";
 
 type Props = {
   title?: string;
@@ -6,22 +8,24 @@ type Props = {
 };
 
 export default function AIInsightCard({ title, insight }: Props) {
-  if (!insight) return null;
+  const { cleanedInsight, hasInsight } = useAIInsight({ insight });
+
+  if (!hasInsight || !cleanedInsight) return null;
 
   return (
-    <div className="mt-3 rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] p-3">
+    <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
       <div className="text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
-        ⚡ IA Insight
+        Conseil IA
       </div>
 
-      {title && (
-        <div className="mt-1 text-xs font-bold text-[var(--theme-text)]">
+      {title ? (
+        <div className="mt-2 text-sm font-bold text-[var(--theme-text)]">
           {title}
         </div>
-      )}
+      ) : null}
 
-      <div className="mt-1 text-xs text-[var(--theme-muted)] leading-relaxed">
-        {insight}
+      <div className="mt-2 text-sm leading-relaxed text-[var(--theme-muted)]">
+        {cleanedInsight}
       </div>
     </div>
   );

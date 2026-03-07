@@ -20,6 +20,12 @@ type InvoiceRow = {
   total_amount?: number | null;
 };
 
+type KpiCardProps = {
+  label: string;
+  value: string;
+  hint: string;
+};
+
 function formatEurFromCents(cents: number): string {
   const euros = (Number.isFinite(cents) ? cents : 0) / 100;
   return new Intl.NumberFormat("fr-FR", {
@@ -47,7 +53,9 @@ function startOfCurrentMonthIso(): string {
 
 function invoiceAmountCents(inv: InvoiceRow): number {
   if (typeof inv.total_amount_cents === "number") return inv.total_amount_cents;
-  if (typeof inv.total_amount === "number") return Math.round(inv.total_amount * 100);
+  if (typeof inv.total_amount === "number") {
+    return Math.round(inv.total_amount * 100);
+  }
   return 0;
 }
 
@@ -149,10 +157,16 @@ export default function DashboardRevenue() {
         "Ajouter un lien facture → chantier pour analyser le CA par chantier.",
       ],
     };
-  }, [hasComptaReport, recettesTTC, recettesHT, paidMonth.length, paidMonthCents]);
+  }, [
+    hasComptaReport,
+    recettesTTC,
+    recettesHT,
+    paidMonth.length,
+    paidMonthCents,
+  ]);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
+    <div className="mx-auto max-w-7xl space-y-8 animate-in fade-in duration-700">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -163,22 +177,22 @@ export default function DashboardRevenue() {
               <ArrowLeft size={16} /> Retour
             </Link>
           </div>
-          <h2 className="text-3xl font-extrabold text-[var(--theme-text)] tracking-tight mt-2">
+          <h2 className="mt-2 text-3xl font-extrabold tracking-tight text-[var(--theme-text)]">
             Chiffre d&apos;affaires
           </h2>
-          <p className="text-[var(--theme-muted)] mt-1">
+          <p className="mt-1 text-[var(--theme-muted)]">
             Analyse structurée basée sur vos données comptables.
           </p>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 bg-[var(--theme-card)] border border-[var(--theme-border)] rounded-2xl px-4 py-3 shadow-sm">
+        <div className="hidden items-center gap-2 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-4 py-3 shadow-sm sm:flex">
           <TrendingUp className="text-emerald-500" size={18} />
           <span className="text-sm font-black text-[var(--theme-text)]">
             {loading
               ? "…"
               : hasComptaReport
-              ? formatEur(recettesTTC)
-              : formatEurFromCents(paidMonthCents)}
+                ? formatEur(recettesTTC)
+                : formatEurFromCents(paidMonthCents)}
           </span>
           <span className="text-xs font-bold text-[var(--theme-muted)]">
             {hasComptaReport ? "analyse compta" : "mois en cours"}
@@ -186,15 +200,15 @@ export default function DashboardRevenue() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <KpiCard
           label={hasComptaReport ? "Recettes HT" : "Encaissements mois"}
           value={
             loading
               ? "…"
               : hasComptaReport
-              ? formatEur(recettesHT)
-              : formatEurFromCents(paidMonthCents)
+                ? formatEur(recettesHT)
+                : formatEurFromCents(paidMonthCents)
           }
           hint={
             hasComptaReport
@@ -208,8 +222,8 @@ export default function DashboardRevenue() {
             loading
               ? "…"
               : hasComptaReport
-              ? formatEur(recettesTTC)
-              : formatEurFromCents(paidAllTimeCents)
+                ? formatEur(recettesTTC)
+                : formatEurFromCents(paidAllTimeCents)
           }
           hint={
             hasComptaReport
@@ -218,31 +232,48 @@ export default function DashboardRevenue() {
           }
         />
         <KpiCard
-          label={hasComptaReport ? "Nb. mois analysés" : "Nb. factures payées (mois)"}
-          value={loading ? "…" : hasComptaReport ? String(parMois.length) : String(paidMonth.length)}
+          label={
+            hasComptaReport
+              ? "Nb. mois analysés"
+              : "Nb. factures payées (mois)"
+          }
+          value={
+            loading
+              ? "…"
+              : hasComptaReport
+                ? String(parMois.length)
+                : String(paidMonth.length)
+          }
           hint={
             hasComptaReport
               ? "Périodes détectées dans le fichier."
-              : "Nombre de factures marked paid ce mois-ci."
+              : "Nombre de factures au statut paid ce mois-ci."
           }
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-          <div className="p-6 border-b border-[var(--theme-border)]">
-            <h3 className="text-lg font-bold text-[var(--theme-text)]">Analyse & optimisation</h3>
-            <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl shadow-slate-200/50">
+          <div className="border-b border-[var(--theme-border)] p-6">
+            <h3 className="text-lg font-bold text-[var(--theme-text)]">
+              Analyse & optimisation
+            </h3>
+            <p className="mt-1 text-[11px] font-medium text-[var(--theme-muted)]">
               Recommandations pragmatiques.
             </p>
           </div>
 
-          <div className="p-6 space-y-4">
-            <p className="text-sm font-medium text-[var(--theme-text)]">{analysis.summary}</p>
+          <div className="space-y-4 p-6">
+            <p className="text-sm font-medium text-[var(--theme-text)]">
+              {analysis.summary}
+            </p>
             <ul className="space-y-2">
               {analysis.actions.map((a) => (
-                <li key={a} className="text-sm text-[var(--theme-muted)] flex gap-3">
-                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--theme-bg)]" />
+                <li
+                  key={a}
+                  className="flex gap-3 text-sm text-[var(--theme-muted)]"
+                >
+                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[var(--theme-bg)]" />
                   <span>{a}</span>
                 </li>
               ))}
@@ -250,8 +281,8 @@ export default function DashboardRevenue() {
           </div>
         </div>
 
-        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-          <div className="p-6 border-b border-[var(--theme-border)] flex items-center justify-between">
+        <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl shadow-slate-200/50">
+          <div className="flex items-center justify-between border-b border-[var(--theme-border)] p-6">
             <h3 className="text-lg font-bold text-[var(--theme-text)]">
               {hasComptaReport ? "Top recettes" : "Factures payées (mois)"}
             </h3>
@@ -259,19 +290,24 @@ export default function DashboardRevenue() {
               {loading
                 ? "…"
                 : hasComptaReport
-                ? `${topRecettes.length} éléments`
-                : `${paidMonth.length} éléments`}
+                  ? `${topRecettes.length} éléments`
+                  : `${paidMonth.length} éléments`}
             </span>
           </div>
 
-          <div className="divide-y divide-slate-50">
+          <div className="divide-y divide-[var(--theme-border)]">
             {hasComptaReport ? (
               topRecettes.length > 0 ? (
                 topRecettes.slice(0, 10).map((it) => (
-                  <div key={it.label} className="p-4 flex items-center justify-between">
+                  <div
+                    key={it.label}
+                    className="flex items-center justify-between p-4"
+                  >
                     <div>
-                      <p className="text-sm font-bold text-[var(--theme-text)]">{it.label}</p>
-                      <p className="text-xs text-[var(--theme-muted)] font-medium">
+                      <p className="text-sm font-bold text-[var(--theme-text)]">
+                        {it.label}
+                      </p>
+                      <p className="text-xs font-medium text-[var(--theme-muted)]">
                         {it.count} occurrence(s)
                       </p>
                     </div>
@@ -281,14 +317,23 @@ export default function DashboardRevenue() {
                   </div>
                 ))
               ) : (
-                <div className="p-6 text-sm text-[var(--theme-muted)]">Aucune recette détectée.</div>
+                <div className="p-6 text-sm text-[var(--theme-muted)]">
+                  Aucune recette détectée.
+                </div>
               )
             ) : paidMonth.length > 0 ? (
               paidMonth.slice(0, 10).map((it) => (
-                <div key={it.id} className="p-4 flex items-center justify-between">
+                <div
+                  key={it.id}
+                  className="flex items-center justify-between p-4"
+                >
                   <div>
-                    <p className="text-sm font-bold text-[var(--theme-text)]">{it.client_name}</p>
-                    <p className="text-xs text-[var(--theme-muted)] font-medium">#{it.id.slice(0, 8)}</p>
+                    <p className="text-sm font-bold text-[var(--theme-text)]">
+                      {it.client_name}
+                    </p>
+                    <p className="text-xs font-medium text-[var(--theme-muted)]">
+                      #{it.id.slice(0, 8)}
+                    </p>
                   </div>
                   <span className="text-sm font-black text-[var(--theme-text)]">
                     {formatEurFromCents(invoiceAmountCents(it))}
@@ -296,14 +341,16 @@ export default function DashboardRevenue() {
                 </div>
               ))
             ) : (
-              <div className="p-6 text-sm text-[var(--theme-muted)]">Aucune facture payée ce mois.</div>
+              <div className="p-6 text-sm text-[var(--theme-muted)]">
+                Aucune facture payée ce mois.
+              </div>
             )}
           </div>
 
-          <div className="p-4 bg-[var(--theme-bg)]/50 text-center">
+          <div className="bg-[var(--theme-bg)]/50 p-4 text-center">
             <Link
               to="/dashboard"
-              className="text-xs font-bold text-[var(--theme-muted)] hover:text-blue-600 uppercase tracking-widest"
+              className="text-xs font-bold uppercase tracking-widest text-[var(--theme-muted)] hover:text-[var(--theme-primary)]"
             >
               Retour au dashboard
             </Link>
@@ -314,12 +361,16 @@ export default function DashboardRevenue() {
   );
 }
 
-function KpiCard({ label, value, hint }: any) {
+function KpiCard({ label, value, hint }: KpiCardProps) {
   return (
-    <div className="bg-[var(--theme-card)] p-6 rounded-3xl border border-[var(--theme-border)] shadow-sm">
-      <p className="text-[var(--theme-muted)] text-sm font-medium">{label}</p>
-      <div className="text-2xl font-black text-[var(--theme-text)] mt-1">{value}</div>
-      <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-2">{hint}</p>
+    <div className="rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-6 shadow-sm">
+      <p className="text-sm font-medium text-[var(--theme-muted)]">{label}</p>
+      <div className="mt-1 text-2xl font-black text-[var(--theme-text)]">
+        {value}
+      </div>
+      <p className="mt-2 text-[11px] font-medium text-[var(--theme-muted)]">
+        {hint}
+      </p>
     </div>
   );
 }

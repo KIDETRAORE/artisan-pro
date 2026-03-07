@@ -1,3 +1,4 @@
+// apps/frontend/src/pages/ProjectDashboard.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -12,6 +13,7 @@ import {
   type ProjectInsight,
 } from "../api/projects.api";
 import ProjectExpensesPanel from "../components/projects/ProjectExpensesPanel";
+import { useAIInsight } from "../hooks/useAIInsight";
 
 function formatEurosFromCents(cents: number): string {
   const eur = (Math.round(cents) / 100).toFixed(2);
@@ -20,22 +22,22 @@ function formatEurosFromCents(cents: number): string {
 
 function healthBadgeClass(status: ProjectAnalytics["health_status"]): string {
   if (status === "critical") {
-    return "bg-red-100 text-red-700 border border-red-200";
+    return "border border-red-200 bg-red-100 text-red-700";
   }
   if (status === "warning") {
-    return "bg-amber-100 text-amber-700 border border-amber-200";
+    return "border border-amber-200 bg-amber-100 text-amber-700";
   }
-  return "bg-emerald-100 text-emerald-700 border border-emerald-200";
+  return "border border-emerald-200 bg-emerald-100 text-emerald-700";
 }
 
 function riskBadgeClass(risk: ProjectInsight["risk_level"]): string {
   if (risk === "high") {
-    return "bg-red-100 text-red-700 border border-red-200";
+    return "border border-red-200 bg-red-100 text-red-700";
   }
   if (risk === "medium") {
-    return "bg-amber-100 text-amber-700 border border-amber-200";
+    return "border border-amber-200 bg-amber-100 text-amber-700";
   }
-  return "bg-emerald-100 text-emerald-700 border border-emerald-200";
+  return "border border-emerald-200 bg-emerald-100 text-emerald-700";
 }
 
 function categoryLabel(
@@ -59,6 +61,10 @@ export default function ProjectDashboard() {
   const [importLoading, setImportLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const { cleanedInsight: cleanedRecommendation } = useAIInsight({
+    insight: insight?.recommendation ?? null,
+  });
+
   const profitabilityLabel = useMemo(() => {
     const r = analytics?.profitability_rate ?? 0;
     return `${r.toFixed(2).replace(".", ",")} %`;
@@ -69,10 +75,7 @@ export default function ProjectDashboard() {
 
     const total = analytics.expenses_cents;
     const entries = Object.entries(analytics.expenses_by_category) as Array<
-      [
-        "materials" | "labor" | "equipment" | "transport" | "other",
-        number
-      ]
+      ["materials" | "labor" | "equipment" | "transport" | "other", number]
     >;
 
     return entries
@@ -134,15 +137,33 @@ export default function ProjectDashboard() {
   };
 
   if (!id) {
-    return <div className="p-4 text-[var(--theme-text)]">Chantier introuvable.</div>;
+    return (
+      <div className="mx-auto max-w-7xl space-y-6 p-6">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 text-[var(--theme-text)] shadow-sm">
+          Chantier introuvable.
+        </div>
+      </div>
+    );
   }
 
   if (loading) {
-    return <div className="p-4 text-[var(--theme-text)]">Chargement du chantier…</div>;
+    return (
+      <div className="mx-auto max-w-7xl space-y-6 p-6">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 text-[var(--theme-text)] shadow-sm">
+          Chargement du chantier…
+        </div>
+      </div>
+    );
   }
 
   if (err || !analytics || !project) {
-    return <div className="p-4 text-red-600">{err ?? "Erreur."}</div>;
+    return (
+      <div className="mx-auto max-w-7xl space-y-6 p-6">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 shadow-sm">
+          {err ?? "Erreur."}
+        </div>
+      </div>
+    );
   }
 
   const revenue = analytics.revenue_cents;
@@ -151,7 +172,7 @@ export default function ProjectDashboard() {
   const remainingBudget = analytics.remaining_budget_cents;
 
   return (
-    <div className="space-y-6 p-4 text-[var(--theme-text)]">
+    <div className="mx-auto max-w-7xl space-y-8 p-6 text-[var(--theme-text)] animate-in fade-in duration-700">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-sm text-[var(--theme-muted)]">
@@ -160,20 +181,22 @@ export default function ProjectDashboard() {
             </Link>{" "}
             / <span>Chantier</span>
           </div>
-          <h1 className="text-2xl font-semibold text-[var(--theme-text)]">
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[var(--theme-text)]">
             {project.name}
           </h1>
-          <p className="text-sm text-[var(--theme-muted)]">
+          <p className="mt-1 text-sm text-[var(--theme-muted)]">
             Analyse rentabilité & recommandations
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="inline-flex cursor-pointer items-center rounded-2xl px-4 py-2 text-sm font-semibold text-[var(--theme-primary-contrast)] hover:opacity-90">
-            <span
-              className="rounded-2xl"
-              style={{ backgroundColor: "var(--theme-primary)" }}
-            >
+          <label
+            className={`inline-flex cursor-pointer items-center rounded-2xl px-4 py-2 text-sm font-semibold text-[var(--theme-primary-contrast)] transition-opacity hover:opacity-90 ${
+              importLoading ? "opacity-70" : ""
+            }`}
+            style={{ backgroundColor: "var(--theme-primary)" }}
+          >
+            <span>
               {importLoading ? "Import en cours..." : "Importer fichier comptable"}
             </span>
             <input
@@ -238,7 +261,7 @@ export default function ProjectDashboard() {
         </div>
       </div>
 
-      {analytics.alerts.length > 0 && (
+      {analytics.alerts.length > 0 ? (
         <div className="space-y-3 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
           <h2 className="text-lg font-semibold text-[var(--theme-text)]">
             Alertes chantier
@@ -260,9 +283,9 @@ export default function ProjectDashboard() {
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
-      {categoryBreakdown.length > 0 && (
+      {categoryBreakdown.length > 0 ? (
         <div className="space-y-4 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-[var(--theme-text)]">
@@ -304,7 +327,7 @@ export default function ProjectDashboard() {
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -334,7 +357,7 @@ export default function ProjectDashboard() {
             Analyse IA
           </h2>
 
-          {insight && (
+          {insight ? (
             <div
               className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest ${riskBadgeClass(
                 insight.risk_level
@@ -342,7 +365,7 @@ export default function ProjectDashboard() {
             >
               Risque : {insight.risk_level}
             </div>
-          )}
+          ) : null}
         </div>
 
         {!insight ? (
@@ -351,11 +374,13 @@ export default function ProjectDashboard() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="text-sm text-[var(--theme-text)]">
-              {insight.recommendation}
-            </div>
+            {cleanedRecommendation ? (
+              <div className="text-sm text-[var(--theme-text)]">
+                {cleanedRecommendation}
+              </div>
+            ) : null}
 
-            {insight.findings?.length > 0 && (
+            {insight.findings?.length > 0 ? (
               <div>
                 <div className="text-sm font-semibold text-[var(--theme-text)]">
                   Diagnostic IA
@@ -366,9 +391,9 @@ export default function ProjectDashboard() {
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
 
-            {insight.issues?.length > 0 && (
+            {insight.issues?.length > 0 ? (
               <div>
                 <div className="text-sm font-semibold text-[var(--theme-text)]">
                   Points d’attention
@@ -379,9 +404,9 @@ export default function ProjectDashboard() {
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
 
-            {insight.actions?.length > 0 && (
+            {insight.actions?.length > 0 ? (
               <div>
                 <div className="text-sm font-semibold text-[var(--theme-text)]">
                   Actions recommandées
@@ -392,7 +417,7 @@ export default function ProjectDashboard() {
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>

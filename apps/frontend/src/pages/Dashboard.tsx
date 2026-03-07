@@ -15,6 +15,7 @@ import { useComptaReportStore } from "../store/comptaReport.store";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 import { ComptaReportSchema } from "../schemas/comptaReport.schema";
 import { useUIExperienceStore } from "../store/uiExperience.store";
+import { listRecentQuotes, type Quote } from "../api/quotes.api";
 
 type InvoicePreview = {
   id: string;
@@ -235,17 +236,32 @@ function getInsightToneClasses(tone: DashboardAiInsight["tone"]): string {
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
-// IA_INSIGHTS_SECTION
-// Future intelligent suggestions area
+function formatQuoteAmount(quote: Quote): string {
+  if (typeof quote.total_amount_cents === "number") {
+    return formatEuroFromCents(quote.total_amount_cents);
+  }
+  if (typeof quote.total_amount === "number") {
+    return formatEuro(quote.total_amount);
+  }
+  return "—";
+}
+
+function getQuoteDisplayTitle(quote: Quote): string {
+  if (quote.title) return quote.title;
+  if (quote.reference) return quote.reference;
+  return `Devis #${quote.id.slice(0, 8)}`;
+}
 
 export default function Dashboard() {
-
   const report = useComptaReportStore((s) => s.report);
   const setReport = useComptaReportStore((s) => s.setReport);
   const { mode } = useUIExperienceStore();
 
   const [kpis, setKpis] = useState<DashboardKpis | null>(null);
-  const [insights, setInsights] = useState<any>(null);
+  const [insights, setInsights] = useState<DashboardResponse["insights"] | null>(
+    null
+  );
+  const [recentQuotes, setRecentQuotes] = useState<Quote[]>([]);
   const [kpisLoading, setKpisLoading] = useState(false);
   const [isInsightOpen, setIsInsightOpen] = useState(false);
 
@@ -260,16 +276,24 @@ export default function Dashboard() {
 
     (async () => {
       try {
-        const dash = await fetchWithAuth<DashboardResponse>("/dashboard", {
-          method: "GET",
-        });
+        const [dash, quotes] = await Promise.all([
+          fetchWithAuth<DashboardResponse>("/dashboard", {
+            method: "GET",
+          }),
+          listRecentQuotes(3),
+        ]);
 
         if (!cancelled) {
           setKpis(dash?.kpis ?? null);
-          setInsights((dash as any)?.insights ?? null);
+          setInsights(dash?.insights ?? null);
+          setRecentQuotes(quotes);
         }
       } catch {
-        if (!cancelled) setKpis(null);
+        if (!cancelled) {
+          setKpis(null);
+          setInsights(null);
+          setRecentQuotes([]);
+        }
       } finally {
         if (!cancelled) setKpisLoading(false);
       }
@@ -350,7 +374,9 @@ export default function Dashboard() {
   const card1To = "/dashboard/revenue";
 
   const card2Title = hasComptaReport ? "Dépenses" : "Devis en attente";
-  const card2Value = hasComptaReport ? formatEuro(depensesHT) : `${kpiDevisPending}`;
+  const card2Value = hasComptaReport
+    ? formatEuro(depensesHT)
+    : `${kpiDevisPending}`;
   const card2Trend = hasComptaReport
     ? "Analyse compta IA"
     : kpisLoading
@@ -438,7 +464,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {mode === "embedded-panel" && isInsightOpen && (
+        {mode === "embedded-panel" && isInsightOpen ? (
           <div className="border-t border-[var(--theme-border)] bg-[var(--theme-bg)]/50 px-6 py-5">
             <div className="space-y-3">
               <div className="text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]">
@@ -467,31 +493,42 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <StatCard
-          title={card1Title}
-          value={card1Value}
-          trend={card1Trend}
-          icon={<TrendingUp className="text-emerald-500" />}
-          to={card1To}
-        />
-        <StatCard
-          title={card2Title}
-          value={card2Value}
-          trend={card2Trend}
-          icon={<Clock className="text-amber-500" />}
-          to={card2To}
-        />
-        <StatCard
-          title={card3Title}
-          value={card3Value}
-          trend={card3Trend}
-          icon={<AlertTriangle className="text-red-500" />}
-          to={card3To}
-        />
+        <div className="space-y-3">
+          <StatCard
+            title={card1Title}
+            value={card1Value}
+            trend={card1Trend}
+            icon={<TrendingUp className="text-emerald-500" />}
+            to={card1To}
+          />
+          <AIInsightCard title={card1Title} insight={insights?.revenue ?? null} />
+        </div>
+
+        <div className="space-y-3">
+          <StatCard
+            title={card2Title}
+            value={card2Value}
+            trend={card2Trend}
+            icon={<Clock className="text-amber-500" />}
+            to={card2To}
+          />
+          <AIInsightCard title={card2Title} insight={insights?.quotes ?? null} />
+        </div>
+
+        <div className="space-y-3">
+          <StatCard
+            title={card3Title}
+            value={card3Value}
+            trend={card3Trend}
+            icon={<AlertTriangle className="text-red-500" />}
+            to={card3To}
+          />
+          <AIInsightCard title={card3Title} insight={insights?.unpaid ?? null} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
@@ -516,7 +553,8 @@ export default function Dashboard() {
           <div className="flex-1 space-y-3 p-4">
             {preview.length === 0 ? (
               <div className="p-4 text-sm text-[var(--theme-muted)]">
-                Aucune facture impayée détectée (ou données en cours de chargement).
+                Aucune facture impayée détectée (ou données en cours de
+                chargement).
               </div>
             ) : (
               preview.map((it) => (
@@ -535,8 +573,7 @@ export default function Dashboard() {
         <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
           <div className="flex items-center justify-between border-b border-[var(--theme-border)] p-6">
             <h3 className="text-lg font-bold text-[var(--theme-text)]">
-              CHANTIER_PREVIEW_SECTION
-Derniers Devis
+              Derniers Devis
             </h3>
             <Link
               to="/devis"
@@ -547,30 +584,37 @@ Derniers Devis
           </div>
 
           <div className="divide-y divide-[var(--theme-border)]">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between p-4 transition-colors hover:bg-[var(--theme-bg)]"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--theme-bg)] text-[var(--theme-muted)]">
-                    <FileText size={18} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-[var(--theme-text)]">
-                      Projet Rénovation #{i}42
-                    </p>
-                    <p className="text-xs font-medium text-[var(--theme-muted)]">
-                      Client #00{i}
-                    </p>
-                  </div>
-                </div>
-                <span className="text-sm font-bold text-[var(--theme-text)]">
-                  950 €
-                </span>
+            {recentQuotes.length === 0 ? (
+              <div className="p-4 text-sm text-[var(--theme-muted)]">
+                Aucun devis récent disponible.
               </div>
-            ))}
+            ) : (
+              recentQuotes.map((quote) => (
+                <div
+                  key={quote.id}
+                  className="flex items-center justify-between p-4 transition-colors hover:bg-[var(--theme-bg)]"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--theme-bg)] text-[var(--theme-muted)]">
+                      <FileText size={18} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-[var(--theme-text)]">
+                        {getQuoteDisplayTitle(quote)}
+                      </p>
+                      <p className="text-xs font-medium text-[var(--theme-muted)]">
+                        {quote.client_name}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-[var(--theme-text)]">
+                    {formatQuoteAmount(quote)}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
+
           <div className="bg-[var(--theme-bg)]/50 p-4 text-center">
             <Link
               to="/devis"
@@ -633,7 +677,8 @@ function InvoiceReminderItem({
   daysLate: number;
   dueDate: string;
 }) {
-  const status = daysLate >= 10 ? "CRITIQUE" : daysLate > 0 ? "RETARD" : "À VENIR";
+  const status =
+    daysLate >= 10 ? "CRITIQUE" : daysLate > 0 ? "RETARD" : "À VENIR";
 
   return (
     <div className="group flex items-center justify-between rounded-2xl border border-[var(--theme-border)] p-4 transition-all hover:border-blue-100 hover:bg-blue-50/30">
@@ -658,7 +703,9 @@ function InvoiceReminderItem({
       </div>
 
       <div className="flex items-center gap-4">
-        <span className="text-sm font-black text-[var(--theme-text)]">{amount}</span>
+        <span className="text-sm font-black text-[var(--theme-text)]">
+          {amount}
+        </span>
         <button className="flex items-center gap-2 rounded-xl bg-[var(--theme-primary)] px-3 py-2 text-xs font-bold text-white opacity-0 shadow-lg shadow-slate-200 transition-all group-hover:opacity-100 hover:bg-blue-600">
           <Send size={12} /> Relancer
         </button>

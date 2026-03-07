@@ -2,13 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, Link, Outlet, useNavigate } from "react-router-dom";
-import {
-  Home,
-  X,
-  Sparkles,
-  Palette,
-  UserRound,
-} from "lucide-react";
+import { Home, X, Sparkles, Palette, UserRound } from "lucide-react";
 
 import ExpertHubPanel, { type ExpertTab } from "../features/ai/ExpertHubPanel";
 import { useUser } from "../context/user.context";
@@ -36,7 +30,6 @@ type ExpertMessage = {
   timestamp: Date;
 };
 
-// ✅ MODIF UNIQUE : clé localStorage canonique + clé legacy pour migration
 const EXPERT_ANALYSIS_ID_KEY = "artisanpro_expert_analysis_id";
 const LEGACY_EXPERT_ANALYSIS_ID_KEY = "expertAnalysisId";
 
@@ -44,14 +37,11 @@ export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isChatOpen, setIsChatOpen] = useState(false);
-
-  // ✅ MODIF UNIQUE (cause #1): default tab = "chat"
   const [activeTab, setActiveTab] = useState<ExpertTab>("chat");
 
   const { userData } = useUser();
   const { accessToken } = useAuth();
 
-  // ✅ AJOUT : thème UI
   const { theme, setTheme } = useUIThemeStore();
   const { mode, setMode } = useUIExperienceStore();
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
@@ -115,7 +105,9 @@ export default function Layout() {
     dailyUsage?.limit ?? (quota ? Number((quota as any).limit ?? 0) : 0);
 
   const percentage =
-    displayedLimit > 0 ? Math.min(100, (displayedUsed / displayedLimit) * 100) : 0;
+    displayedLimit > 0
+      ? Math.min(100, (displayedUsed / displayedLimit) * 100)
+      : 0;
 
   const getBarColor = () => {
     if (percentage < 60) return "bg-indigo-600";
@@ -125,14 +117,14 @@ export default function Layout() {
 
   const getUpgradeCtaClass = () => {
     if (isPro) return "bg-indigo-600";
-    if (!quota || (quota as any).limit <= 0) return "bg-indigo-600 hover:bg-indigo-700";
+    if (!quota || (quota as any).limit <= 0)
+      return "bg-indigo-600 hover:bg-indigo-700";
     if ((quota as any).used >= (quota as any).limit)
       return "bg-red-600 hover:bg-red-700 animate-pulse";
     if (percentage >= 80) return "bg-amber-600 hover:bg-amber-700";
     return "bg-indigo-600 hover:bg-indigo-700";
   };
 
-  // ✅ MODIF UNIQUE : recharger analysisId persisté après refresh (clé canonique + migration legacy)
   useEffect(() => {
     try {
       const persisted =
@@ -141,8 +133,6 @@ export default function Layout() {
 
       if (persisted) {
         setExpertAnalysisId(persisted);
-
-        // migration best-effort vers la clé canonique
         window.localStorage.setItem(EXPERT_ANALYSIS_ID_KEY, persisted);
         window.localStorage.removeItem(LEGACY_EXPERT_ANALYSIS_ID_KEY);
       }
@@ -151,7 +141,20 @@ export default function Layout() {
     }
   }, []);
 
-  // ✅ MODIF (Option B): on gère openExpertChat ICI (parent = source unique)
+  useEffect(() => {
+    try {
+      if (expertAnalysisId) {
+        window.localStorage.setItem(EXPERT_ANALYSIS_ID_KEY, expertAnalysisId);
+        window.localStorage.removeItem(LEGACY_EXPERT_ANALYSIS_ID_KEY);
+      } else {
+        window.localStorage.removeItem(EXPERT_ANALYSIS_ID_KEY);
+        window.localStorage.removeItem(LEGACY_EXPERT_ANALYSIS_ID_KEY);
+      }
+    } catch {
+      // best effort
+    }
+  }, [expertAnalysisId]);
+
   useEffect(() => {
     const onOpenExpert = (event: Event) => {
       const custom = event as CustomEvent;
@@ -165,7 +168,6 @@ export default function Layout() {
       setIsChatOpen(true);
       setActiveTab("chat");
 
-      // ✅ MODIF UNIQUE : set + persist localStorage (clé canonique + cleanup legacy)
       if (nextAnalysisId) {
         setExpertAnalysisId(nextAnalysisId);
         try {
@@ -535,15 +537,15 @@ export default function Layout() {
 
       <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-end gap-4">
         {isChatOpen && (
-          <div className="flex max-h-[650px] w-[380px] flex-col overflow-hidden rounded-[2.5rem] border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-2xl animate-in slide-in-from-bottom-5 duration-300">
-            <div className="flex items-center justify-between bg-slate-900 p-5 text-white">
+          <div className="animate-in slide-in-from-bottom-5 flex max-h-[650px] w-[380px] flex-col overflow-hidden rounded-[2.5rem] border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-2xl duration-300">
+            <div className="flex items-center justify-between bg-[var(--theme-primary)] p-5 text-[var(--theme-primary-contrast)]">
               <span className="flex items-center gap-2 text-xs font-black uppercase tracking-widest">
                 <Sparkles size={14} className="text-purple-400" />
                 Mode Expert IA
               </span>
               <button
                 onClick={() => setIsChatOpen(false)}
-                className="rounded-xl p-1.5 transition-colors hover:bg-white/10"
+                className="rounded-xl p-1.5 transition-colors hover:bg-[rgba(255,255,255,0.10)]"
               >
                 <X size={18} />
               </button>
@@ -572,7 +574,7 @@ export default function Layout() {
           }}
           className={`flex h-14 w-14 items-center justify-center rounded-full border-4 border-white shadow-2xl transition-all duration-300 ${
             isChatOpen
-              ? "scale-90 rotate-90 bg-slate-900 text-white"
+              ? "scale-90 rotate-90 bg-[var(--theme-text)] text-[var(--theme-card)]"
               : "bg-gradient-to-tr from-purple-600 to-blue-600 text-white hover:scale-110 active:scale-95"
           }`}
           title="Mode Expert IA"

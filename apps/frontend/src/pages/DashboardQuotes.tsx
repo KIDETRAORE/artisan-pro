@@ -1,16 +1,15 @@
 // apps/frontend/src/pages/DashboardQuotes.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Clock } from "lucide-react";
+import { ArrowLeft, Clock, FileText } from "lucide-react";
 import { Link } from "react-router-dom";
-import { fetchWithAuth } from "../auth/fetchWithAuth";
 import { useComptaReportStore } from "../store/comptaReport.store";
-
-type DashboardResponse = {
-  kpis?: {
-    quotes?: { pendingCount: number };
-    revenue?: { paidMonthCents: number };
-  };
-};
+import {
+  listPendingQuotes,
+  updateQuoteStatus,
+  convertQuoteToInvoice,
+  type Quote,
+  type QuoteStatus,
+} from "../api/quotes.api";
 
 function formatEur(value: number): string {
   return new Intl.NumberFormat("fr-FR", {
@@ -20,11 +19,75 @@ function formatEur(value: number): string {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+function formatEurFromCents(cents: number): string {
+  const euros = (Number.isFinite(cents) ? cents : 0) / 100;
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 2,
+  }).format(euros);
+}
+
+function formatQuoteAmount(quote: Quote): string {
+  if (typeof quote.total_amount_cents === "number") {
+    return formatEurFromCents(quote.total_amount_cents);
+  }
+  if (typeof quote.total_amount === "number") {
+    return formatEur(quote.total_amount);
+  }
+  return "—";
+}
+
+function getQuoteDisplayTitle(quote: Quote): string {
+  if (quote.title) return quote.title;
+  if (quote.reference) return quote.reference;
+  return `Devis #${quote.id.slice(0, 8)}`;
+}
+
+function getQuoteStatusLabel(status: string): string {
+  const normalized = status.trim().toLowerCase();
+
+  if (normalized === "pending") return "En attente";
+  if (normalized === "sent") return "Envoyé";
+  if (normalized === "open") return "Ouvert";
+  if (normalized === "draft") return "Brouillon";
+  if (normalized === "accepted") return "Accepté";
+  if (normalized === "rejected" || normalized === "refused") return "Refusé";
+  if (normalized === "expired") return "Expiré";
+  if (normalized === "cancelled") return "Annulé";
+
+  return status;
+}
+
+function getQuoteStatusClass(status: string): string {
+  const normalized = status.trim().toLowerCase();
+
+  if (normalized === "pending") {
+    return "bg-amber-100 text-amber-700";
+  }
+  if (normalized === "sent" || normalized === "open") {
+    return "bg-blue-100 text-blue-700";
+  }
+  if (normalized === "accepted") {
+    return "bg-emerald-100 text-emerald-700";
+  }
+  if (normalized === "rejected" || normalized === "refused") {
+    return "bg-red-100 text-red-700";
+  }
+  return "bg-[var(--theme-bg)] text-[var(--theme-text)]";
+}
+
+function canConvertQuote(quote: Quote): boolean {
+  return String(quote.status).trim().toLowerCase() === "accepted" && !quote.invoice_id;
+}
+
 export default function DashboardQuotes() {
   const report = useComptaReportStore((s) => s.report);
 
   const [loading, setLoading] = useState(false);
-  const [pendingCount, setPendingCount] = useState<number>(0);
+  const [pendingQuotes, setPendingQuotes] = useState<Quote[]>([]);
+  const [updatingQuoteId, setUpdatingQuoteId] = useState<string | null>(null);
+  const [convertingQuoteId, setConvertingQuoteId] = useState<string | null>(null);
   const fetchOnceRef = useRef(false);
 
   useEffect(() => {
@@ -36,14 +99,13 @@ export default function DashboardQuotes() {
 
     (async () => {
       try {
-        const dash = await fetchWithAuth<DashboardResponse>("/dashboard", {
-          method: "GET",
-        });
+        const quotes = await listPendingQuotes();
+
         if (!cancelled) {
-          setPendingCount(dash?.kpis?.quotes?.pendingCount ?? 0);
+          setPendingQuotes(quotes);
         }
       } catch {
-        if (!cancelled) setPendingCount(0);
+        if (!cancelled) setPendingQuotes([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -59,6 +121,8 @@ export default function DashboardQuotes() {
   const depensesTTC = report?.totals?.depensesTTC ?? 0;
   const topDepenses = report?.breakdown?.topDepenses ?? [];
   const anomalies = report?.anomalies ?? [];
+
+  const pendingCount = pendingQuotes.length;
 
   const analysis = useMemo(() => {
     if (hasComptaReport) {
@@ -80,24 +144,57 @@ export default function DashboardQuotes() {
       };
     }
 
-    const actions = [
-      "Définir le statut devis (draft/sent/accepted/refused) comme source de vérité côté backend.",
-      "Relier devis → facture (invoice_id) pour mesurer le taux de conversion.",
-      "Relance devis envoyés à J+2 / J+7 (gain direct sur le CA).",
-      "Ajouter un champ chantier/projet sur le devis pour un pilotage BTP cohérent.",
-    ];
-
     return {
       summary:
         pendingCount > 0
-          ? `${pendingCount} devis en attente (valeur exacte non disponible tant que le backend devis n’est pas branché).`
-          : "Aucun devis en attente (ou backend devis non branché).",
-      actions,
+          ? `${pendingCount} devis en attente détecté(s) sur la base des statuts devis actuels.`
+          : "Aucun devis en attente détecté pour le moment.",
+      actions: [
+        "Relancer en priorité les devis au statut “pending”, “sent” ou “open”.",
+        "Suivre les devis les plus récents pour accélérer la conversion commerciale.",
+        "Relier devis → facture pour mesurer le taux de transformation réel.",
+        "Ajouter un rattachement chantier/projet pour un suivi commercial plus fin.",
+      ],
     };
   }, [hasComptaReport, anomalies.length, depensesTTC, depensesHT, pendingCount]);
 
+  const reloadQuotes = async () => {
+    const quotes = await listPendingQuotes();
+    setPendingQuotes(quotes);
+  };
+
+  const handleStatusUpdate = async (quoteId: string, status: QuoteStatus) => {
+    if (updatingQuoteId || convertingQuoteId) return;
+
+    setUpdatingQuoteId(quoteId);
+
+    try {
+      await updateQuoteStatus(quoteId, status);
+      await reloadQuotes();
+    } catch {
+      // best effort UI silencieuse à ce stade
+    } finally {
+      setUpdatingQuoteId(null);
+    }
+  };
+
+  const handleConvertToInvoice = async (quoteId: string) => {
+    if (updatingQuoteId || convertingQuoteId) return;
+
+    setConvertingQuoteId(quoteId);
+
+    try {
+      await convertQuoteToInvoice(quoteId);
+      await reloadQuotes();
+    } catch {
+      // best effort UI silencieuse à ce stade
+    } finally {
+      setConvertingQuoteId(null);
+    }
+  };
+
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
+    <div className="mx-auto max-w-7xl space-y-8 animate-in fade-in duration-700">
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link
@@ -106,24 +203,24 @@ export default function DashboardQuotes() {
           >
             <ArrowLeft size={16} /> Retour
           </Link>
-          <h2 className="text-3xl font-extrabold text-[var(--theme-text)] tracking-tight mt-2">
+          <h2 className="mt-2 text-3xl font-extrabold tracking-tight text-[var(--theme-text)]">
             {hasComptaReport ? "Dépenses" : "Devis en attente"}
           </h2>
-          <p className="text-[var(--theme-muted)] mt-1">
+          <p className="mt-1 text-[var(--theme-muted)]">
             {hasComptaReport
               ? "Analyse structurée des dépenses issues de la compta IA."
-              : "Analyse structurée + prochaines améliorations (devis backend à finaliser)."}
+              : "Analyse structurée des devis en attente basée sur les données réelles."}
           </p>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 bg-[var(--theme-card)] border border-[var(--theme-border)] rounded-2xl px-4 py-3 shadow-sm">
+        <div className="hidden items-center gap-2 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-4 py-3 shadow-sm sm:flex">
           <Clock className="text-amber-500" size={18} />
           <span className="text-sm font-black text-[var(--theme-text)]">
             {loading
               ? "…"
               : hasComptaReport
-              ? formatEur(depensesTTC)
-              : String(pendingCount)}
+                ? formatEur(depensesTTC)
+                : String(pendingCount)}
           </span>
           <span className="text-xs font-bold text-[var(--theme-muted)]">
             {hasComptaReport ? "dépenses" : "en attente"}
@@ -131,20 +228,27 @@ export default function DashboardQuotes() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-          <div className="p-6 border-b border-[var(--theme-border)]">
-            <h3 className="text-lg font-bold text-[var(--theme-text)]">Analyse</h3>
-            <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl shadow-slate-200/50">
+          <div className="border-b border-[var(--theme-border)] p-6">
+            <h3 className="text-lg font-bold text-[var(--theme-text)]">
+              Analyse
+            </h3>
+            <p className="mt-1 text-[11px] font-medium text-[var(--theme-muted)]">
               Ce que l’écran peut faire dès maintenant.
             </p>
           </div>
-          <div className="p-6 space-y-4">
-            <p className="text-sm font-medium text-[var(--theme-text)]">{analysis.summary}</p>
+          <div className="space-y-4 p-6">
+            <p className="text-sm font-medium text-[var(--theme-text)]">
+              {analysis.summary}
+            </p>
             <ul className="space-y-2">
               {analysis.actions.map((a) => (
-                <li key={a} className="text-sm text-[var(--theme-muted)] flex gap-3">
-                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--theme-bg)]" />
+                <li
+                  key={a}
+                  className="flex gap-3 text-sm text-[var(--theme-muted)]"
+                >
+                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[var(--theme-bg)]" />
                   <span>{a}</span>
                 </li>
               ))}
@@ -152,19 +256,19 @@ export default function DashboardQuotes() {
           </div>
         </div>
 
-        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-          <div className="p-6 border-b border-[var(--theme-border)]">
+        <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl shadow-slate-200/50">
+          <div className="border-b border-[var(--theme-border)] p-6">
             <h3 className="text-lg font-bold text-[var(--theme-text)]">
-              {hasComptaReport ? "Top dépenses" : "Actions rapides"}
+              {hasComptaReport ? "Top dépenses" : "Devis à relancer"}
             </h3>
-            <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
+            <p className="mt-1 text-[11px] font-medium text-[var(--theme-muted)]">
               {hasComptaReport
                 ? "Postes détectés par l’analyse comptable."
-                : "Aller vers la source de vérité."}
+                : "Liste réelle des devis en attente."}
             </p>
           </div>
 
-          <div className="p-6 space-y-3">
+          <div className="space-y-3 p-6">
             {hasComptaReport ? (
               topDepenses.length > 0 ? (
                 topDepenses.slice(0, 10).map((item) => (
@@ -173,8 +277,10 @@ export default function DashboardQuotes() {
                     className="flex items-center justify-between rounded-2xl border border-[var(--theme-border)] px-4 py-3"
                   >
                     <div>
-                      <p className="text-sm font-bold text-[var(--theme-text)]">{item.label}</p>
-                      <p className="text-xs text-[var(--theme-muted)] font-medium">
+                      <p className="text-sm font-bold text-[var(--theme-text)]">
+                        {item.label}
+                      </p>
+                      <p className="text-xs font-medium text-[var(--theme-muted)]">
                         {item.count} occurrence(s)
                       </p>
                     </div>
@@ -184,26 +290,113 @@ export default function DashboardQuotes() {
                   </div>
                 ))
               ) : (
-                <p className="text-xs text-[var(--theme-muted)] font-medium">
+                <p className="text-xs font-medium text-[var(--theme-muted)]">
                   Aucune dépense détaillée détectée.
                 </p>
               )
+            ) : loading ? (
+              <p className="text-xs font-medium text-[var(--theme-muted)]">
+                Chargement des devis…
+              </p>
+            ) : pendingQuotes.length > 0 ? (
+              pendingQuotes.slice(0, 10).map((quote) => (
+                <div
+                  key={quote.id}
+                  className="rounded-2xl border border-[var(--theme-border)] px-4 py-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--theme-bg)] text-[var(--theme-muted)]">
+                        <FileText size={16} />
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-[var(--theme-text)]">
+                          {getQuoteDisplayTitle(quote)}
+                        </p>
+                        <p className="truncate text-xs font-medium text-[var(--theme-muted)]">
+                          {quote.client_name}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="ml-4 text-right">
+                      <div className="text-sm font-black text-[var(--theme-text)]">
+                        {formatQuoteAmount(quote)}
+                      </div>
+                      <div
+                        className={`mt-1 inline-flex rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-widest ${getQuoteStatusClass(
+                          String(quote.status)
+                        )}`}
+                      >
+                        {getQuoteStatusLabel(String(quote.status))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleStatusUpdate(quote.id, "sent")}
+                      disabled={
+                        updatingQuoteId === quote.id || convertingQuoteId === quote.id
+                      }
+                      className="rounded-xl border border-[var(--theme-border)] px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-[var(--theme-text)] hover:bg-[var(--theme-bg)] disabled:opacity-60"
+                    >
+                      Envoyer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStatusUpdate(quote.id, "accepted")}
+                      disabled={
+                        updatingQuoteId === quote.id || convertingQuoteId === quote.id
+                      }
+                      className="rounded-xl border border-emerald-200 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                    >
+                      Accepter
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStatusUpdate(quote.id, "rejected")}
+                      disabled={
+                        updatingQuoteId === quote.id || convertingQuoteId === quote.id
+                      }
+                      className="rounded-xl border border-red-200 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-red-700 hover:bg-red-50 disabled:opacity-60"
+                    >
+                      Refuser
+                    </button>
+
+                    {canConvertQuote(quote) ? (
+                      <button
+                        type="button"
+                        onClick={() => handleConvertToInvoice(quote.id)}
+                        disabled={
+                          updatingQuoteId === quote.id || convertingQuoteId === quote.id
+                        }
+                        className="rounded-xl bg-[var(--theme-primary)] px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-white hover:bg-blue-600 disabled:opacity-60"
+                      >
+                        Créer facture
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))
             ) : (
               <>
                 <Link
                   to="/devis"
-                  className="block bg-[var(--theme-primary)] text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors"
+                  className="block rounded-2xl bg-[var(--theme-primary)] px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-600"
                 >
                   Ouvrir le module Devis
                 </Link>
                 <Link
                   to="/dashboard"
-                  className="block bg-[var(--theme-card)] border border-[var(--theme-border)] text-[var(--theme-text)] px-4 py-3 rounded-2xl font-bold text-sm hover:border-blue-200 hover:bg-blue-50/30 transition-colors"
+                  className="block rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-4 py-3 text-sm font-bold text-[var(--theme-text)] transition-colors hover:border-blue-200 hover:bg-blue-50/30"
                 >
                   Revenir au dashboard
                 </Link>
-                <p className="text-xs text-[var(--theme-muted)] font-medium">
-                  Note: pour afficher une vraie liste “devis en attente”, il faudra brancher le backend devis (table + statuts) comme on l’a fait pour les factures.
+                <p className="text-xs font-medium text-[var(--theme-muted)]">
+                  Aucun devis en attente détecté pour le moment.
                 </p>
               </>
             )}

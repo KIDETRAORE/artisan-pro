@@ -21,8 +21,6 @@ import { useUser } from "../context/user.context";
 import { useAuth } from "../store/auth.store";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 import { ApiRequestError } from "../utils/apiRequestError";
-
-// ✅ AJOUT
 import type { AiRunResponse } from "../api/types";
 
 const API_URL = "http://localhost:8080/ai";
@@ -34,7 +32,12 @@ interface Message {
   timestamp: Date;
 }
 
-function stringifyResult(result: any): string {
+type ExpertChatEventDetail = {
+  analysisData?: unknown;
+  message?: string;
+};
+
+function stringifyResult(result: unknown): string {
   if (result === null || result === undefined) return "";
   if (typeof result === "string") return result;
 
@@ -87,7 +90,7 @@ export default function Assistant() {
   const [isLoading, setIsLoading] = useState(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
-  const [analysisContext, setAnalysisContext] = useState<any>(null);
+  const [analysisContext, setAnalysisContext] = useState<unknown>(null);
 
   const getWelcomeMessage = useCallback(
     (customText?: string): Message => ({
@@ -103,13 +106,16 @@ export default function Assistant() {
     [userData?.name]
   );
 
-  // Init + écoute Mode Expert (Compta / Vision / autres)
   useEffect(() => {
     if (messages.length === 0) setMessages([getWelcomeMessage()]);
 
-    const handleExpertEvent = (e: any) => {
-      const { analysisData, message } = e.detail || {};
-      if (analysisData) setAnalysisContext(analysisData);
+    const handleExpertEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<ExpertChatEventDetail>;
+      const { analysisData, message } = customEvent.detail || {};
+
+      if (analysisData !== undefined) {
+        setAnalysisContext(analysisData);
+      }
 
       const expertMsg: Message = {
         id: `expert-${Date.now()}`,
@@ -126,13 +132,11 @@ export default function Assistant() {
       window.removeEventListener("openExpertChat", handleExpertEvent);
   }, [getWelcomeMessage, messages.length]);
 
-  // Auto-scroll
   useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isLoading]);
 
-  // ✅ Anti multi-poll + cleanup
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPollingRef = useRef(false);
 
@@ -155,14 +159,11 @@ export default function Assistant() {
   };
 
   const startPolling = (jobId: string) => {
-    // ✅ Stop ancien poll si existant + reset flag
     clearPoll();
 
-    // ✅ Empêche plusieurs polls simultanés
     if (isPollingRef.current) return;
     isPollingRef.current = true;
 
-    // ✅ Backoff 429 : 1s → 2s → 4s → 8s → 10s (max)
     let delayMs = 1000;
     const maxDelayMs = 10000;
 
@@ -215,8 +216,7 @@ export default function Assistant() {
       }
     };
 
-    // Démarrage immédiat, puis interval
-    tick();
+    void tick();
     pollIntervalRef.current = setInterval(tick, delayMs);
   };
 
@@ -235,7 +235,6 @@ export default function Assistant() {
     setIsLoading(true);
 
     try {
-      // ✅ Prompt enrichi si contexte (vision/compta/etc.)
       let finalPrompt = input;
       if (analysisContext) {
         finalPrompt = `CONTEXTE (JSON): ${JSON.stringify(
@@ -243,7 +242,6 @@ export default function Assistant() {
         )}\n\nQUESTION: ${input}`;
       }
 
-      // ✅ MODIF UNIQUE: /ai/run -> /ai/chat
       const data = await fetchWithAuth<AiRunResponse>("/ai/chat", {
         method: "POST",
         body: JSON.stringify({ type: "assistant", prompt: finalPrompt }),
@@ -252,7 +250,6 @@ export default function Assistant() {
       if (data?.jobId) {
         startPolling(String(data.jobId));
       } else {
-        // ✅ pas de throw new Error : on gère via message UI
         const botMsg: Message = {
           id: `noj-${Date.now()}`,
           role: "assistant",
@@ -282,7 +279,7 @@ export default function Assistant() {
   };
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 pb-6 pt-2 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 px-4 pb-6 pt-2 duration-700">
       <div className="space-y-2">
         <h2 className="text-3xl font-extrabold tracking-tight text-[var(--theme-text)]">
           Actions
@@ -327,7 +324,10 @@ export default function Assistant() {
             className="rounded-lg p-1.5"
             style={{ backgroundColor: "var(--theme-primary)" }}
           >
-            <Sparkles className="text-[var(--theme-primary-contrast)]" size={14} />
+            <Sparkles
+              className="text-[var(--theme-primary-contrast)]"
+              size={14}
+            />
           </div>
           <span className="text-xs font-black uppercase tracking-widest text-[var(--theme-text)]">
             {analysisContext ? "Analyse Expert Active" : "Assistant d’action IA"}
@@ -346,7 +346,6 @@ export default function Assistant() {
       </div>
 
       <div className="flex h-[calc(100vh-360px)] min-h-[420px] flex-col overflow-hidden rounded-[2.5rem] border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-2xl">
-        {/* Messages */}
         <div
           ref={scrollRef}
           className="flex-1 space-y-6 overflow-y-auto bg-[var(--theme-bg)] p-4 md:p-8"
@@ -375,11 +374,7 @@ export default function Assistant() {
                       : { backgroundColor: "var(--theme-primary)" }
                   }
                 >
-                  {msg.role === "user" ? (
-                    <User size={16} />
-                  ) : (
-                    <Bot size={16} />
-                  )}
+                  {msg.role === "user" ? <User size={16} /> : <Bot size={16} />}
                 </div>
 
                 <div
@@ -417,7 +412,6 @@ export default function Assistant() {
           )}
         </div>
 
-        {/* Saisie */}
         <div className="border-t border-[var(--theme-border)] bg-[var(--theme-card)] p-4">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">

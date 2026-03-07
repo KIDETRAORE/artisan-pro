@@ -25,6 +25,9 @@ import openApiRoutes from "./routes/openapi.routes";
 // ✅ AJOUT: Expert routes (mount direct /ai/expert)
 import expertRouter from "./routes/expert.routes";
 
+// ✅ AJOUT: Quotes routes
+import quotesRoutes from "./routes/quotes.routes";
+
 // ✅ AJOUT: Scheduler relances (cron BullMQ)
 import { startInvoiceRemindersScheduler } from "./schedulers/reminders.scheduler";
 
@@ -200,6 +203,12 @@ app.use(openApiRoutes);
  * /ai/expert/*
  */
 app.use("/ai/expert", expertRouter);
+
+/**
+ * ✅ QUOTES ROUTES
+ * /quotes/*
+ */
+app.use("/quotes", quotesRoutes);
 
 /**
  * ======================

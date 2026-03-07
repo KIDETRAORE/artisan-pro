@@ -12,25 +12,92 @@ import {
 } from "lucide-react";
 import { useAuth } from "../store/auth.store";
 import { ApiRequestError, toApiRequestError } from "../utils/apiRequestError";
-
-// ✅ AJOUT
 import type { AiRunResponse } from "../api/types";
+import { fetchWithAuth } from "../auth/fetchWithAuth";
 
 const API_URL = "http://localhost:8080/ai";
+
+type DevisAnalysisItem = {
+  description?: string;
+  price?: number | string;
+};
+
+type DevisAnalysisResult = {
+  clientName?: string;
+  totalHT?: number | string;
+  totalTTC?: number | string;
+  items?: DevisAnalysisItem[];
+};
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function normalizeDevisAnalysisResult(value: unknown): DevisAnalysisResult | null {
+  if (!isObject(value)) return null;
+
+  const clientName =
+    typeof value.clientName === "string" ? value.clientName : undefined;
+
+  const totalHT =
+    typeof value.totalHT === "number" || typeof value.totalHT === "string"
+      ? value.totalHT
+      : undefined;
+
+  const totalTTC =
+    typeof value.totalTTC === "number" || typeof value.totalTTC === "string"
+      ? value.totalTTC
+      : undefined;
+
+  const rawItems = Array.isArray(value.items) ? value.items : [];
+  const items: DevisAnalysisItem[] = rawItems
+    .filter(isObject)
+    .map((item) => ({
+      description:
+        typeof item.description === "string" ? item.description : undefined,
+      price:
+        typeof item.price === "number" || typeof item.price === "string"
+          ? item.price
+          : undefined,
+    }));
+
+  return {
+    clientName,
+    totalHT,
+    totalTTC,
+    items,
+  };
+}
+
+function parseAmountToCents(value: number | string | undefined): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.round(value * 100);
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.replace(",", ".").replace(/[^\d.-]/g, "");
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) {
+      return Math.round(parsed * 100);
+    }
+  }
+
+  return 0;
+}
 
 export default function Devis() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [analysisResult, setAnalysisResult] =
+    useState<DevisAnalysisResult | null>(null);
+  const [isSavingQuote, setIsSavingQuote] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Refs pour le micro
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
 
   const { accessToken } = useAuth();
 
-  // ✅ Anti multi-poll + cleanup
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPollingRef = useRef(false);
 
@@ -52,16 +119,12 @@ export default function Devis() {
     isPollingRef.current = false;
   };
 
-  // --- 1. POLLING DU STATUT ---
   const startPolling = (jobId: string) => {
-    // ✅ Stop ancien poll si existant
     clearPoll();
 
-    // ✅ Empêcher multi-poll
     if (isPollingRef.current) return;
     isPollingRef.current = true;
 
-    // ✅ Backoff 429 : 1s → 2s → 4s → 8s → 10s (max)
     let delayMs = 1000;
     const maxDelayMs = 10000;
 
@@ -75,20 +138,28 @@ export default function Devis() {
           throw await toApiRequestError(response);
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as {
+          status?: string;
+          result?: unknown;
+          error?: string;
+        };
 
         if (data.status === "completed") {
           clearPoll();
 
-          let finalData = data.result;
+          let finalData: unknown = data.result;
 
-          // Nettoyage JSON si nécessaire
           if (typeof finalData === "string") {
-            const match = finalData.match(/\{[\s\S]*\}/);
-            finalData = match ? JSON.parse(match[0]) : JSON.parse(finalData);
+            try {
+              const match = finalData.match(/\{[\s\S]*\}/);
+              finalData = match ? JSON.parse(match[0]) : JSON.parse(finalData);
+            } catch {
+              finalData = null;
+            }
           }
 
-          setAnalysisResult(finalData);
+          const normalized = normalizeDevisAnalysisResult(finalData);
+          setAnalysisResult(normalized);
           setIsProcessing(false);
         } else if (data.status === "failed") {
           clearPoll();
@@ -98,7 +169,6 @@ export default function Devis() {
       } catch (e) {
         const err = e as ApiRequestError;
 
-        // ✅ 429 backoff
         if (err.code === "too_many_requests") {
           clearPoll();
           delayMs = Math.min(maxDelayMs, delayMs * 2);
@@ -113,12 +183,10 @@ export default function Devis() {
       }
     };
 
-    // Démarrage immédiat, puis interval
-    tick();
+    void tick();
     pollIntervalRef.current = setInterval(tick, delayMs);
   };
 
-  // --- 2. LOGIQUE DU MICRO ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -127,6 +195,7 @@ export default function Devis() {
 
       mediaRecorder.current.ondataavailable = (e) =>
         audioChunks.current.push(e.data);
+
       mediaRecorder.current.onstop = async () => {
         const audioBlob = new Blob(audioChunks.current, { type: "audio/mp3" });
         await sendToAI(audioBlob, "vocal");
@@ -147,12 +216,9 @@ export default function Devis() {
     }
   };
 
-  // --- 3. ENVOI À L'IA (Image ou Audio) ---
   const sendToAI = async (file: File | Blob, typeOverride?: string) => {
     setIsProcessing(true);
     setAnalysisResult(null);
-
-    // ✅ stop ancien poll si existant
     clearPoll();
 
     try {
@@ -178,20 +244,49 @@ export default function Devis() {
         throw await toApiRequestError(response);
       }
 
-      // ✅ MODIF: typer la réponse /ai/run
       const data = (await response.json()) as AiRunResponse;
-      if (data.jobId) startPolling(data.jobId);
+
+      if (data.jobId) {
+        startPolling(String(data.jobId));
+      } else {
+        toast.error("Le backend n’a pas renvoyé de jobId.");
+        setIsProcessing(false);
+        clearPoll();
+      }
     } catch (e) {
       const err = e as ApiRequestError;
-
       toast.error(err.message || "Erreur de connexion.");
       setIsProcessing(false);
       clearPoll();
     }
   };
 
+  const handleCreateQuote = async () => {
+    if (!analysisResult || isSavingQuote) return;
+
+    setIsSavingQuote(true);
+
+    try {
+      await fetchWithAuth("/quotes", {
+        method: "POST",
+        body: JSON.stringify({
+          client_name: analysisResult.clientName ?? "Client",
+          title: "Devis généré par IA",
+          total_amount_cents: parseAmountToCents(analysisResult.totalTTC),
+        }),
+      });
+
+      toast.success("Devis enregistré avec succès.");
+    } catch (e) {
+      const err = e as ApiRequestError;
+      toast.error(err.message || "Impossible d’enregistrer le devis.");
+    } finally {
+      setIsSavingQuote(false);
+    }
+  };
+
   return (
-    <div className="h-full max-w-md mx-auto flex flex-col gap-3 p-4">
+    <div className="mx-auto flex h-full max-w-md flex-col gap-3 p-4">
       <input
         type="file"
         ref={fileInputRef}
@@ -200,52 +295,48 @@ export default function Devis() {
         accept="image/*,audio/*"
       />
 
-      {/* ZONE D'UPLOAD */}
-      <div className="bg-[var(--theme-card)] rounded-2xl p-4 border border-[var(--theme-border)] shadow-sm shrink-0">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-emerald-500 text-xs">📂</span>
-          <span className="text-[9px] font-black text-[var(--theme-muted)] uppercase tracking-widest">
+      <div className="shrink-0 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-xs text-emerald-500">📂</span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
             Analyse de documents
           </span>
         </div>
 
         <div
           onClick={() => !isProcessing && fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl py-6 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer
-            ${
-              isProcessing
-                ? "bg-[var(--theme-bg)] border-blue-200"
-                : "border-[var(--theme-border)] hover:bg-[var(--theme-bg)] hover:border-[var(--theme-border)]"
-            }
-          `}
+          className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed py-6 transition-all ${
+            isProcessing
+              ? "border-blue-200 bg-[var(--theme-bg)]"
+              : "border-[var(--theme-border)] hover:border-[var(--theme-border)] hover:bg-[var(--theme-bg)]"
+          }`}
         >
           {isProcessing ? (
-            <span className="text-[11px] font-medium text-blue-500 flex items-center gap-2">
+            <span className="flex items-center gap-2 text-[11px] font-medium text-blue-500">
               <Loader2 size={16} className="animate-spin" /> Analyse en cours...
             </span>
           ) : (
-            <span className="text-[11px] font-medium italic text-[var(--theme-muted)] flex items-center gap-2">
+            <span className="flex items-center gap-2 text-[11px] font-medium italic text-[var(--theme-muted)]">
               <CloudUpload size={16} /> Photo ou fichier audio
             </span>
           )}
         </div>
       </div>
 
-      {/* ZONE DE RÉSULTAT OU DESIGN VOCAL */}
-      <div className="flex-1 bg-[var(--theme-card)] rounded-[2rem] p-6 shadow-sm flex flex-col min-h-0 overflow-y-auto relative">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[2rem] bg-[var(--theme-card)] p-6 shadow-sm">
         {analysisResult ? (
-          <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-            <h2 className="text-sm font-black text-[var(--theme-text)] uppercase tracking-widest border-b pb-2">
+          <div className="animate-in slide-in-from-bottom-4 space-y-6 duration-500">
+            <h2 className="border-b pb-2 text-sm font-black uppercase tracking-widest text-[var(--theme-text)]">
               Analyse Terminée
             </h2>
 
             <div className="space-y-4">
               <div className="flex items-start gap-3">
-                <div className="p-2 bg-blue-50 rounded-lg text-blue-500">
+                <div className="rounded-lg bg-blue-50 p-2 text-blue-500">
                   <User size={18} />
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold text-[var(--theme-muted)] uppercase">
+                  <p className="text-[10px] font-bold uppercase text-[var(--theme-muted)]">
                     Client
                   </p>
                   <p className="font-bold text-[var(--theme-text)]">
@@ -255,16 +346,16 @@ export default function Devis() {
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-[var(--theme-bg)] rounded-xl">
-                  <p className="text-[10px] font-bold text-[var(--theme-muted)] uppercase">
+                <div className="rounded-xl bg-[var(--theme-bg)] p-3">
+                  <p className="text-[10px] font-bold uppercase text-[var(--theme-muted)]">
                     Total HT
                   </p>
                   <p className="text-lg font-black text-[var(--theme-text)]">
                     {analysisResult.totalHT || "0"} €
                   </p>
                 </div>
-                <div className="p-3 bg-emerald-50 rounded-xl">
-                  <p className="text-[10px] font-bold text-emerald-500 uppercase">
+                <div className="rounded-xl bg-emerald-50 p-3">
+                  <p className="text-[10px] font-bold uppercase text-emerald-500">
                     Total TTC
                   </p>
                   <p className="text-lg font-black text-emerald-600">
@@ -274,35 +365,45 @@ export default function Devis() {
               </div>
 
               <div className="space-y-2">
-                <p className="text-[10px] font-bold text-[var(--theme-muted)] uppercase">
+                <p className="text-[10px] font-bold uppercase text-[var(--theme-muted)]">
                   Prestations
                 </p>
-                {analysisResult.items?.map((item: any, idx: number) => (
+                {analysisResult.items?.map((item, idx) => (
                   <div
                     key={idx}
-                    className="text-[11px] bg-[var(--theme-bg)] p-2 rounded-lg flex justify-between border border-[var(--theme-border)]"
+                    className="flex justify-between rounded-lg border border-[var(--theme-border)] bg-[var(--theme-bg)] p-2 text-[11px]"
                   >
-                    <span className="text-[var(--theme-muted)] font-medium">
-                      {item.description}
+                    <span className="font-medium text-[var(--theme-muted)]">
+                      {item.description || "Prestation"}
                     </span>
                     <span className="font-bold text-[var(--theme-text)]">
-                      {item.price}€
+                      {item.price ?? "0"}€
                     </span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <button
-              onClick={() => setAnalysisResult(null)}
-              className="w-full py-3 bg-[var(--theme-primary)] text-white rounded-xl text-[11px] font-bold uppercase mt-4"
-            >
-              Nouveau Devis
-            </button>
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              <button
+                onClick={handleCreateQuote}
+                disabled={isSavingQuote}
+                className="w-full rounded-xl bg-[var(--theme-primary)] py-3 text-[11px] font-bold uppercase text-white disabled:opacity-60"
+              >
+                {isSavingQuote ? "Enregistrement..." : "Créer le devis"}
+              </button>
+
+              <button
+                onClick={() => setAnalysisResult(null)}
+                className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] py-3 text-[11px] font-bold uppercase text-[var(--theme-text)]"
+              >
+                Nouveau Devis
+              </button>
+            </div>
           </div>
         ) : (
-          <div className="h-full flex flex-col items-center justify-between py-4">
-            <h2 className="text-lg font-black text-[var(--theme-text)] uppercase">
+          <div className="flex h-full flex-col items-center justify-between py-4">
+            <h2 className="text-lg font-black uppercase text-[var(--theme-text)]">
               Note Vocale
             </h2>
 
@@ -310,15 +411,13 @@ export default function Devis() {
               <button
                 onClick={isRecording ? stopRecording : startRecording}
                 disabled={isProcessing}
-                className={`w-32 h-32 rounded-full flex items-center justify-center border-8 border-[var(--theme-border)] shadow-2xl transition-all active:scale-95
-                  ${
-                    isRecording
-                      ? "bg-red-500 text-white animate-pulse border-red-100"
-                      : isProcessing
+                className={`flex h-32 w-32 items-center justify-center rounded-full border-8 border-[var(--theme-border)] shadow-2xl transition-all active:scale-95 ${
+                  isRecording
+                    ? "animate-pulse border-red-100 bg-red-500 text-white"
+                    : isProcessing
                       ? "bg-[var(--theme-bg)] text-[var(--theme-muted)]"
                       : "bg-blue-600 text-white hover:bg-blue-700"
-                  }
-                `}
+                }`}
               >
                 {isProcessing ? (
                   <Loader2 size={48} className="animate-spin" />
@@ -330,21 +429,20 @@ export default function Devis() {
               </button>
 
               <div className="text-center">
-                <p className="font-black text-[var(--theme-text)] text-[13px] uppercase">
+                <p className="text-[13px] font-black uppercase text-[var(--theme-text)]">
                   {isRecording
                     ? "Enregistrement..."
                     : isProcessing
-                    ? "Analyse en cours..."
-                    : "Appuyez pour parler"}
+                      ? "Analyse en cours..."
+                      : "Appuyez pour parler"}
                 </p>
-                <p className="text-[10px] text-[var(--theme-muted)] font-bold uppercase italic mt-1">
+                <p className="mt-1 text-[10px] font-bold uppercase italic text-[var(--theme-muted)]">
                   Dictez les travaux, l'IA s'occupe du reste
                 </p>
               </div>
             </div>
 
-            {/* BARRE D'ICÔNES CORRIGÉE */}
-            <div className="w-full pt-4 border-t border-[var(--theme-border)] flex justify-around opacity-30">
+            <div className="flex w-full justify-around border-t border-[var(--theme-border)] pt-4 opacity-30">
               <div className="flex flex-col items-center gap-1">
                 <User size={16} />
                 <span className="text-[7px] font-bold uppercase">Client</span>

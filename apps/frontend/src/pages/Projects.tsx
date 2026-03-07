@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import CreateProjectForm from "../components/projects/CreateProjectForm";
 import { listProjects, type Project } from "../api/projects.api";
+import AIInsightCard from "../components/ai/AIInsightCard";
 
 function formatDate(value: string): string {
   try {
@@ -75,22 +76,16 @@ export default function Projects() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-
-      {/* ===== AI INSIGHT ===== */}
-      <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
-        <h3 className="text-sm font-bold text-[var(--theme-text)] mb-2">
-          Conseil IA
-        </h3>
-
-        <p className="text-sm text-[var(--theme-muted)]">
-          Vérifiez la marge de vos chantiers actifs. Un suivi régulier des dépenses
-          permet d'améliorer la rentabilité globale.
-        </p>
-      </div>
+    <div className="mx-auto max-w-7xl space-y-6 p-6 animate-in fade-in duration-700">
+      <AIInsightCard
+        title="Rentabilité des chantiers"
+        insight="Vérifiez la marge de vos chantiers actifs. Un suivi régulier des dépenses permet d'améliorer la rentabilité globale."
+      />
 
       <div>
-        <div className="text-sm text-[var(--theme-muted)]">Accueil / Chantiers</div>
+        <div className="text-sm text-[var(--theme-muted)]">
+          Accueil / Chantiers
+        </div>
         <h1 className="text-3xl font-bold text-[var(--theme-text)]">
           Tous les chantiers
         </h1>

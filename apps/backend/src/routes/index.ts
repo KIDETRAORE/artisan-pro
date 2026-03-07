@@ -37,6 +37,9 @@ import integrationsRoutes from "./integrations.routes";
 // ✅ AJOUT: PROJECT ACCOUNTING IMPORT
 import projectAccountingRoutes from "./projectAccounting.routes";
 
+// ✅ AJOUT: QUOTES
+import quotesRoutes from "./quotes.routes";
+
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { requireRole } from "@middlewares/requireRole.middleware";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
@@ -73,6 +76,9 @@ router.use(
 );
 
 router.use("/devis", authMiddleware, devisRouter);
+
+// ✅ AJOUT: QUOTES (AUTH)
+router.use("/quotes", authMiddleware, quotesRoutes);
 
 // ✅ AJOUT: INVOICES (AUTH)
 router.use("/invoices", authMiddleware, invoicesRoutes);

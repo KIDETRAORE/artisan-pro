@@ -126,7 +126,8 @@ export default function Settings() {
   };
 
   const pennylaneStatusLabel = useMemo(() => {
-    if (!pennylaneConnection) return "Chargement";
+    if (integrationLoading) return "Chargement";
+    if (!pennylaneConnection) return "Non connecté";
     if (
       pennylaneConnection.usesWorkspaceKey &&
       !pennylaneConnection.hasCredential
@@ -137,7 +138,7 @@ export default function Settings() {
       return "Connecté";
     }
     return "Non connecté";
-  }, [pennylaneConnection]);
+  }, [integrationLoading, pennylaneConnection]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 animate-in fade-in duration-500">
