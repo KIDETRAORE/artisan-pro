@@ -1,3 +1,4 @@
+// apps/frontend/src/features/ai/assistant/AssistantPanel.tsx
 import { useState, useRef, useEffect } from "react";
 import { Send, Bot, User, Loader2 } from "lucide-react";
 import { fetchWithAuth } from "../../../auth/fetchWithAuth";
@@ -122,7 +123,7 @@ export default function AssistantPanel({ variant = "page" }: Props) {
     >
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50"
+        className="flex-1 overflow-y-auto p-4 space-y-4 bg-[var(--theme-bg)]"
       >
         {messages.map((msg) => (
           <div
@@ -135,7 +136,7 @@ export default function AssistantPanel({ variant = "page" }: Props) {
               className={`px-4 py-2 rounded-2xl text-sm ${
                 msg.role === "user"
                   ? "bg-blue-600 text-white"
-                  : "bg-white border border-slate-100"
+                  : "bg-[var(--theme-card)] border border-[var(--theme-border)]"
               }`}
             >
               {msg.content}
@@ -144,20 +145,20 @@ export default function AssistantPanel({ variant = "page" }: Props) {
         ))}
 
         {loading && (
-          <div className="flex items-center gap-2 text-slate-400 text-sm">
+          <div className="flex items-center gap-2 text-[var(--theme-muted)] text-sm">
             <Loader2 size={16} className="animate-spin" />
             Réflexion en cours...
           </div>
         )}
       </div>
 
-      <div className="p-3 border-t bg-white flex gap-2">
+      <div className="p-3 border-t bg-[var(--theme-card)] flex gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
           placeholder="Posez votre question..."
-          className="flex-1 px-4 py-2 rounded-xl bg-slate-100 outline-none"
+          className="flex-1 px-4 py-2 rounded-xl bg-[var(--theme-bg)] outline-none"
         />
         <button
           onClick={handleSend}

@@ -103,9 +103,13 @@ export default function ResetPassword() {
 
   if (!ready) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="flex items-center gap-2 text-slate-600 font-semibold">
-          <Loader2 className="animate-spin" size={18} />
+      <div className="flex min-h-[60vh] items-center justify-center text-[var(--theme-text)]">
+        <div className="flex items-center gap-2 font-semibold text-[var(--theme-muted)]">
+          <Loader2
+            className="animate-spin"
+            style={{ color: "var(--theme-primary)" }}
+            size={18}
+          />
           Vérification du lien…
         </div>
       </div>
@@ -114,18 +118,19 @@ export default function ResetPassword() {
 
   if (!hasSession) {
     return (
-      <div className="max-w-md mx-auto p-6 space-y-4">
-        <h2 className="text-xl font-black text-slate-900">
+      <div className="mx-auto max-w-md space-y-4 p-6 text-[var(--theme-text)]">
+        <h2 className="text-xl font-black text-[var(--theme-text)]">
           Lien invalide ou expiré
         </h2>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-[var(--theme-muted)]">
           Le lien de réinitialisation n’est plus valide. Retourne dans{" "}
           <span className="font-bold">Paramètres</span> et renvoie un nouvel
           email.
         </p>
         <button
           onClick={() => navigate("/settings")}
-          className="w-full py-3 rounded-xl bg-slate-900 text-white font-bold"
+          className="w-full rounded-xl py-3 font-bold text-white"
+          style={{ backgroundColor: "var(--theme-primary)" }}
         >
           Retour aux paramètres
         </button>
@@ -134,28 +139,32 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="max-w-md mx-auto p-6 space-y-5">
+    <div className="mx-auto max-w-md space-y-5 p-6 text-[var(--theme-text)]">
       <div>
-        <h2 className="text-2xl font-black text-slate-900">
+        <h2 className="text-2xl font-black text-[var(--theme-text)]">
           Nouveau mot de passe
         </h2>
-        <p className="text-sm text-slate-500 mt-1">
+        <p className="mt-1 text-sm text-[var(--theme-muted)]">
           Choisis un mot de passe sécurisé (8 caractères minimum).
         </p>
       </div>
 
       <div className="space-y-3">
         <div>
-          <label className="text-sm font-bold text-slate-700">
+          <label className="text-sm font-bold text-[var(--theme-text)]">
             Nouveau mot de passe
           </label>
           <div className="relative mt-2">
-            <Lock className="absolute left-3 top-3 text-slate-400" size={18} />
+            <Lock
+              className="absolute left-3 top-3 text-[var(--theme-muted)]"
+              size={18}
+            />
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-100 border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] py-3 pl-10 pr-4 text-[var(--theme-text)] outline-none transition-all placeholder:text-[var(--theme-muted)] focus:ring-2"
+              style={{ ["--tw-ring-color" as any]: "var(--theme-primary)" }}
               placeholder="••••••••"
               autoComplete="new-password"
             />
@@ -163,19 +172,20 @@ export default function ResetPassword() {
         </div>
 
         <div>
-          <label className="text-sm font-bold text-slate-700">
+          <label className="text-sm font-bold text-[var(--theme-text)]">
             Confirmer le mot de passe
           </label>
           <div className="relative mt-2">
             <CheckCircle2
-              className="absolute left-3 top-3 text-slate-400"
+              className="absolute left-3 top-3 text-[var(--theme-muted)]"
               size={18}
             />
             <input
               type="password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-100 border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] py-3 pl-10 pr-4 text-[var(--theme-text)] outline-none transition-all placeholder:text-[var(--theme-muted)] focus:ring-2"
+              style={{ ["--tw-ring-color" as any]: "var(--theme-primary)" }}
               placeholder="••••••••"
               autoComplete="new-password"
             />
@@ -192,7 +202,8 @@ export default function ResetPassword() {
       <button
         onClick={submit}
         disabled={!canSubmit}
-        className="w-full py-3 rounded-xl bg-slate-900 text-white font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+        className="flex w-full items-center justify-center gap-2 rounded-xl py-3 font-bold text-white disabled:opacity-50"
+        style={{ backgroundColor: "var(--theme-primary)" }}
       >
         {loading ? (
           <>
@@ -204,7 +215,7 @@ export default function ResetPassword() {
         )}
       </button>
 
-      <p className="text-[11px] text-slate-400 font-semibold">
+      <p className="text-[11px] font-semibold text-[var(--theme-muted)]">
         Si tu as reçu ce lien par erreur, tu peux simplement fermer cette page.
       </p>
     </div>

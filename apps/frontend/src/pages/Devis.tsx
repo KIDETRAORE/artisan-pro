@@ -1,3 +1,4 @@
+// apps/frontend/src/pages/Devis.tsx
 import React, { useState, useRef, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import {
@@ -200,10 +201,10 @@ export default function Devis() {
       />
 
       {/* ZONE D'UPLOAD */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm shrink-0">
+      <div className="bg-[var(--theme-card)] rounded-2xl p-4 border border-[var(--theme-border)] shadow-sm shrink-0">
         <div className="flex items-center gap-2 mb-3">
           <span className="text-emerald-500 text-xs">📂</span>
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+          <span className="text-[9px] font-black text-[var(--theme-muted)] uppercase tracking-widest">
             Analyse de documents
           </span>
         </div>
@@ -213,8 +214,8 @@ export default function Devis() {
           className={`border-2 border-dashed rounded-xl py-6 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer
             ${
               isProcessing
-                ? "bg-slate-50 border-blue-200"
-                : "border-slate-100 hover:bg-slate-50 hover:border-slate-300"
+                ? "bg-[var(--theme-bg)] border-blue-200"
+                : "border-[var(--theme-border)] hover:bg-[var(--theme-bg)] hover:border-slate-300"
             }
           `}
         >
@@ -223,7 +224,7 @@ export default function Devis() {
               <Loader2 size={16} className="animate-spin" /> Analyse en cours...
             </span>
           ) : (
-            <span className="text-[11px] font-medium italic text-slate-400 flex items-center gap-2">
+            <span className="text-[11px] font-medium italic text-[var(--theme-muted)] flex items-center gap-2">
               <CloudUpload size={16} /> Photo ou fichier audio
             </span>
           )}
@@ -231,10 +232,10 @@ export default function Devis() {
       </div>
 
       {/* ZONE DE RÉSULTAT OU DESIGN VOCAL */}
-      <div className="flex-1 bg-white rounded-[2rem] p-6 shadow-sm flex flex-col min-h-0 overflow-y-auto relative">
+      <div className="flex-1 bg-[var(--theme-card)] rounded-[2rem] p-6 shadow-sm flex flex-col min-h-0 overflow-y-auto relative">
         {analysisResult ? (
           <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-            <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2">
+            <h2 className="text-sm font-black text-[var(--theme-text)] uppercase tracking-widest border-b pb-2">
               Analyse Terminée
             </h2>
 
@@ -244,21 +245,21 @@ export default function Devis() {
                   <User size={18} />
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase">
+                  <p className="text-[10px] font-bold text-[var(--theme-muted)] uppercase">
                     Client
                   </p>
-                  <p className="font-bold text-slate-800">
+                  <p className="font-bold text-[var(--theme-text)]">
                     {analysisResult.clientName || "Non identifié"}
                   </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase">
+                <div className="p-3 bg-[var(--theme-bg)] rounded-xl">
+                  <p className="text-[10px] font-bold text-[var(--theme-muted)] uppercase">
                     Total HT
                   </p>
-                  <p className="text-lg font-black text-slate-900">
+                  <p className="text-lg font-black text-[var(--theme-text)]">
                     {analysisResult.totalHT || "0"} €
                   </p>
                 </div>
@@ -273,18 +274,18 @@ export default function Devis() {
               </div>
 
               <div className="space-y-2">
-                <p className="text-[10px] font-bold text-slate-400 uppercase">
+                <p className="text-[10px] font-bold text-[var(--theme-muted)] uppercase">
                   Prestations
                 </p>
                 {analysisResult.items?.map((item: any, idx: number) => (
                   <div
                     key={idx}
-                    className="text-[11px] bg-slate-50 p-2 rounded-lg flex justify-between border border-slate-100"
+                    className="text-[11px] bg-[var(--theme-bg)] p-2 rounded-lg flex justify-between border border-[var(--theme-border)]"
                   >
-                    <span className="text-slate-600 font-medium">
+                    <span className="text-[var(--theme-muted)] font-medium">
                       {item.description}
                     </span>
-                    <span className="font-bold text-slate-900">
+                    <span className="font-bold text-[var(--theme-text)]">
                       {item.price}€
                     </span>
                   </div>
@@ -301,7 +302,7 @@ export default function Devis() {
           </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-between py-4">
-            <h2 className="text-lg font-black text-slate-900 uppercase">
+            <h2 className="text-lg font-black text-[var(--theme-text)] uppercase">
               Note Vocale
             </h2>
 
@@ -314,7 +315,7 @@ export default function Devis() {
                     isRecording
                       ? "bg-red-500 text-white animate-pulse border-red-100"
                       : isProcessing
-                      ? "bg-slate-100 text-slate-300"
+                      ? "bg-[var(--theme-bg)] text-slate-300"
                       : "bg-blue-600 text-white hover:bg-blue-700"
                   }
                 `}
@@ -329,14 +330,14 @@ export default function Devis() {
               </button>
 
               <div className="text-center">
-                <p className="font-black text-slate-900 text-[13px] uppercase">
+                <p className="font-black text-[var(--theme-text)] text-[13px] uppercase">
                   {isRecording
                     ? "Enregistrement..."
                     : isProcessing
                     ? "Analyse en cours..."
                     : "Appuyez pour parler"}
                 </p>
-                <p className="text-[10px] text-slate-400 font-bold uppercase italic mt-1">
+                <p className="text-[10px] text-[var(--theme-muted)] font-bold uppercase italic mt-1">
                   Dictez les travaux, l'IA s'occupe du reste
                 </p>
               </div>

@@ -684,4 +684,61 @@ Prevent silent runtime inconsistencies
 
 Prepare for future OpenAPI generation
 
+
+---
+
+## 12️⃣ UI Theme System (Design Tokens)
+
+ArtisanPro uses a **theme-based design system**.
+
+All UI colors must rely on **CSS variables**, not hardcoded Tailwind colors.
+
+### ❌ Forbidden
+
+Do NOT use hardcoded colors such as:
+
+bg-white  
+text-slate-900  
+border-slate-200  
+bg-slate-50  
+text-gray-500  
+
+These break the theme system.
+
+### ✅ Required
+
+Use theme tokens instead:
+
+bg-[var(--theme-bg)]  
+bg-[var(--theme-card)]  
+text-[var(--theme-text)]  
+text-[var(--theme-muted)]  
+border-[var(--theme-border)]
+
+Primary color:
+
+bg-[var(--theme-primary)]  
+text-[var(--theme-primary-contrast)]
+
+### Theme tokens defined in:
+
+apps/frontend/src/index.css
+
+.app-theme  
+.app-theme-classic  
+.app-theme-midnight  
+.app-theme-sunset
+
+### Goal
+
+Guarantee that all UI components support:
+
+- classic theme
+- midnight theme
+- sunset theme
+
+### Rule
+
+Hardcoded Tailwind color tokens in UI components are considered **architecture violations**.
+
 🔒 This rule is considered architecturally immutable.

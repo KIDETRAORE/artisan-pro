@@ -187,30 +187,30 @@ export default function DashboardUnpaid() {
         <div>
           <Link
             to="/dashboard"
-            className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900"
+            className="inline-flex items-center gap-2 text-sm font-bold text-[var(--theme-muted)] hover:text-[var(--theme-text)]"
           >
             <ArrowLeft size={16} /> Retour
           </Link>
-          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-2">
+          <h2 className="text-3xl font-extrabold text-[var(--theme-text)] tracking-tight mt-2">
             {hasComptaReport ? "Résultat net" : "Factures impayées"}
           </h2>
-          <p className="text-slate-500 mt-1">
+          <p className="text-[var(--theme-muted)] mt-1">
             {hasComptaReport
               ? "Pilotage du résultat net issu de l’analyse comptable."
               : "Pilotage trésorerie: impayés, retards et actions recommandées."}
           </p>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-sm">
+        <div className="hidden sm:flex items-center gap-2 bg-[var(--theme-card)] border border-[var(--theme-border)] rounded-2xl px-4 py-3 shadow-sm">
           <AlertTriangle className="text-red-500" size={18} />
-          <span className="text-sm font-black text-slate-900">
+          <span className="text-sm font-black text-[var(--theme-text)]">
             {loading
               ? "…"
               : hasComptaReport
               ? formatEur(resultatNet)
               : formatEurFromCents(unpaidTotalCents)}
           </span>
-          <span className="text-xs font-bold text-slate-400">
+          <span className="text-xs font-bold text-[var(--theme-muted)]">
             {hasComptaReport ? "résultat net" : "à encaisser"}
           </span>
         </div>
@@ -280,12 +280,12 @@ export default function DashboardUnpaid() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
           <div className="p-6 border-b border-slate-50">
-            <h3 className="text-lg font-bold text-slate-900">
+            <h3 className="text-lg font-bold text-[var(--theme-text)]">
               {hasComptaReport ? "Anomalies prioritaires" : "À relancer en priorité"}
             </h3>
-            <p className="text-[11px] text-slate-500 font-medium mt-1">
+            <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
               {hasComptaReport
                 ? "Issues de l’analyse IA."
                 : "Top impayés (retard, puis montant)."}
@@ -298,8 +298,8 @@ export default function DashboardUnpaid() {
                 anomalies.slice(0, 10).map((it, idx) => (
                   <div key={`${it.message}-${idx}`} className="p-4 flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-bold text-slate-900">{it.message}</p>
-                      <p className="text-xs text-slate-500 font-medium">
+                      <p className="text-sm font-bold text-[var(--theme-text)]">{it.message}</p>
+                      <p className="text-xs text-[var(--theme-muted)] font-medium">
                         {it.sheet ? `Feuille: ${it.sheet}` : "Analyse générale"}
                       </p>
                     </div>
@@ -317,40 +317,40 @@ export default function DashboardUnpaid() {
                   </div>
                 ))
               ) : (
-                <div className="p-6 text-sm text-slate-500">Aucune anomalie détectée.</div>
+                <div className="p-6 text-sm text-[var(--theme-muted)]">Aucune anomalie détectée.</div>
               )
             ) : preview.length > 0 ? (
               preview.map((it) => (
                 <div key={it.id} className="p-4 flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-bold text-slate-900">{it.client}</p>
-                    <p className="text-xs text-slate-500 font-medium">
+                    <p className="text-sm font-bold text-[var(--theme-text)]">{it.client}</p>
+                    <p className="text-xs text-[var(--theme-muted)] font-medium">
                       Échéance: {formatDateFr(it.dueDate)}
                       {it.daysLate > 0 ? ` • ${it.daysLate}j de retard` : ""}
                     </p>
                   </div>
-                  <span className="text-sm font-black text-slate-900">
+                  <span className="text-sm font-black text-[var(--theme-text)]">
                     {formatEurFromCents(it.totalAmountCents)}
                   </span>
                 </div>
               ))
             ) : (
-              <div className="p-6 text-sm text-slate-500">Aucune relance prioritaire.</div>
+              <div className="p-6 text-sm text-[var(--theme-muted)]">Aucune relance prioritaire.</div>
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
           <div className="p-6 border-b border-slate-50">
-            <h3 className="text-lg font-bold text-slate-900">Analyse & plan d’action</h3>
-            <p className="text-[11px] text-slate-500 font-medium mt-1">
+            <h3 className="text-lg font-bold text-[var(--theme-text)]">Analyse & plan d’action</h3>
+            <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
               Suggestions pour améliorer la situation.
             </p>
           </div>
           <div className="p-6">
             <ul className="space-y-2">
               {recommendations.map((a) => (
-                <li key={a} className="text-sm text-slate-600 flex gap-3">
+                <li key={a} className="text-sm text-[var(--theme-muted)] flex gap-3">
                   <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-slate-300" />
                   <span>{a}</span>
                 </li>
@@ -360,14 +360,14 @@ export default function DashboardUnpaid() {
         </div>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+      <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
         <div className="p-6 border-b border-slate-50 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900">
+          <h3 className="text-lg font-bold text-[var(--theme-text)]">
             {hasComptaReport ? "Détail des anomalies" : "Toutes les factures impayées"}
           </h3>
 
           <div className="relative flex items-center gap-3">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <span className="text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
               {loading
                 ? "…"
                 : hasComptaReport
@@ -378,18 +378,18 @@ export default function DashboardUnpaid() {
             <button
               type="button"
               onClick={() => setMenuOpen((prev) => !prev)}
-              className="inline-flex items-center justify-center rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+              className="inline-flex items-center justify-center rounded-lg border border-[var(--theme-border)] p-2 text-[var(--theme-muted)] hover:bg-[var(--theme-bg)] hover:text-[var(--theme-text)]"
               aria-label="Ouvrir le menu"
             >
               <MoreHorizontal size={16} />
             </button>
 
             {menuOpen ? (
-              <div className="absolute right-0 top-12 z-20 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+              <div className="absolute right-0 top-12 z-20 w-48 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-2 shadow-xl">
                 <Link
                   to={hasComptaReport ? "/compta" : "/invoices"}
                   onClick={() => setMenuOpen(false)}
-                  className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="block rounded-xl px-3 py-2 text-sm font-medium text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
                 >
                   {hasComptaReport ? "Ouvrir Compta IA" : "Créer une facture"}
                 </Link>
@@ -400,8 +400,8 @@ export default function DashboardUnpaid() {
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-left">
-            <thead className="bg-slate-50/60">
-              <tr className="text-xs font-black uppercase tracking-widest text-slate-400">
+            <thead className="bg-[var(--theme-bg)]/60">
+              <tr className="text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]">
                 <th className="px-4 py-3">{hasComptaReport ? "Élément" : "Client"}</th>
                 <th className="px-4 py-3">{hasComptaReport ? "Source" : "Échéance"}</th>
                 <th className="px-4 py-3">{hasComptaReport ? "Niveau" : "Statut"}</th>
@@ -415,8 +415,8 @@ export default function DashboardUnpaid() {
                 anomalies.length > 0 ? (
                   anomalies.map((it, idx) => (
                     <tr key={`${it.message}-${idx}`} className="text-sm">
-                      <td className="px-4 py-3 font-bold text-slate-900">{it.message}</td>
-                      <td className="px-4 py-3 text-slate-600">{it.sheet ?? "—"}</td>
+                      <td className="px-4 py-3 font-bold text-[var(--theme-text)]">{it.message}</td>
+                      <td className="px-4 py-3 text-[var(--theme-muted)]">{it.sheet ?? "—"}</td>
                       <td className="px-4 py-3">
                         <span
                           className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest ${
@@ -430,14 +430,14 @@ export default function DashboardUnpaid() {
                           {it.severity}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right font-black text-slate-900">
+                      <td className="px-4 py-3 text-right font-black text-[var(--theme-text)]">
                         {typeof it.rowIndex === "number" ? String(it.rowIndex) : "—"}
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td className="px-4 py-6 text-sm text-slate-500" colSpan={4}>
+                    <td className="px-4 py-6 text-sm text-[var(--theme-muted)]" colSpan={4}>
                       Aucune anomalie détectée.
                     </td>
                   </tr>
@@ -449,8 +449,8 @@ export default function DashboardUnpaid() {
 
                   return (
                     <tr key={it.id} className="text-sm">
-                      <td className="px-4 py-3 font-bold text-slate-900">{it.client_name}</td>
-                      <td className="px-4 py-3 text-slate-600">
+                      <td className="px-4 py-3 font-bold text-[var(--theme-text)]">{it.client_name}</td>
+                      <td className="px-4 py-3 text-[var(--theme-muted)]">
                         {formatDateFr(it.due_date)}
                         {overdueFlag ? " • en retard" : ""}
                       </td>
@@ -465,7 +465,7 @@ export default function DashboardUnpaid() {
                           {status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right font-black text-slate-900">
+                      <td className="px-4 py-3 text-right font-black text-[var(--theme-text)]">
                         {formatEurFromCents(invoiceAmountCents(it))}
                       </td>
                     </tr>
@@ -473,7 +473,7 @@ export default function DashboardUnpaid() {
                 })
               ) : (
                 <tr>
-                  <td className="px-4 py-6 text-sm text-slate-500" colSpan={4}>
+                  <td className="px-4 py-6 text-sm text-[var(--theme-muted)]" colSpan={4}>
                     Aucune facture impayée.
                   </td>
                 </tr>
@@ -488,10 +488,10 @@ export default function DashboardUnpaid() {
 
 function Kpi({ label, value, hint }: any) {
   return (
-    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-      <p className="text-slate-500 text-sm font-medium">{label}</p>
-      <div className="text-2xl font-black text-slate-900 mt-1">{value}</div>
-      <p className="text-[11px] text-slate-400 font-medium mt-2">{hint}</p>
+    <div className="bg-[var(--theme-card)] p-6 rounded-3xl border border-[var(--theme-border)] shadow-sm">
+      <p className="text-[var(--theme-muted)] text-sm font-medium">{label}</p>
+      <div className="text-2xl font-black text-[var(--theme-text)] mt-1">{value}</div>
+      <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-2">{hint}</p>
     </div>
   );
 }

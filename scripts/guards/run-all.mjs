@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import "./guard-no-hardcoded-ui-colors.mjs";
 
 function run(cmd) {
   execSync(cmd, { stdio: "inherit" });

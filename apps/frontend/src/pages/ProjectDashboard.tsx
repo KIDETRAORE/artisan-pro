@@ -1,4 +1,3 @@
-// apps/frontend/src/pages/ProjectDashboard.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -135,11 +134,11 @@ export default function ProjectDashboard() {
   };
 
   if (!id) {
-    return <div className="p-4">Chantier introuvable.</div>;
+    return <div className="p-4 text-[var(--theme-text)]">Chantier introuvable.</div>;
   }
 
   if (loading) {
-    return <div className="p-4">Chargement du chantier…</div>;
+    return <div className="p-4 text-[var(--theme-text)]">Chargement du chantier…</div>;
   }
 
   if (err || !analytics || !project) {
@@ -152,24 +151,31 @@ export default function ProjectDashboard() {
   const remainingBudget = analytics.remaining_budget_cents;
 
   return (
-    <div className="p-4 space-y-6">
+    <div className="space-y-6 p-4 text-[var(--theme-text)]">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-sm text-gray-500">
+          <div className="text-sm text-[var(--theme-muted)]">
             <Link to="/dashboard" className="hover:underline">
               Dashboard
             </Link>{" "}
             / <span>Chantier</span>
           </div>
-          <h1 className="text-2xl font-semibold">{project.name}</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-2xl font-semibold text-[var(--theme-text)]">
+            {project.name}
+          </h1>
+          <p className="text-sm text-[var(--theme-muted)]">
             Analyse rentabilité & recommandations
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="inline-flex cursor-pointer items-center rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-            {importLoading ? "Import en cours..." : "Importer fichier comptable"}
+          <label className="inline-flex cursor-pointer items-center rounded-2xl px-4 py-2 text-sm font-semibold text-[var(--theme-primary-contrast)] hover:opacity-90">
+            <span
+              className="rounded-2xl"
+              style={{ backgroundColor: "var(--theme-primary)" }}
+            >
+              {importLoading ? "Import en cours..." : "Importer fichier comptable"}
+            </span>
             <input
               type="file"
               accept=".xlsx,.csv"
@@ -196,53 +202,57 @@ export default function ProjectDashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Facturé</div>
-          <div className="mt-1 text-xl font-semibold">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Facturé</div>
+          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
             {formatEurosFromCents(revenue)}
           </div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Dépenses</div>
-          <div className="mt-1 text-xl font-semibold">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Dépenses</div>
+          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
             {formatEurosFromCents(expensesTotal)}
           </div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Marge</div>
-          <div className="mt-1 text-xl font-semibold">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Marge</div>
+          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
             {formatEurosFromCents(profit)}
           </div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Rentabilité</div>
-          <div className="mt-1 text-xl font-semibold">{profitabilityLabel}</div>
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Rentabilité</div>
+          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
+            {profitabilityLabel}
+          </div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Budget restant</div>
-          <div className="mt-1 text-xl font-semibold">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Budget restant</div>
+          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
             {formatEurosFromCents(remainingBudget)}
           </div>
         </div>
       </div>
 
       {analytics.alerts.length > 0 && (
-        <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-3">
-          <h2 className="text-lg font-semibold">Alertes chantier</h2>
+        <div className="space-y-3 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+          <h2 className="text-lg font-semibold text-[var(--theme-text)]">
+            Alertes chantier
+          </h2>
           <div className="space-y-2">
             {analytics.alerts.map((alert) => (
               <div
                 key={alert.code}
                 className={`rounded-xl px-4 py-3 text-sm ${
                   alert.level === "critical"
-                    ? "bg-red-50 text-red-700 border border-red-200"
+                    ? "border border-red-200 bg-red-50 text-red-700"
                     : alert.level === "warning"
-                      ? "bg-amber-50 text-amber-700 border border-amber-200"
-                      : "bg-blue-50 text-blue-700 border border-blue-200"
+                      ? "border border-amber-200 bg-amber-50 text-amber-700"
+                      : "border border-blue-200 bg-blue-50 text-blue-700"
                 }`}
               >
                 {alert.message}
@@ -253,14 +263,16 @@ export default function ProjectDashboard() {
       )}
 
       {categoryBreakdown.length > 0 && (
-        <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-4">
+        <div className="space-y-4 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Répartition des dépenses</h2>
+            <h2 className="text-lg font-semibold text-[var(--theme-text)]">
+              Répartition des dépenses
+            </h2>
 
             {analytics.dominant_expense_category ? (
-              <div className="text-sm font-medium text-gray-600">
+              <div className="text-sm font-medium text-[var(--theme-muted)]">
                 Poste dominant :{" "}
-                <span className="font-semibold text-gray-900">
+                <span className="font-semibold text-[var(--theme-text)]">
                   {categoryLabel(analytics.dominant_expense_category)}
                 </span>
               </div>
@@ -271,16 +283,21 @@ export default function ProjectDashboard() {
             {categoryBreakdown.map((item) => (
               <div key={item.category} className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-gray-700">{item.label}</span>
-                  <span className="text-gray-600">
+                  <span className="font-medium text-[var(--theme-text)]">
+                    {item.label}
+                  </span>
+                  <span className="text-[var(--theme-muted)]">
                     {formatEurosFromCents(item.amount)} •{" "}
                     {item.share.toFixed(1).replace(".", ",")} %
                   </span>
                 </div>
-                <div className="h-2 rounded-full bg-gray-100">
+                <div className="h-2 rounded-full bg-[var(--theme-border)]">
                   <div
-                    className="h-2 rounded-full bg-blue-600"
-                    style={{ width: `${Math.min(100, item.share)}%` }}
+                    className="h-2 rounded-full"
+                    style={{
+                      width: `${Math.min(100, item.share)}%`,
+                      backgroundColor: "var(--theme-primary)",
+                    }}
                   />
                 </div>
               </div>
@@ -291,13 +308,13 @@ export default function ProjectDashboard() {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 className="text-lg font-semibold text-[var(--theme-text)]">
             Dernières dépenses
           </h2>
 
           <Link
             to={`/projects/${project.id}/expenses`}
-            className="inline-flex items-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex items-center rounded-xl border border-[var(--theme-border)] px-4 py-2 text-sm font-medium text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
           >
             Voir toutes les dépenses
           </Link>
@@ -311,9 +328,11 @@ export default function ProjectDashboard() {
         />
       </div>
 
-      <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-4">
+      <div className="space-y-4 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Analyse IA</h2>
+          <h2 className="text-lg font-semibold text-[var(--theme-text)]">
+            Analyse IA
+          </h2>
 
           {insight && (
             <div
@@ -327,15 +346,21 @@ export default function ProjectDashboard() {
         </div>
 
         {!insight ? (
-          <div className="text-sm text-gray-600">Aucune analyse disponible.</div>
+          <div className="text-sm text-[var(--theme-muted)]">
+            Aucune analyse disponible.
+          </div>
         ) : (
           <div className="space-y-4">
-            <div className="text-sm text-gray-700">{insight.recommendation}</div>
+            <div className="text-sm text-[var(--theme-text)]">
+              {insight.recommendation}
+            </div>
 
             {insight.findings?.length > 0 && (
               <div>
-                <div className="text-sm font-semibold">Diagnostic IA</div>
-                <ul className="mt-1 list-disc pl-5 text-sm text-gray-700 space-y-1">
+                <div className="text-sm font-semibold text-[var(--theme-text)]">
+                  Diagnostic IA
+                </div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
                   {insight.findings.map((x, idx) => (
                     <li key={idx}>{x}</li>
                   ))}
@@ -345,8 +370,10 @@ export default function ProjectDashboard() {
 
             {insight.issues?.length > 0 && (
               <div>
-                <div className="text-sm font-semibold">Points d’attention</div>
-                <ul className="mt-1 list-disc pl-5 text-sm text-gray-700 space-y-1">
+                <div className="text-sm font-semibold text-[var(--theme-text)]">
+                  Points d’attention
+                </div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
                   {insight.issues.map((x, idx) => (
                     <li key={idx}>{x}</li>
                   ))}
@@ -356,8 +383,10 @@ export default function ProjectDashboard() {
 
             {insight.actions?.length > 0 && (
               <div>
-                <div className="text-sm font-semibold">Actions recommandées</div>
-                <ul className="mt-1 list-disc pl-5 text-sm text-gray-700 space-y-1">
+                <div className="text-sm font-semibold text-[var(--theme-text)]">
+                  Actions recommandées
+                </div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
                   {insight.actions.map((x, idx) => (
                     <li key={idx}>{x}</li>
                   ))}

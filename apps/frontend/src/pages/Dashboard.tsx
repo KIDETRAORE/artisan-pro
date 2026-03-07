@@ -293,10 +293,10 @@ export default function Dashboard() {
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="flex items-center justify-between p-4 transition-colors hover:bg-slate-50"
+                className="flex items-center justify-between p-4 transition-colors hover:bg-[var(--theme-bg)]"
               >
                 <div className="flex items-center gap-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--theme-bg)] text-[var(--theme-muted)]">
                     <FileText size={18} />
                   </div>
                   <div>
@@ -314,7 +314,7 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-          <div className="bg-slate-50/50 p-4 text-center">
+          <div className="bg-[var(--theme-bg)]/50 p-4 text-center">
             <Link
               to="/devis"
               className="text-xs font-bold uppercase tracking-widest text-[var(--theme-muted)] hover:text-[var(--theme-primary)]"
@@ -335,10 +335,10 @@ function StatCard({ title, value, trend, icon, to }: any) {
       className="group block rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-6 shadow-sm transition-all hover:shadow-md"
     >
       <div className="mb-4 flex items-start justify-between">
-        <div className="rounded-2xl bg-slate-50 p-3 transition-colors group-hover:bg-blue-50 group-hover:text-blue-600">
+        <div className="rounded-2xl bg-[var(--theme-bg)] p-3 transition-colors group-hover:bg-blue-50 group-hover:text-blue-600">
           {icon}
         </div>
-        <span className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-[var(--theme-muted)]">
+        <span className="rounded-lg bg-[var(--theme-bg)] px-2 py-1 text-[10px] font-bold text-[var(--theme-muted)]">
           {trend}
         </span>
       </div>

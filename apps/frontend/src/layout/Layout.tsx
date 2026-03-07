@@ -1,4 +1,3 @@
-// apps/frontend/src/layout/Layout.tsx
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, Link, Outlet, useNavigate } from "react-router-dom";
 import {
@@ -104,7 +103,8 @@ export default function Layout() {
     })();
   }, [accessToken, quota]);
 
-  const displayedUsed = dailyUsage?.used ?? (quota ? Number((quota as any).used ?? 0) : 0);
+  const displayedUsed =
+    dailyUsage?.used ?? (quota ? Number((quota as any).used ?? 0) : 0);
   const displayedLimit =
     dailyUsage?.limit ?? (quota ? Number((quota as any).limit ?? 0) : 0);
 
@@ -274,22 +274,22 @@ export default function Layout() {
   };
 
   const SettingsMenu = () => (
-    <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl">
-      <div className="bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+    <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
+      <div className="bg-[var(--theme-bg)] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
         Paramètres
       </div>
 
       <button
         type="button"
         onClick={() => goToSettingsSection("account")}
-        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
       >
         Compte
       </button>
       <button
         type="button"
         onClick={() => goToSettingsSection("subscription")}
-        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
       >
         Abonnement
       </button>
@@ -297,7 +297,7 @@ export default function Layout() {
       <button
         type="button"
         onClick={() => goToSettingsSection("ai")}
-        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
       >
         IA
       </button>
@@ -305,19 +305,19 @@ export default function Layout() {
       <button
         type="button"
         onClick={() => goToSettingsSection("billing")}
-        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
       >
         Facturation
       </button>
       <button
         type="button"
         onClick={() => goToSettingsSection("security")}
-        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-bold text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
       >
         Sécurité
       </button>
 
-      <div className="h-px bg-slate-100" />
+      <div className="h-px bg-[var(--theme-border)]" />
 
       <button
         type="button"
@@ -325,7 +325,7 @@ export default function Layout() {
           setIsSettingsOpen(false);
           navigate("/settings");
         }}
-        className="w-full px-4 py-3 text-left text-sm font-black text-slate-900 hover:bg-slate-50"
+        className="w-full px-4 py-3 text-left text-sm font-black text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
       >
         Ouvrir tous les réglages
       </button>
@@ -333,8 +333,8 @@ export default function Layout() {
   );
 
   const ThemeMenu = () => (
-    <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl">
-      <div className="bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+    <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
+      <div className="bg-[var(--theme-bg)] px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
         Designs
       </div>
 
@@ -343,8 +343,10 @@ export default function Layout() {
           key={themeOption}
           type="button"
           onClick={() => handleThemeSelect(themeOption)}
-          className={`w-full px-4 py-3 text-left text-sm font-bold hover:bg-slate-50 ${
-            theme === themeOption ? "bg-slate-100 text-slate-900" : "text-slate-700"
+          className={`w-full px-4 py-3 text-left text-sm font-bold hover:bg-[var(--theme-bg)] ${
+            theme === themeOption
+              ? "bg-[var(--theme-bg)] text-[var(--theme-text)]"
+              : "text-[var(--theme-text)]"
           }`}
         >
           {UI_THEME_LABELS[themeOption]}
@@ -354,14 +356,16 @@ export default function Layout() {
   );
 
   return (
-    <div className={`app-theme app-theme-${theme} relative flex h-screen flex-col overflow-hidden font-sans`}>
-      <div className="shrink-0 bg-[var(--theme-primary)] py-1 text-[10px] font-black uppercase tracking-tighter text-[var(--theme-primary-contrast)] z-50">
+    <div
+      className={`app-theme app-theme-${theme} relative flex h-screen flex-col overflow-hidden font-sans`}
+    >
+      <div className="z-50 shrink-0 bg-[var(--theme-primary)] py-1 text-[10px] font-black uppercase tracking-tighter text-[var(--theme-primary-contrast)]">
         <div className="flex items-center justify-center gap-2">
           <span>⚡ Mode Direct (IA Local)</span>
         </div>
       </div>
 
-      <header className="shrink-0 border-b border-[var(--theme-border)] bg-[var(--theme-card)] px-6 py-4 shadow-sm z-40">
+      <header className="z-40 shrink-0 border-b border-[var(--theme-border)] bg-[var(--theme-card)] px-6 py-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--theme-primary)] text-[var(--theme-primary-contrast)] shadow-lg">
@@ -390,7 +394,7 @@ export default function Layout() {
                           {displayedUsed}/{displayedLimit}
                         </span>
                       </div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--theme-bg)]">
                         <div
                           className={`${getBarColor()} h-full rounded-full`}
                           style={{ width: `${percentage}%` }}
@@ -423,7 +427,7 @@ export default function Layout() {
               </Link>
             )}
 
-            <button className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)] hover:bg-slate-50">
+            <button className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)] hover:bg-[var(--theme-bg)]">
               ?
             </button>
 
@@ -433,7 +437,7 @@ export default function Layout() {
                   setIsThemeMenuOpen((v) => !v);
                   setIsSettingsOpen(false);
                 }}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)] hover:bg-slate-50"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)] hover:bg-[var(--theme-bg)]"
                 aria-haspopup="menu"
                 aria-expanded={isThemeMenuOpen}
                 aria-label="Changer le design"
@@ -450,7 +454,7 @@ export default function Layout() {
                   setIsSettingsOpen((v) => !v);
                   setIsThemeMenuOpen(false);
                 }}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)] hover:bg-slate-50"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)] hover:bg-[var(--theme-bg)]"
                 aria-haspopup="menu"
                 aria-expanded={isSettingsOpen}
                 aria-label="Réglages"
@@ -478,13 +482,13 @@ export default function Layout() {
               </span>
               <button
                 onClick={() => setIsChatOpen(false)}
-                className="rounded-xl p-1.5 transition-colors hover:bg-white/10"
+                className="rounded-xl p-1.5 transition-colors hover:bg-[var(--theme-card)]/10"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="custom-scrollbar flex-1 overflow-y-auto bg-slate-50">
+            <div className="custom-scrollbar flex-1 overflow-y-auto bg-[var(--theme-bg)]">
               <ExpertHubPanel
                 activeTab={activeTab}
                 onChangeTab={setActiveTab}
@@ -512,7 +516,11 @@ export default function Layout() {
           }`}
           title="Mode Expert IA"
         >
-          {isChatOpen ? <X size={24} /> : <Sparkles size={24} className="animate-pulse" />}
+          {isChatOpen ? (
+            <X size={24} />
+          ) : (
+            <Sparkles size={24} className="animate-pulse" />
+          )}
         </button>
       </div>
 
@@ -531,10 +539,13 @@ export default function Layout() {
               >
                 <div
                   className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg ${
-                    isActive ? item.color : "bg-slate-200"
+                    isActive ? item.color : "bg-[var(--theme-bg)]"
                   }`}
                 >
-                  <Icon size={18} className={isActive ? "text-white" : "text-slate-600"} />
+                  <Icon
+                    size={18}
+                    className={isActive ? "text-white" : "text-[var(--theme-muted)]"}
+                  />
                 </div>
                 <span className="text-[9px] font-black uppercase tracking-widest text-[var(--theme-text)]">
                   {item.name}

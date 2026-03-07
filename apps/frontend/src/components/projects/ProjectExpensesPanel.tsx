@@ -1,4 +1,3 @@
-// apps/frontend/src/components/projects/ProjectExpensesPanel.tsx
 import React, { useMemo, useState } from "react";
 import {
   createProjectExpense,
@@ -91,13 +90,13 @@ export default function ProjectExpensesPanel({
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">
+          <h3 className="text-lg font-semibold text-[var(--theme-text)]">
             Dépenses chantier
           </h3>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-[var(--theme-muted)]">
             Total dépenses : {formatCurrencyFromCents(totalExpenses)}
           </p>
         </div>
@@ -110,25 +109,25 @@ export default function ProjectExpensesPanel({
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder="Libellé"
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none placeholder:text-[var(--theme-muted)] focus:border-[var(--theme-primary)]"
             />
             <input
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="Montant (€)"
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none placeholder:text-[var(--theme-muted)] focus:border-[var(--theme-primary)]"
             />
             <input
               value={vendor}
               onChange={(e) => setVendor(e.target.value)}
               placeholder="Fournisseur (optionnel)"
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none placeholder:text-[var(--theme-muted)] focus:border-[var(--theme-primary)]"
             />
             <input
               type="date"
               value={occurredAt}
               onChange={(e) => setOccurredAt(e.target.value)}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)]"
             />
           </div>
 
@@ -136,7 +135,8 @@ export default function ProjectExpensesPanel({
             type="button"
             onClick={handleCreate}
             disabled={loading}
-            className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+            className="mt-3 rounded-xl px-4 py-2 text-sm font-medium text-[var(--theme-primary-contrast)] disabled:opacity-50"
+            style={{ backgroundColor: "var(--theme-primary)" }}
           >
             Ajouter une dépense
           </button>
@@ -146,7 +146,7 @@ export default function ProjectExpensesPanel({
       <div className="mt-6 overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-slate-500">
+            <tr className="border-b border-[var(--theme-border)] text-left text-[var(--theme-muted)]">
               <th className="py-3 pr-4 font-medium">Libellé</th>
               <th className="py-3 pr-4 font-medium">Montant</th>
               <th className="py-3 pr-4 font-medium">Catégorie</th>
@@ -157,23 +157,29 @@ export default function ProjectExpensesPanel({
           <tbody>
             {expenses.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-500">
+                <td
+                  colSpan={5}
+                  className="py-6 text-center text-[var(--theme-muted)]"
+                >
                   Aucune dépense pour ce chantier.
                 </td>
               </tr>
             ) : (
               expenses.map((expense) => (
-                <tr key={expense.id} className="border-b border-slate-100">
-                  <td className="py-3 pr-4 text-slate-900">
+                <tr
+                  key={expense.id}
+                  className="border-b border-[var(--theme-border)]"
+                >
+                  <td className="py-3 pr-4 text-[var(--theme-text)]">
                     {expense.description}
                   </td>
-                  <td className="py-3 pr-4 text-slate-900">
+                  <td className="py-3 pr-4 text-[var(--theme-text)]">
                     {formatCurrencyFromCents(expense.amount_cents)}
                   </td>
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="py-3 pr-4 text-[var(--theme-muted)]">
                     {categoryLabel(expense.category)}
                   </td>
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="py-3 pr-4 text-[var(--theme-muted)]">
                     {expense.expense_date
                       ? new Date(expense.expense_date).toLocaleDateString("fr-FR")
                       : "—"}

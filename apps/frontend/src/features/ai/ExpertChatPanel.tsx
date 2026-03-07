@@ -273,13 +273,13 @@ export default function ExpertChatPanel({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
-        <div className="font-black text-slate-900">{headerTitle}</div>
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-[var(--theme-card)]">
+        <div className="font-black text-[var(--theme-text)]">{headerTitle}</div>
         <button
           onClick={clearChat}
-          className="p-2 rounded-xl hover:bg-slate-100"
+          className="p-2 rounded-xl hover:bg-[var(--theme-bg)]"
         >
-          <Trash2 className="w-5 h-5 text-slate-700" />
+          <Trash2 className="w-5 h-5 text-[var(--theme-text)]" />
         </button>
       </div>
 
@@ -301,7 +301,7 @@ export default function ExpertChatPanel({
               className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
                 m.role === "user"
                   ? "bg-slate-900 text-white"
-                  : "bg-white border text-slate-900"
+                  : "bg-[var(--theme-card)] border text-[var(--theme-text)]"
               }`}
             >
               {m.content}
@@ -321,7 +321,7 @@ export default function ExpertChatPanel({
               <Bot className="w-4 h-4" />
             </div>
 
-            <div className="bg-white border rounded-2xl px-4 py-3 text-sm flex items-center gap-2">
+            <div className="bg-[var(--theme-card)] border rounded-2xl px-4 py-3 text-sm flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
               Analyse en cours...
             </div>
@@ -329,14 +329,14 @@ export default function ExpertChatPanel({
         )}
       </div>
 
-      <div className="p-4 border-t bg-white">
+      <div className="p-4 border-t bg-[var(--theme-card)]">
         <div className="flex items-center gap-2">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Ex: TVA"
-            className="flex-1 px-4 py-3 rounded-2xl border bg-slate-50 focus:outline-none"
+            className="flex-1 px-4 py-3 rounded-2xl border bg-[var(--theme-bg)] focus:outline-none"
             disabled={isLoading}
           />
 

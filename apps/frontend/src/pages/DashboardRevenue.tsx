@@ -158,29 +158,29 @@ export default function DashboardRevenue() {
           <div className="flex items-center gap-3">
             <Link
               to="/dashboard"
-              className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900"
+              className="inline-flex items-center gap-2 text-sm font-bold text-[var(--theme-muted)] hover:text-[var(--theme-text)]"
             >
               <ArrowLeft size={16} /> Retour
             </Link>
           </div>
-          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-2">
+          <h2 className="text-3xl font-extrabold text-[var(--theme-text)] tracking-tight mt-2">
             Chiffre d&apos;affaires
           </h2>
-          <p className="text-slate-500 mt-1">
+          <p className="text-[var(--theme-muted)] mt-1">
             Analyse structurée basée sur vos données comptables.
           </p>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-sm">
+        <div className="hidden sm:flex items-center gap-2 bg-[var(--theme-card)] border border-[var(--theme-border)] rounded-2xl px-4 py-3 shadow-sm">
           <TrendingUp className="text-emerald-500" size={18} />
-          <span className="text-sm font-black text-slate-900">
+          <span className="text-sm font-black text-[var(--theme-text)]">
             {loading
               ? "…"
               : hasComptaReport
               ? formatEur(recettesTTC)
               : formatEurFromCents(paidMonthCents)}
           </span>
-          <span className="text-xs font-bold text-slate-400">
+          <span className="text-xs font-bold text-[var(--theme-muted)]">
             {hasComptaReport ? "analyse compta" : "mois en cours"}
           </span>
         </div>
@@ -229,19 +229,19 @@ export default function DashboardRevenue() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
           <div className="p-6 border-b border-slate-50">
-            <h3 className="text-lg font-bold text-slate-900">Analyse & optimisation</h3>
-            <p className="text-[11px] text-slate-500 font-medium mt-1">
+            <h3 className="text-lg font-bold text-[var(--theme-text)]">Analyse & optimisation</h3>
+            <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
               Recommandations pragmatiques.
             </p>
           </div>
 
           <div className="p-6 space-y-4">
-            <p className="text-sm font-medium text-slate-700">{analysis.summary}</p>
+            <p className="text-sm font-medium text-[var(--theme-text)]">{analysis.summary}</p>
             <ul className="space-y-2">
               {analysis.actions.map((a) => (
-                <li key={a} className="text-sm text-slate-600 flex gap-3">
+                <li key={a} className="text-sm text-[var(--theme-muted)] flex gap-3">
                   <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-slate-300" />
                   <span>{a}</span>
                 </li>
@@ -250,12 +250,12 @@ export default function DashboardRevenue() {
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex items-center justify-between">
-            <h3 className="text-lg font-bold text-slate-900">
+            <h3 className="text-lg font-bold text-[var(--theme-text)]">
               {hasComptaReport ? "Top recettes" : "Factures payées (mois)"}
             </h3>
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <span className="text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)]">
               {loading
                 ? "…"
                 : hasComptaReport
@@ -270,40 +270,40 @@ export default function DashboardRevenue() {
                 topRecettes.slice(0, 10).map((it) => (
                   <div key={it.label} className="p-4 flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-bold text-slate-900">{it.label}</p>
-                      <p className="text-xs text-slate-500 font-medium">
+                      <p className="text-sm font-bold text-[var(--theme-text)]">{it.label}</p>
+                      <p className="text-xs text-[var(--theme-muted)] font-medium">
                         {it.count} occurrence(s)
                       </p>
                     </div>
-                    <span className="text-sm font-black text-slate-900">
+                    <span className="text-sm font-black text-[var(--theme-text)]">
                       {formatEur(it.amountHT)}
                     </span>
                   </div>
                 ))
               ) : (
-                <div className="p-6 text-sm text-slate-500">Aucune recette détectée.</div>
+                <div className="p-6 text-sm text-[var(--theme-muted)]">Aucune recette détectée.</div>
               )
             ) : paidMonth.length > 0 ? (
               paidMonth.slice(0, 10).map((it) => (
                 <div key={it.id} className="p-4 flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-bold text-slate-900">{it.client_name}</p>
-                    <p className="text-xs text-slate-500 font-medium">#{it.id.slice(0, 8)}</p>
+                    <p className="text-sm font-bold text-[var(--theme-text)]">{it.client_name}</p>
+                    <p className="text-xs text-[var(--theme-muted)] font-medium">#{it.id.slice(0, 8)}</p>
                   </div>
-                  <span className="text-sm font-black text-slate-900">
+                  <span className="text-sm font-black text-[var(--theme-text)]">
                     {formatEurFromCents(invoiceAmountCents(it))}
                   </span>
                 </div>
               ))
             ) : (
-              <div className="p-6 text-sm text-slate-500">Aucune facture payée ce mois.</div>
+              <div className="p-6 text-sm text-[var(--theme-muted)]">Aucune facture payée ce mois.</div>
             )}
           </div>
 
-          <div className="p-4 bg-slate-50/50 text-center">
+          <div className="p-4 bg-[var(--theme-bg)]/50 text-center">
             <Link
               to="/dashboard"
-              className="text-xs font-bold text-slate-400 hover:text-blue-600 uppercase tracking-widest"
+              className="text-xs font-bold text-[var(--theme-muted)] hover:text-blue-600 uppercase tracking-widest"
             >
               Retour au dashboard
             </Link>
@@ -316,10 +316,10 @@ export default function DashboardRevenue() {
 
 function KpiCard({ label, value, hint }: any) {
   return (
-    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-      <p className="text-slate-500 text-sm font-medium">{label}</p>
-      <div className="text-2xl font-black text-slate-900 mt-1">{value}</div>
-      <p className="text-[11px] text-slate-400 font-medium mt-2">{hint}</p>
+    <div className="bg-[var(--theme-card)] p-6 rounded-3xl border border-[var(--theme-border)] shadow-sm">
+      <p className="text-[var(--theme-muted)] text-sm font-medium">{label}</p>
+      <div className="text-2xl font-black text-[var(--theme-text)] mt-1">{value}</div>
+      <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-2">{hint}</p>
     </div>
   );
 }

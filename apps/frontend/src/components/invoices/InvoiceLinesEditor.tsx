@@ -106,11 +106,11 @@ export default function InvoiceLinesEditor({
   };
 
   return (
-    <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+    <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
       <div className="p-6 border-b border-slate-50 flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-bold text-slate-900">Lignes de facture</h3>
-          <p className="text-[11px] text-slate-500 font-medium mt-1">
+          <h3 className="text-lg font-bold text-[var(--theme-text)]">Lignes de facture</h3>
+          <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
             Ajoute au moins 1 ligne avant de finaliser.
           </p>
         </div>
@@ -118,7 +118,7 @@ export default function InvoiceLinesEditor({
         <button
           onClick={() => onReload()}
           disabled={loading}
-          className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900 disabled:opacity-60"
+          className="inline-flex items-center gap-2 text-sm font-bold text-[var(--theme-muted)] hover:text-[var(--theme-text)] disabled:opacity-60"
         >
           <RefreshCw size={16} /> Recharger
         </button>
@@ -133,7 +133,7 @@ export default function InvoiceLinesEditor({
               value={draftDesc}
               onChange={(e) => setDraftDesc(e.target.value)}
               placeholder="Ex: Main d’œuvre"
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-300 bg-white text-sm font-semibold text-slate-900"
+              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
             />
           </div>
 
@@ -145,7 +145,7 @@ export default function InvoiceLinesEditor({
               step={1}
               value={draftQty}
               onChange={(e) => setDraftQty(Number(e.target.value))}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-300 bg-white text-sm font-semibold text-slate-900"
+              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
             />
           </div>
 
@@ -154,7 +154,7 @@ export default function InvoiceLinesEditor({
             <input
               value={draftUnitEur}
               onChange={(e) => setDraftUnitEur(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-300 bg-white text-sm font-semibold text-slate-900"
+              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
             />
           </div>
 
@@ -166,7 +166,7 @@ export default function InvoiceLinesEditor({
               step={0.1}
               value={draftTax}
               onChange={(e) => setDraftTax(Number(e.target.value))}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-300 bg-white text-sm font-semibold text-slate-900"
+              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
             />
           </div>
 
@@ -184,8 +184,8 @@ export default function InvoiceLinesEditor({
         {/* Table */}
         <div className="overflow-x-auto">
           <table className="min-w-full text-left">
-            <thead className="bg-slate-50/60">
-              <tr className="text-xs font-black uppercase tracking-widest text-slate-400">
+            <thead className="bg-[var(--theme-bg)]/60">
+              <tr className="text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]">
                 <th className="px-3 py-3">Description</th>
                 <th className="px-3 py-3">Qté</th>
                 <th className="px-3 py-3">PU</th>
@@ -210,7 +210,7 @@ export default function InvoiceLinesEditor({
                 ))
               ) : (
                 <tr>
-                  <td className="px-3 py-6 text-sm text-slate-500" colSpan={6}>
+                  <td className="px-3 py-6 text-sm text-[var(--theme-muted)]" colSpan={6}>
                     Aucune ligne.
                   </td>
                 </tr>
@@ -218,18 +218,18 @@ export default function InvoiceLinesEditor({
             </tbody>
 
             {lines.length > 0 ? (
-              <tfoot className="bg-slate-50/40">
+              <tfoot className="bg-[var(--theme-bg)]/40">
                 <tr>
                   <td
-                    className="px-3 py-3 text-xs font-black uppercase tracking-widest text-slate-400"
+                    className="px-3 py-3 text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]"
                     colSpan={4}
                   >
                     Totaux (estimations)
                   </td>
-                  <td className="px-3 py-3 text-right font-black text-slate-900">
+                  <td className="px-3 py-3 text-right font-black text-[var(--theme-text)]">
                     {formatEurFromCents(totals.subtotal)}
                   </td>
-                  <td className="px-3 py-3 text-right text-sm font-black text-slate-900">
+                  <td className="px-3 py-3 text-right text-sm font-black text-[var(--theme-text)]">
                     TTC: {formatEurFromCents(totals.total)}
                   </td>
                 </tr>
@@ -244,7 +244,7 @@ export default function InvoiceLinesEditor({
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+    <div className="text-[10px] font-black uppercase tracking-widest text-[var(--theme-muted)] mb-2">
       {children}
     </div>
   );
@@ -284,19 +284,19 @@ function LineRow({
 
   return (
     <tr className="text-sm">
-      <td className="px-3 py-3 font-semibold text-slate-900">
+      <td className="px-3 py-3 font-semibold text-[var(--theme-text)]">
         {isEditing ? (
           <input
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-300"
+            className="w-full px-3 py-2 rounded-xl border border-[var(--theme-border)] outline-none focus:border-blue-300"
           />
         ) : (
           line.description
         )}
       </td>
 
-      <td className="px-3 py-3 text-slate-700">
+      <td className="px-3 py-3 text-[var(--theme-text)]">
         {isEditing ? (
           <input
             type="number"
@@ -304,14 +304,14 @@ function LineRow({
             step={1}
             value={qty}
             onChange={(e) => setQty(Number(e.target.value))}
-            className="w-24 px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-300"
+            className="w-24 px-3 py-2 rounded-xl border border-[var(--theme-border)] outline-none focus:border-blue-300"
           />
         ) : (
           line.quantity
         )}
       </td>
 
-      <td className="px-3 py-3 text-slate-700">
+      <td className="px-3 py-3 text-[var(--theme-text)]">
         {isEditing ? (
           <input
             type="number"
@@ -319,14 +319,14 @@ function LineRow({
             step={1}
             value={unit}
             onChange={(e) => setUnit(Number(e.target.value))}
-            className="w-28 px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-300"
+            className="w-28 px-3 py-2 rounded-xl border border-[var(--theme-border)] outline-none focus:border-blue-300"
           />
         ) : (
           `${formatEurFromCents(line.unit_price_cents)}`
         )}
       </td>
 
-      <td className="px-3 py-3 text-slate-700">
+      <td className="px-3 py-3 text-[var(--theme-text)]">
         {isEditing ? (
           <input
             type="number"
@@ -334,14 +334,14 @@ function LineRow({
             step={0.1}
             value={tax}
             onChange={(e) => setTax(Number(e.target.value))}
-            className="w-24 px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-300"
+            className="w-24 px-3 py-2 rounded-xl border border-[var(--theme-border)] outline-none focus:border-blue-300"
           />
         ) : (
           `${line.tax_rate}%`
         )}
       </td>
 
-      <td className="px-3 py-3 text-right font-black text-slate-900">
+      <td className="px-3 py-3 text-right font-black text-[var(--theme-text)]">
         {formatEurFromCents(totalHT)}
       </td>
 
@@ -363,7 +363,7 @@ function LineRow({
             </button>
             <button
               onClick={onCancel}
-              className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors"
+              className="px-3 py-2 rounded-xl bg-[var(--theme-card)] border border-[var(--theme-border)] text-[var(--theme-text)] font-bold text-xs hover:bg-[var(--theme-bg)] transition-colors"
             >
               Annuler
             </button>
@@ -372,14 +372,14 @@ function LineRow({
           <div className="inline-flex items-center gap-2">
             <button
               onClick={onStartEdit}
-              className="p-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+              className="p-2 rounded-xl bg-[var(--theme-card)] border border-[var(--theme-border)] text-[var(--theme-text)] hover:bg-[var(--theme-bg)] transition-colors"
               title="Modifier"
             >
               <Pencil size={14} />
             </button>
             <button
               onClick={onDelete}
-              className="p-2 rounded-xl bg-white border border-red-200 text-red-700 hover:bg-red-50 transition-colors"
+              className="p-2 rounded-xl bg-[var(--theme-card)] border border-red-200 text-red-700 hover:bg-red-50 transition-colors"
               title="Supprimer"
             >
               <Trash2 size={14} />

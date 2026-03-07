@@ -1,3 +1,5 @@
+// apps/frontend/src/pages/Upgrade.tsx
+
 import React, { useState } from "react";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 import { ApiRequestError } from "../utils/apiRequestError";
@@ -39,14 +41,17 @@ export default function Upgrade() {
   };
 
   return (
-    <div className="max-w-xl mx-auto space-y-4">
-      <h2 className="text-2xl font-black text-slate-900">Passer au plan PRO</h2>
-      <p className="text-slate-500 text-sm">
+    <div className="mx-auto max-w-xl space-y-4 text-[var(--theme-text)]">
+      <h2 className="text-2xl font-black text-[var(--theme-text)]">
+        Passer au plan PRO
+      </h2>
+
+      <p className="text-sm text-[var(--theme-muted)]">
         Plan actuel : <span className="font-bold">{plan}</span>
       </p>
 
       {error && (
-        <div className="p-3 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm">
+        <div className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -54,14 +59,19 @@ export default function Upgrade() {
       <button
         onClick={startCheckout}
         disabled={loading}
-        className="w-full py-3 rounded-xl bg-slate-900 text-white font-bold uppercase tracking-widest text-xs disabled:opacity-60"
+        className="w-full rounded-xl py-3 text-xs font-bold uppercase tracking-widest text-white disabled:opacity-60"
+        style={{ backgroundColor: "var(--theme-primary)" }}
       >
         {loading ? "Redirection..." : "S'abonner (Checkout Stripe)"}
       </button>
 
-      <div className="text-xs text-slate-500">
+      <div className="text-xs text-[var(--theme-muted)]">
         Déjà PRO ?{" "}
-        <Link className="text-blue-600 font-bold" to="/billing">
+        <Link
+          to="/billing"
+          className="font-bold"
+          style={{ color: "var(--theme-primary)" }}
+        >
           Ouvrir le portail Billing
         </Link>
       </div>

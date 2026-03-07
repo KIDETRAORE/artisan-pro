@@ -82,10 +82,10 @@ export default function Invoices() {
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+          <h2 className="text-3xl font-extrabold text-[var(--theme-text)] tracking-tight">
             Factures
           </h2>
-          <p className="text-slate-500 mt-1">
+          <p className="text-[var(--theme-muted)] mt-1">
             Créez vos factures dans ArtisanPro, ajoutez les lignes, puis finalisez
             (sync).
           </p>
@@ -100,22 +100,22 @@ export default function Invoices() {
         </button>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+      <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
         <div className="p-4 border-b border-slate-50 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 w-full max-w-md bg-slate-50 rounded-2xl px-3 py-2 border border-slate-100">
-            <Search size={16} className="text-slate-400" />
+          <div className="flex items-center gap-2 w-full max-w-md bg-[var(--theme-bg)] rounded-2xl px-3 py-2 border border-[var(--theme-border)]">
+            <Search size={16} className="text-[var(--theme-muted)]" />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Rechercher (client, statut, id)…"
-              className="w-full bg-transparent outline-none text-sm font-medium text-slate-700 placeholder:text-slate-400"
+              className="w-full bg-transparent outline-none text-sm font-medium text-[var(--theme-text)] placeholder:text-[var(--theme-muted)]"
             />
           </div>
 
           <button
             onClick={load}
             disabled={loading}
-            className="text-sm font-bold text-slate-500 hover:text-slate-900 disabled:opacity-60"
+            className="text-sm font-bold text-[var(--theme-muted)] hover:text-[var(--theme-text)] disabled:opacity-60"
           >
             Rafraîchir
           </button>
@@ -127,17 +127,17 @@ export default function Invoices() {
               <Link
                 key={it.id}
                 to={`/invoices/${it.id}`}
-                className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                className="p-4 flex items-center justify-between hover:bg-[var(--theme-bg)] transition-colors"
               >
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500">
+                  <div className="w-10 h-10 rounded-xl bg-[var(--theme-bg)] flex items-center justify-center text-[var(--theme-muted)]">
                     <FileText size={18} />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-slate-900">
+                    <p className="text-sm font-bold text-[var(--theme-text)]">
                       {it.client_name || "Client"}
                     </p>
-                    <p className="text-xs text-slate-500 font-medium">
+                    <p className="text-xs text-[var(--theme-muted)] font-medium">
                       #{String(it.id).slice(0, 8)} •{" "}
                       {String(it.status).toUpperCase()}
                     </p>
@@ -145,15 +145,15 @@ export default function Invoices() {
                 </div>
 
                 <div className="flex items-center gap-4">
-                  <span className="text-sm font-black text-slate-900">
+                  <span className="text-sm font-black text-[var(--theme-text)]">
                     {formatEurFromCents(moneyCentsFromInvoice(it))}
                   </span>
-                  <ArrowRight size={18} className="text-slate-400" />
+                  <ArrowRight size={18} className="text-[var(--theme-muted)]" />
                 </div>
               </Link>
             ))
           ) : (
-            <div className="p-8 text-sm text-slate-500 text-center">
+            <div className="p-8 text-sm text-[var(--theme-muted)] text-center">
               {loading ? "Chargement…" : "Aucune facture."}
             </div>
           )}

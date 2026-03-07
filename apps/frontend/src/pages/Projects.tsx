@@ -41,9 +41,9 @@ function getStatusClass(status: string): string {
     case "paused":
       return "bg-amber-50 text-amber-700 border-amber-200";
     case "done":
-      return "bg-slate-100 text-slate-700 border-slate-200";
+      return "bg-[var(--theme-bg)] text-[var(--theme-text)] border-[var(--theme-border)]";
     default:
-      return "bg-slate-100 text-slate-700 border-slate-200";
+      return "bg-[var(--theme-bg)] text-[var(--theme-text)] border-[var(--theme-border)]";
   }
 }
 
@@ -98,7 +98,7 @@ export default function Projects() {
               <button
                 type="button"
                 onClick={() => void loadProjects()}
-                className="rounded-xl border border-[var(--theme-border)] px-3 py-2 text-sm font-medium text-[var(--theme-text)] hover:bg-slate-50"
+                className="rounded-xl border border-[var(--theme-border)] px-3 py-2 text-sm font-medium text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
               >
                 Rafraîchir
               </button>

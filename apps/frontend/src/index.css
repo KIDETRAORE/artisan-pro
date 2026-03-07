@@ -82,3 +82,47 @@
 ::-webkit-scrollbar-thumb {
   @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
 }
+
+/* ========================= */
+/* THEMES ARTISANPRO DESIGN */
+/* ========================= */
+
+.app-theme {
+  --theme-bg: #f8fafc;
+  --theme-card: #ffffff;
+  --theme-text: #0f172a;
+  --theme-muted: #64748b;
+  --theme-border: #e2e8f0;
+  --theme-primary: #4f46e5;
+  --theme-primary-contrast: #ffffff;
+}
+
+.app-theme-classic {
+  --theme-bg: #f8fafc;
+  --theme-card: #ffffff;
+  --theme-text: #0f172a;
+  --theme-muted: #64748b;
+  --theme-border: #e2e8f0;
+  --theme-primary: #4f46e5;
+  --theme-primary-contrast: #ffffff;
+}
+
+.app-theme-midnight {
+  --theme-bg: #0f172a;
+  --theme-card: #111827;
+  --theme-text: #f8fafc;
+  --theme-muted: #94a3b8;
+  --theme-border: #334155;
+  --theme-primary: #3b82f6;
+  --theme-primary-contrast: #ffffff;
+}
+
+.app-theme-sunset {
+  --theme-bg: #fff7ed;
+  --theme-card: #ffffff;
+  --theme-text: #7c2d12;
+  --theme-muted: #9a3412;
+  --theme-border: #fdba74;
+  --theme-primary: #ea580c;
+  --theme-primary-contrast: #ffffff;
+}

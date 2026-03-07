@@ -102,48 +102,48 @@ export default function DashboardQuotes() {
         <div>
           <Link
             to="/dashboard"
-            className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900"
+            className="inline-flex items-center gap-2 text-sm font-bold text-[var(--theme-muted)] hover:text-[var(--theme-text)]"
           >
             <ArrowLeft size={16} /> Retour
           </Link>
-          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-2">
+          <h2 className="text-3xl font-extrabold text-[var(--theme-text)] tracking-tight mt-2">
             {hasComptaReport ? "Dépenses" : "Devis en attente"}
           </h2>
-          <p className="text-slate-500 mt-1">
+          <p className="text-[var(--theme-muted)] mt-1">
             {hasComptaReport
               ? "Analyse structurée des dépenses issues de la compta IA."
               : "Analyse structurée + prochaines améliorations (devis backend à finaliser)."}
           </p>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-sm">
+        <div className="hidden sm:flex items-center gap-2 bg-[var(--theme-card)] border border-[var(--theme-border)] rounded-2xl px-4 py-3 shadow-sm">
           <Clock className="text-amber-500" size={18} />
-          <span className="text-sm font-black text-slate-900">
+          <span className="text-sm font-black text-[var(--theme-text)]">
             {loading
               ? "…"
               : hasComptaReport
               ? formatEur(depensesTTC)
               : String(pendingCount)}
           </span>
-          <span className="text-xs font-bold text-slate-400">
+          <span className="text-xs font-bold text-[var(--theme-muted)]">
             {hasComptaReport ? "dépenses" : "en attente"}
           </span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
           <div className="p-6 border-b border-slate-50">
-            <h3 className="text-lg font-bold text-slate-900">Analyse</h3>
-            <p className="text-[11px] text-slate-500 font-medium mt-1">
+            <h3 className="text-lg font-bold text-[var(--theme-text)]">Analyse</h3>
+            <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
               Ce que l’écran peut faire dès maintenant.
             </p>
           </div>
           <div className="p-6 space-y-4">
-            <p className="text-sm font-medium text-slate-700">{analysis.summary}</p>
+            <p className="text-sm font-medium text-[var(--theme-text)]">{analysis.summary}</p>
             <ul className="space-y-2">
               {analysis.actions.map((a) => (
-                <li key={a} className="text-sm text-slate-600 flex gap-3">
+                <li key={a} className="text-sm text-[var(--theme-muted)] flex gap-3">
                   <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-slate-300" />
                   <span>{a}</span>
                 </li>
@@ -152,12 +152,12 @@ export default function DashboardQuotes() {
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+        <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
           <div className="p-6 border-b border-slate-50">
-            <h3 className="text-lg font-bold text-slate-900">
+            <h3 className="text-lg font-bold text-[var(--theme-text)]">
               {hasComptaReport ? "Top dépenses" : "Actions rapides"}
             </h3>
-            <p className="text-[11px] text-slate-500 font-medium mt-1">
+            <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
               {hasComptaReport
                 ? "Postes détectés par l’analyse comptable."
                 : "Aller vers la source de vérité."}
@@ -170,21 +170,21 @@ export default function DashboardQuotes() {
                 topDepenses.slice(0, 10).map((item) => (
                   <div
                     key={item.label}
-                    className="flex items-center justify-between rounded-2xl border border-slate-100 px-4 py-3"
+                    className="flex items-center justify-between rounded-2xl border border-[var(--theme-border)] px-4 py-3"
                   >
                     <div>
-                      <p className="text-sm font-bold text-slate-900">{item.label}</p>
-                      <p className="text-xs text-slate-500 font-medium">
+                      <p className="text-sm font-bold text-[var(--theme-text)]">{item.label}</p>
+                      <p className="text-xs text-[var(--theme-muted)] font-medium">
                         {item.count} occurrence(s)
                       </p>
                     </div>
-                    <span className="text-sm font-black text-slate-900">
+                    <span className="text-sm font-black text-[var(--theme-text)]">
                       {formatEur(item.amountHT)}
                     </span>
                   </div>
                 ))
               ) : (
-                <p className="text-xs text-slate-400 font-medium">
+                <p className="text-xs text-[var(--theme-muted)] font-medium">
                   Aucune dépense détaillée détectée.
                 </p>
               )
@@ -198,11 +198,11 @@ export default function DashboardQuotes() {
                 </Link>
                 <Link
                   to="/dashboard"
-                  className="block bg-white border border-slate-200 text-slate-900 px-4 py-3 rounded-2xl font-bold text-sm hover:border-blue-200 hover:bg-blue-50/30 transition-colors"
+                  className="block bg-[var(--theme-card)] border border-[var(--theme-border)] text-[var(--theme-text)] px-4 py-3 rounded-2xl font-bold text-sm hover:border-blue-200 hover:bg-blue-50/30 transition-colors"
                 >
                   Revenir au dashboard
                 </Link>
-                <p className="text-xs text-slate-400 font-medium">
+                <p className="text-xs text-[var(--theme-muted)] font-medium">
                   Note: pour afficher une vraie liste “devis en attente”, il faudra brancher le backend devis (table + statuts) comme on l’a fait pour les factures.
                 </p>
               </>

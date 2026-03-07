@@ -1,3 +1,4 @@
+// apps/frontend/src/pages/Vision.tsx
 import React, { useState, useRef } from "react";
 import { Camera, ShieldCheck, Loader2, Sparkles } from "lucide-react";
 import { useAuth } from "../store/auth.store";
@@ -126,10 +127,10 @@ export default function Vision() {
         className="hidden"
       />
 
-      <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm shrink-0">
+      <div className="bg-[var(--theme-card)] rounded-2xl p-4 border border-[var(--theme-border)] shadow-sm shrink-0">
         <div className="flex items-center gap-2 mb-3">
           <span className="text-emerald-500 text-xs">📄</span>
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+          <span className="text-[9px] font-black text-[var(--theme-muted)] uppercase tracking-widest">
             Base de connaissance externe
           </span>
         </div>
@@ -137,7 +138,7 @@ export default function Vision() {
         {/* ✅ Import catalogue (inchangé) */}
         <div
           onClick={() => !isProcessing && fileInputRef.current?.click()}
-          className="border-2 border-dashed border-slate-50 rounded-xl py-4 flex flex-col items-center justify-center gap-1 text-slate-400 hover:bg-slate-50 transition-colors cursor-pointer group"
+          className="border-2 border-dashed border-slate-50 rounded-xl py-4 flex flex-col items-center justify-center gap-1 text-[var(--theme-muted)] hover:bg-[var(--theme-bg)] transition-colors cursor-pointer group"
         >
           <span className="text-[11px] font-medium italic opacity-60 flex items-center gap-2">
             ☁️ Importer un catalogue (Excel/CSV)
@@ -145,9 +146,9 @@ export default function Vision() {
         </div>
       </div>
 
-      <div className="flex-1 bg-white rounded-[2rem] p-6 shadow-sm flex flex-col min-h-0 overflow-y-auto">
+      <div className="flex-1 bg-[var(--theme-card)] rounded-[2rem] p-6 shadow-sm flex flex-col min-h-0 overflow-y-auto">
         <div className="flex justify-between items-center mb-3">
-          <h2 className="text-lg font-black text-slate-900 tracking-tight uppercase">
+          <h2 className="text-lg font-black text-[var(--theme-text)] tracking-tight uppercase">
             Suivi de Chantier
           </h2>
           <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black px-2 py-0.5 rounded-md flex items-center gap-1 border border-emerald-100 uppercase">
@@ -157,7 +158,7 @@ export default function Vision() {
 
         {!analysis ? (
           <>
-            <p className="text-slate-400 text-[12px] leading-snug italic mb-6">
+            <p className="text-[var(--theme-muted)] text-[12px] leading-snug italic mb-6">
               Prenez une photo. L'IA analyse l'avancement technique et les
               matériaux sans identifier les personnes.
             </p>
@@ -165,7 +166,7 @@ export default function Vision() {
             {/* ✅ MODIF UNIQUE: "Prendre une photo" déclenche l'appareil photo (input capture) */}
             <div
               onClick={() => !isProcessing && fileInputRef.current?.click()}
-              className="flex-1 border-2 border-dashed border-slate-100 rounded-[1.5rem] flex flex-col items-center justify-center group cursor-pointer hover:bg-slate-50 transition-all mb-2 min-h-[200px]"
+              className="flex-1 border-2 border-dashed border-[var(--theme-border)] rounded-[1.5rem] flex flex-col items-center justify-center group cursor-pointer hover:bg-[var(--theme-bg)] transition-all mb-2 min-h-[200px]"
             >
               {isProcessing ? (
                 <div className="flex flex-col items-center gap-3">
@@ -176,13 +177,13 @@ export default function Vision() {
                 </div>
               ) : (
                 <>
-                  <div className="w-14 h-14 bg-white rounded-full shadow-md flex items-center justify-center text-[#4f46e5] mb-3 border border-slate-50 group-hover:scale-105 transition-transform">
+                  <div className="w-14 h-14 bg-[var(--theme-card)] rounded-full shadow-md flex items-center justify-center text-[#4f46e5] mb-3 border border-slate-50 group-hover:scale-105 transition-transform">
                     <Camera size={24} />
                   </div>
-                  <span className="font-black text-slate-900 text-[13px] uppercase tracking-wide">
+                  <span className="font-black text-[var(--theme-text)] text-[13px] uppercase tracking-wide">
                     Prendre une photo
                   </span>
-                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+                  <span className="text-[9px] text-[var(--theme-muted)] font-bold uppercase tracking-widest mt-0.5">
                     Analyse instantanée
                   </span>
                 </>

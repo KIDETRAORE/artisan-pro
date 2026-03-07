@@ -1,3 +1,4 @@
+// apps/frontend/src/components/devis/DevisAiActions.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { Mic, FileUp, Loader2, StopCircle } from "lucide-react";
 import { toast } from "react-hot-toast";
@@ -190,7 +191,7 @@ export const DevisAiActions = ({ onAnalysisComplete }: DevisAiActionsProps) => {
   };
 
   return (
-    <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200">
+    <div className="flex items-center gap-3 bg-[var(--theme-card)] p-2 rounded-xl border border-[var(--theme-border)]">
       <input
         type="file"
         ref={fileInputRef}

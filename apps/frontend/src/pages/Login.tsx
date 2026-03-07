@@ -1,3 +1,5 @@
+// apps/frontend/src/pages/Login.tsx
+
 import React, { useState, useEffect } from "react";
 import { Navigate } from "react-router-dom";
 import { LayoutDashboard, Lock, Mail, ArrowRight, Loader2 } from "lucide-react";
@@ -41,9 +43,13 @@ export default function Login() {
   // 2. État de chargement (uniquement si pas forcé)
   if (isLoading && !forceShow) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
-        <Loader2 className="animate-spin text-blue-600 mb-4" size={40} />
-        <p className="text-slate-600 font-medium">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--theme-bg)] text-[var(--theme-text)]">
+        <Loader2
+          className="mb-4 animate-spin"
+          style={{ color: "var(--theme-primary)" }}
+          size={40}
+        />
+        <p className="font-medium text-[var(--theme-muted)]">
           Initialisation d'ArtisanPro...
         </p>
       </div>
@@ -51,30 +57,36 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-xl shadow-slate-200/60 overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-500">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--theme-bg)] p-4 text-[var(--theme-text)]">
+      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl animate-in fade-in zoom-in duration-500">
         <div className="p-8">
-          <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
-              <LayoutDashboard className="text-white" size={32} />
+          <div className="mb-6 flex justify-center">
+            <div
+              className="flex h-16 w-16 items-center justify-center rounded-2xl shadow-lg"
+              style={{ backgroundColor: "var(--theme-primary)" }}
+            >
+              <LayoutDashboard
+                className="text-[var(--theme-primary-contrast)]"
+                size={32}
+              />
             </div>
           </div>
 
-          <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">
+          <h2 className="mb-2 text-center text-2xl font-bold text-[var(--theme-text)]">
             ArtisanPro AI
           </h2>
-          <p className="text-slate-500 text-center mb-8">
+          <p className="mb-8 text-center text-[var(--theme-muted)]">
             Connectez-vous pour accéder à vos outils.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label className="mb-1 block text-sm font-medium text-[var(--theme-text)]">
                 Email professionnel
               </label>
               <div className="relative">
                 <Mail
-                  className="absolute left-3 top-3 text-slate-400"
+                  className="absolute left-3 top-3 text-[var(--theme-muted)]"
                   size={18}
                 />
                 <input
@@ -82,19 +94,20 @@ export default function Login() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all outline-none"
+                  className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] py-3 pl-10 pr-4 text-[var(--theme-text)] outline-none transition-all placeholder:text-[var(--theme-muted)] focus:ring-2"
+                  style={{ ["--tw-ring-color" as any]: "var(--theme-primary)" }}
                   placeholder="artisan@exemple.fr"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label className="mb-1 block text-sm font-medium text-[var(--theme-text)]">
                 Mot de passe
               </label>
               <div className="relative">
                 <Lock
-                  className="absolute left-3 top-3 text-slate-400"
+                  className="absolute left-3 top-3 text-[var(--theme-muted)]"
                   size={18}
                 />
                 <input
@@ -102,7 +115,8 @@ export default function Login() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all outline-none"
+                  className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] py-3 pl-10 pr-4 text-[var(--theme-text)] outline-none transition-all placeholder:text-[var(--theme-muted)] focus:ring-2"
+                  style={{ ["--tw-ring-color" as any]: "var(--theme-primary)" }}
                   placeholder="••••••••"
                 />
               </div>
@@ -111,7 +125,8 @@ export default function Login() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2 group"
+              className="group flex w-full items-center justify-center gap-2 rounded-xl py-3 font-bold text-white transition-all disabled:opacity-60"
+              style={{ backgroundColor: "var(--theme-primary)" }}
             >
               {isSubmitting ? (
                 <Loader2 className="animate-spin" size={20} />
@@ -120,7 +135,7 @@ export default function Login() {
                   Se connecter
                   <ArrowRight
                     size={18}
-                    className="group-hover:translate-x-1 transition-transform"
+                    className="transition-transform group-hover:translate-x-1"
                   />
                 </>
               )}
@@ -128,7 +143,7 @@ export default function Login() {
           </form>
         </div>
 
-        <div className="bg-slate-50 p-4 border-t border-slate-100 text-center text-[10px] text-slate-400 uppercase tracking-widest">
+        <div className="border-t border-[var(--theme-border)] bg-[var(--theme-bg)] p-4 text-center text-[10px] uppercase tracking-widest text-[var(--theme-muted)]">
           Sécurisé par ArtisanPro Cloud
         </div>
       </div>

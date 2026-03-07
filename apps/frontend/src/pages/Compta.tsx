@@ -1,3 +1,4 @@
+// apps/frontend/src/pages/Compta.tsx
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -471,17 +472,17 @@ export default function Compta() {
           <FileBarChart size={22} />
         </div>
         <div>
-          <h2 className="text-2xl font-black text-slate-900 leading-tight">
+          <h2 className="text-2xl font-black text-[var(--theme-text)] leading-tight">
             Compta IA
           </h2>
-          <p className="text-sm text-slate-500 font-semibold">
+          <p className="text-sm text-[var(--theme-muted)] font-semibold">
             Analyse XLSX/CSV → Rapport structuré + preview + exports
           </p>
         </div>
       </div>
 
       {/* Upload Card */}
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+      <div className="bg-[var(--theme-card)] rounded-3xl border border-[var(--theme-border)] shadow-sm p-5">
         <div className="flex flex-col gap-3">
           <input
             ref={inputRef}
@@ -501,7 +502,7 @@ export default function Compta() {
             </button>
 
             {file && (
-              <span className="text-sm font-bold text-slate-700">
+              <span className="text-sm font-bold text-[var(--theme-text)]">
                 {file.name}
               </span>
             )}
@@ -528,28 +529,28 @@ export default function Compta() {
         <div className="mt-6 space-y-6">
           {/* KPI */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 text-slate-500 font-black text-xs uppercase tracking-widest">
+            <div className="bg-[var(--theme-card)] rounded-3xl border border-[var(--theme-border)] shadow-sm p-5">
+              <div className="flex items-center gap-2 text-[var(--theme-muted)] font-black text-xs uppercase tracking-widest">
                 <ReceiptEuro size={14} />
                 Recettes
               </div>
-              <div className="mt-3 text-2xl font-black text-slate-900">
+              <div className="mt-3 text-2xl font-black text-[var(--theme-text)]">
                 {totals?.recettesTTC?.toFixed(2)} €
               </div>
             </div>
 
-            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 text-slate-500 font-black text-xs uppercase tracking-widest">
+            <div className="bg-[var(--theme-card)] rounded-3xl border border-[var(--theme-border)] shadow-sm p-5">
+              <div className="flex items-center gap-2 text-[var(--theme-muted)] font-black text-xs uppercase tracking-widest">
                 <TrendingDown size={14} />
                 Dépenses
               </div>
-              <div className="mt-3 text-2xl font-black text-slate-900">
+              <div className="mt-3 text-2xl font-black text-[var(--theme-text)]">
                 {totals?.depensesTTC?.toFixed(2)} €
               </div>
             </div>
 
-            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 text-slate-500 font-black text-xs uppercase tracking-widest">
+            <div className="bg-[var(--theme-card)] rounded-3xl border border-[var(--theme-border)] shadow-sm p-5">
+              <div className="flex items-center gap-2 text-[var(--theme-muted)] font-black text-xs uppercase tracking-widest">
                 <TrendingUp size={14} />
                 Résultat net
               </div>
@@ -560,31 +561,31 @@ export default function Compta() {
           </div>
 
           {/* TVA */}
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+          <div className="bg-[var(--theme-card)] rounded-3xl border border-[var(--theme-border)] shadow-sm p-5">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">
+              <h3 className="text-xs font-black uppercase tracking-widest text-[var(--theme-text)]">
                 TVA
               </h3>
-              <span className="text-xs font-bold text-slate-500">
+              <span className="text-xs font-bold text-[var(--theme-muted)]">
                 {report.meta.currency}
               </span>
             </div>
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
-                <div className="text-xs font-black uppercase tracking-widest text-slate-500">
+              <div className="bg-[var(--theme-bg)] border border-[var(--theme-border)] rounded-2xl p-4">
+                <div className="text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]">
                   Collectée
                 </div>
-                <div className="mt-2 text-xl font-black text-slate-900">
+                <div className="mt-2 text-xl font-black text-[var(--theme-text)]">
                   {tva?.collectee?.toFixed(2)} €
                 </div>
               </div>
 
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
-                <div className="text-xs font-black uppercase tracking-widest text-slate-500">
+              <div className="bg-[var(--theme-bg)] border border-[var(--theme-border)] rounded-2xl p-4">
+                <div className="text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]">
                   Déductible
                 </div>
-                <div className="mt-2 text-xl font-black text-slate-900">
+                <div className="mt-2 text-xl font-black text-[var(--theme-text)]">
                   {tva?.deductible?.toFixed(2)} €
                 </div>
               </div>
@@ -601,9 +602,9 @@ export default function Compta() {
           </div>
 
           {/* Preview */}
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+          <div className="bg-[var(--theme-card)] rounded-3xl border border-[var(--theme-border)] shadow-sm p-5">
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
+              <h3 className="text-xs font-black uppercase tracking-widest text-[var(--theme-text)] flex items-center gap-2">
                 <Table2 size={14} />
                 Preview
               </h3>
@@ -611,13 +612,13 @@ export default function Compta() {
               <div className="flex gap-2">
                 <button
                   onClick={downloadJson}
-                  className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-700 font-black text-xs uppercase tracking-widest flex items-center gap-2"
+                  className="px-3 py-2 rounded-2xl bg-[var(--theme-bg)] text-[var(--theme-text)] font-black text-xs uppercase tracking-widest flex items-center gap-2"
                 >
                   <Download size={14} /> JSON
                 </button>
                 <button
                   onClick={downloadCsv}
-                  className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-700 font-black text-xs uppercase tracking-widest flex items-center gap-2"
+                  className="px-3 py-2 rounded-2xl bg-[var(--theme-bg)] text-[var(--theme-text)] font-black text-xs uppercase tracking-widest flex items-center gap-2"
                 >
                   <Download size={14} /> CSV
                 </button>
@@ -628,10 +629,10 @@ export default function Compta() {
               {previewSheets.map((s) => (
                 <div
                   key={s.name}
-                  className="border border-slate-100 rounded-2xl overflow-hidden"
+                  className="border border-[var(--theme-border)] rounded-2xl overflow-hidden"
                 >
-                  <div className="px-4 py-3 bg-slate-50 flex items-center justify-between">
-                    <div className="font-black text-xs uppercase tracking-widest text-slate-700">
+                  <div className="px-4 py-3 bg-[var(--theme-bg)] flex items-center justify-between">
+                    <div className="font-black text-xs uppercase tracking-widest text-[var(--theme-text)]">
                       {s.name}
                     </div>
                     {s.truncated && (
@@ -644,25 +645,25 @@ export default function Compta() {
 
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
-                      <thead className="bg-white">
+                      <thead className="bg-[var(--theme-card)]">
                         <tr>
                           {s.columns.map((c, idx) => (
                             <th
                               key={idx}
-                              className="text-left px-4 py-2 text-xs font-black uppercase tracking-widest text-slate-500"
+                              className="text-left px-4 py-2 text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]"
                             >
                               {c}
                             </th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="bg-white">
+                      <tbody className="bg-[var(--theme-card)]">
                         {s.rows.slice(0, 10).map((row, rIdx) => (
-                          <tr key={rIdx} className="border-t border-slate-100">
+                          <tr key={rIdx} className="border-t border-[var(--theme-border)]">
                             {row.map((cell, cIdx) => (
                               <td
                                 key={cIdx}
-                                className="px-4 py-2 text-slate-700"
+                                className="px-4 py-2 text-[var(--theme-text)]"
                               >
                                 {String(cell ?? "")}
                               </td>
@@ -673,7 +674,7 @@ export default function Compta() {
                     </table>
                   </div>
 
-                  <div className="px-4 py-3 bg-slate-50 text-xs text-slate-600 font-semibold">
+                  <div className="px-4 py-3 bg-[var(--theme-bg)] text-xs text-[var(--theme-muted)] font-semibold">
                     Affichage: 10 lignes (preview). Export disponible via
                     boutons.
                   </div>
@@ -683,20 +684,20 @@ export default function Compta() {
           </div>
 
           {/* Summary + Expert */}
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+          <div className="bg-[var(--theme-card)] rounded-3xl border border-[var(--theme-border)] shadow-sm p-5">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={16} className="text-emerald-600" />
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">
+                <h3 className="text-xs font-black uppercase tracking-widest text-[var(--theme-text)]">
                   Résumé
                 </h3>
               </div>
-              <div className="text-xs font-bold text-slate-500">
+              <div className="text-xs font-bold text-[var(--theme-muted)]">
                 Anomalies: {anomaliesCount}
               </div>
             </div>
 
-            <p className="mt-3 text-sm text-slate-700 whitespace-pre-wrap">
+            <p className="mt-3 text-sm text-[var(--theme-text)] whitespace-pre-wrap">
               {report.summary.resume}
             </p>
 
@@ -708,7 +709,7 @@ export default function Compta() {
                 <Sparkles size={16} />
                 Mode Expert IA
               </button>
-              <p className="mt-2 text-xs text-slate-500 font-semibold">
+              <p className="mt-2 text-xs text-[var(--theme-muted)] font-semibold">
                 Ouvre la bulle trans-onglet et injecte l’analyse dans le chat
                 expert.
               </p>
@@ -718,7 +719,7 @@ export default function Compta() {
       )}
 
       {!report && isProcessing && (
-        <div className="mt-6 bg-white rounded-3xl border border-slate-100 shadow-sm p-5 flex items-center gap-3 text-slate-700 font-bold">
+        <div className="mt-6 bg-[var(--theme-card)] rounded-3xl border border-[var(--theme-border)] shadow-sm p-5 flex items-center gap-3 text-[var(--theme-text)] font-bold">
           <Loader2 className="animate-spin" size={18} />
           Analyse en cours…
         </div>

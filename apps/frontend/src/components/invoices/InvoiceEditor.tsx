@@ -75,10 +75,10 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
   };
 
   return (
-    <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+    <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
       <div className="p-6 border-b border-slate-50">
-        <h3 className="text-lg font-bold text-slate-900">Informations client</h3>
-        <p className="text-[11px] text-slate-500 font-medium mt-1">
+        <h3 className="text-lg font-bold text-[var(--theme-text)]">Informations client</h3>
+        <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
           Renseigne le client, l’échéance et rattache la facture à un chantier si
           besoin. Le reste est calculé via les lignes.
         </p>
@@ -89,7 +89,7 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
           <input
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-300 bg-white text-sm font-semibold text-slate-900"
+            className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
             placeholder="Nom / Société"
           />
         </Field>
@@ -98,7 +98,7 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
           <input
             value={clientEmail}
             onChange={(e) => setClientEmail(e.target.value)}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-300 bg-white text-sm font-semibold text-slate-900"
+            className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
             placeholder="client@mail.com"
           />
         </Field>
@@ -108,7 +108,7 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-300 bg-white text-sm font-semibold text-slate-900"
+            className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
           />
         </Field>
 
@@ -116,7 +116,7 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
           <select
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-300 bg-white text-sm font-semibold text-slate-900"
+            className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
           >
             <option value="">
               {projectsLoading ? "Chargement des chantiers…" : "Aucun chantier"}
@@ -153,7 +153,7 @@ function Field({
 }) {
   return (
     <div className="space-y-2">
-      <div className="text-xs font-black uppercase tracking-widest text-slate-400">
+      <div className="text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]">
         {label}
       </div>
       {children}

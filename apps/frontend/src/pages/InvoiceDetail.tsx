@@ -252,16 +252,16 @@ export default function InvoiceDetail() {
         <div>
           <Link
             to="/invoices"
-            className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900"
+            className="inline-flex items-center gap-2 text-sm font-bold text-[var(--theme-muted)] hover:text-[var(--theme-text)]"
           >
             <ArrowLeft size={16} /> Retour
           </Link>
 
-          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-2">
+          <h2 className="text-3xl font-extrabold text-[var(--theme-text)] tracking-tight mt-2">
             Facture
           </h2>
 
-          <p className="text-slate-500 mt-1">
+          <p className="text-[var(--theme-muted)] mt-1">
             {invoice ? `#${invoice.id.slice(0, 8)}` : "Chargement…"}
           </p>
         </div>
@@ -269,7 +269,7 @@ export default function InvoiceDetail() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/invoices")}
-            className="hidden sm:inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-900 px-4 py-3 rounded-2xl font-bold text-sm hover:border-blue-200 hover:bg-blue-50/30 transition-colors"
+            className="hidden sm:inline-flex items-center gap-2 bg-[var(--theme-card)] border border-[var(--theme-border)] text-[var(--theme-text)] px-4 py-3 rounded-2xl font-bold text-sm hover:border-blue-200 hover:bg-blue-50/30 transition-colors"
           >
             Liste
           </button>
@@ -277,7 +277,7 @@ export default function InvoiceDetail() {
           <button
             onClick={onDeleteInvoice}
             disabled={loading}
-            className="hidden sm:inline-flex items-center gap-2 bg-white border border-red-200 text-red-700 px-4 py-3 rounded-2xl font-bold text-sm hover:bg-red-50 transition-colors disabled:opacity-60"
+            className="hidden sm:inline-flex items-center gap-2 bg-[var(--theme-card)] border border-red-200 text-red-700 px-4 py-3 rounded-2xl font-bold text-sm hover:bg-red-50 transition-colors disabled:opacity-60"
           >
             Supprimer
           </button>
@@ -285,7 +285,7 @@ export default function InvoiceDetail() {
           <button
             onClick={onResyncPennylane}
             disabled={!canResyncPennylane || resyncLoading || loading}
-            className="inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-900 px-4 py-3 rounded-2xl font-bold text-sm hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors disabled:opacity-60"
+            className="inline-flex items-center gap-2 bg-[var(--theme-card)] border border-[var(--theme-border)] text-[var(--theme-text)] px-4 py-3 rounded-2xl font-bold text-sm hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors disabled:opacity-60"
           >
             Resync Pennylane
           </button>
@@ -293,7 +293,7 @@ export default function InvoiceDetail() {
           <button
             onClick={onPay}
             disabled={!canPay || loading}
-            className="inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-900 px-4 py-3 rounded-2xl font-bold text-sm hover:border-emerald-200 hover:bg-emerald-50/30 transition-colors disabled:opacity-60"
+            className="inline-flex items-center gap-2 bg-[var(--theme-card)] border border-[var(--theme-border)] text-[var(--theme-text)] px-4 py-3 rounded-2xl font-bold text-sm hover:border-emerald-200 hover:bg-emerald-50/30 transition-colors disabled:opacity-60"
           >
             Payer la facture
           </button>
@@ -309,7 +309,7 @@ export default function InvoiceDetail() {
       </div>
 
       {error ? (
-        <div className="bg-white border border-red-100 rounded-2xl p-4 text-sm text-red-700 flex items-start gap-3">
+        <div className="bg-[var(--theme-card)] border border-red-100 rounded-2xl p-4 text-sm text-red-700 flex items-start gap-3">
           <AlertTriangle size={18} className="mt-0.5" />
           <div>{error}</div>
         </div>
@@ -333,10 +333,10 @@ export default function InvoiceDetail() {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+          <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
             <div className="p-6 border-b border-slate-50">
-              <h3 className="text-lg font-bold text-slate-900">Totaux</h3>
-              <p className="text-[11px] text-slate-500 font-medium mt-1">
+              <h3 className="text-lg font-bold text-[var(--theme-text)]">Totaux</h3>
+              <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
                 Calculs en centimes (MVP).
               </p>
             </div>
@@ -344,46 +344,46 @@ export default function InvoiceDetail() {
             <div className="p-6 space-y-3">
               <Row label="Sous-total (HT)" value={formatEurFromCents(totals.subtotal)} />
               <Row label="TVA (estimée)" value={formatEurFromCents(totals.tax)} />
-              <div className="h-px bg-slate-100 my-2" />
+              <div className="h-px bg-[var(--theme-bg)] my-2" />
               <Row
                 label="Total (TTC)"
                 value={formatEurFromCents(totals.total)}
                 strong
               />
 
-              <div className="mt-4 text-xs text-slate-400 font-medium">
+              <div className="mt-4 text-xs text-[var(--theme-muted)] font-medium">
                 Statut:{" "}
-                <span className="font-black text-slate-700">
+                <span className="font-black text-[var(--theme-text)]">
                   {status ? status.toUpperCase() : "—"}
                 </span>
               </div>
 
-              <div className="mt-4 text-xs text-slate-400 font-medium">
+              <div className="mt-4 text-xs text-[var(--theme-muted)] font-medium">
                 Total enregistré (invoice):{" "}
-                <span className="font-black text-slate-700">
+                <span className="font-black text-[var(--theme-text)]">
                   {invoice ? formatEurFromCents(moneyCentsFromInvoice(invoice)) : "—"}
                 </span>
               </div>
 
-              <div className="mt-4 text-xs text-slate-400 font-medium">
+              <div className="mt-4 text-xs text-[var(--theme-muted)] font-medium">
                 Chantier lié:{" "}
-                <span className="font-black text-slate-700">
+                <span className="font-black text-[var(--theme-text)]">
                   {invoice?.project_id ? invoice.project_id.slice(0, 8) : "Aucun"}
                 </span>
               </div>
 
-              <div className="mt-5 text-xs text-slate-400 font-medium">
+              <div className="mt-5 text-xs text-[var(--theme-muted)] font-medium">
                 Pour déclencher la sync : au moins 1 ligne + finalisation.
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+          <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
             <div className="p-6 border-b border-slate-50">
-              <h3 className="text-lg font-bold text-slate-900">Sync Pennylane</h3>
+              <h3 className="text-lg font-bold text-[var(--theme-text)]">Sync Pennylane</h3>
             </div>
 
-            <div className="p-6 space-y-3 text-sm text-slate-600">
+            <div className="p-6 space-y-3 text-sm text-[var(--theme-muted)]">
               {syncEventsLoading ? (
                 <div>Chargement des événements…</div>
               ) : latestSyncEvent ? (
@@ -403,12 +403,12 @@ export default function InvoiceDetail() {
 
                   <div className="flex items-center justify-between">
                     <span>Dernière tentative</span>
-                    <span className="font-bold text-slate-900">
+                    <span className="font-bold text-[var(--theme-text)]">
                       {new Date(latestSyncEvent.created_at).toLocaleString("fr-FR")}
                     </span>
                   </div>
 
-                  <div className="pt-2 text-xs text-slate-500">
+                  <div className="pt-2 text-xs text-[var(--theme-muted)]">
                     Message : {latestSyncEvent.message ?? "—"}
                   </div>
                 </>
@@ -418,11 +418,11 @@ export default function InvoiceDetail() {
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+          <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
             <div className="p-6 border-b border-slate-50">
-              <h3 className="text-lg font-bold text-slate-900">Recommandations</h3>
+              <h3 className="text-lg font-bold text-[var(--theme-text)]">Recommandations</h3>
             </div>
-            <div className="p-6 space-y-2 text-sm text-slate-600">
+            <div className="p-6 space-y-2 text-sm text-[var(--theme-muted)]">
               <Bullet>Créer en draft → lignes → finaliser.</Bullet>
               <Bullet>Rattacher la facture à un chantier pour alimenter les analytics.</Bullet>
               <Bullet>Garder les montants en centimes partout (cohérence).</Bullet>
@@ -446,11 +446,11 @@ function Row({
 }) {
   return (
     <div className="flex items-center justify-between">
-      <div className={`text-sm ${strong ? "font-bold text-slate-900" : "text-slate-600"}`}>
+      <div className={`text-sm ${strong ? "font-bold text-[var(--theme-text)]" : "text-[var(--theme-muted)]"}`}>
         {label}
       </div>
       <div
-        className={`text-sm ${strong ? "font-black text-slate-900" : "font-bold text-slate-900"}`}
+        className={`text-sm ${strong ? "font-black text-[var(--theme-text)]" : "font-bold text-[var(--theme-text)]"}`}
       >
         {value}
       </div>

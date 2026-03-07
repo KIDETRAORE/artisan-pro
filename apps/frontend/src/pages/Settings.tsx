@@ -178,7 +178,7 @@ export default function Settings() {
             <select
               value={defaultModel}
               onChange={(e) => setDefaultModel(e.target.value)}
-              className="mt-2 w-full rounded-xl bg-slate-100 px-4 py-2 text-[var(--theme-text)]"
+              className="mt-2 w-full rounded-xl bg-[var(--theme-bg)] px-4 py-2 text-[var(--theme-text)]"
             >
               <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
               <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
@@ -193,7 +193,7 @@ export default function Settings() {
         title="Intégrations comptables"
       >
         <div className="space-y-5">
-          <div className="flex flex-col gap-3 rounded-2xl border border-[var(--theme-border)] bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] p-4 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="flex items-center gap-2 text-sm font-bold text-[var(--theme-text)]">
                 {pennylaneConnection?.connected ? (
@@ -224,7 +224,7 @@ export default function Settings() {
               type="button"
               onClick={() => void loadPennylane()}
               disabled={integrationLoading}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-4 py-3 text-sm font-bold text-[var(--theme-text)] hover:bg-slate-100 disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-4 py-3 text-sm font-bold text-[var(--theme-text)] hover:bg-[var(--theme-bg)] disabled:opacity-60"
             >
               <RefreshCw
                 size={16}
@@ -256,7 +256,7 @@ export default function Settings() {
                 value={pennylaneApiKey}
                 onChange={(e) => setPennylaneApiKey(e.target.value)}
                 placeholder="pl_xxxxxxxxxxxxxxxxx"
-                className="mt-2 w-full rounded-xl bg-slate-100 px-4 py-2 text-sm text-[var(--theme-text)]"
+                className="mt-2 w-full rounded-xl bg-[var(--theme-bg)] px-4 py-2 text-sm text-[var(--theme-text)]"
               />
               <div className="mt-2 text-xs text-[var(--theme-muted)]">
                 La clé est stockée côté backend dans les tables d’intégration
@@ -280,7 +280,7 @@ export default function Settings() {
               type="button"
               onClick={handleDisconnectPennylane}
               disabled={integrationLoading || !pennylaneConnection?.connected}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-5 py-3 text-sm font-bold text-[var(--theme-text)] hover:bg-slate-100 disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-5 py-3 text-sm font-bold text-[var(--theme-text)] hover:bg-[var(--theme-bg)] disabled:opacity-50"
             >
               <Unplug size={16} />
               Déconnecter
@@ -301,7 +301,7 @@ export default function Settings() {
                 {recentPennylaneEvents.map((event) => (
                   <div
                     key={event.id}
-                    className="flex flex-col gap-2 rounded-2xl border border-[var(--theme-border)] bg-slate-50 px-4 py-3 md:flex-row md:items-center md:justify-between"
+                    className="flex flex-col gap-2 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-4 py-3 md:flex-row md:items-center md:justify-between"
                   >
                     <div>
                       <div className="text-sm font-bold text-[var(--theme-text)]">
@@ -391,7 +391,7 @@ function Section({
       className="scroll-mt-28 space-y-4 rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-6 shadow-sm"
     >
       <div className="flex items-center gap-3">
-        <div className="rounded-xl bg-slate-100 p-2">{icon}</div>
+        <div className="rounded-xl bg-[var(--theme-bg)] p-2">{icon}</div>
         <h3 className="font-bold text-[var(--theme-text)]">{title}</h3>
       </div>
       {children}
@@ -411,7 +411,7 @@ function Input({
       <label className="text-sm font-medium text-[var(--theme-text)]">{label}</label>
       <input
         placeholder={placeholder}
-        className="mt-2 w-full rounded-xl bg-slate-100 px-4 py-2 text-[var(--theme-text)]"
+        className="mt-2 w-full rounded-xl bg-[var(--theme-bg)] px-4 py-2 text-[var(--theme-text)]"
       />
     </div>
   );

@@ -1,3 +1,4 @@
+// apps/frontend/src/components/devis/DevisForm.tsx
 import React, { useState } from "react";
 import { Save, Plus, Trash2, Calculator, Loader2 } from "lucide-react";
 import { DevisAiActions } from "./DevisAiActions";
@@ -110,14 +111,14 @@ export const DevisForm = () => {
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8">
-      <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
+      <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl border border-[var(--theme-border)] overflow-hidden">
         {/* HEADER AVEC ACTIONS IA */}
-        <div className="p-6 border-b border-slate-50 bg-slate-50/50 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="p-6 border-b border-slate-50 bg-[var(--theme-bg)]/50 flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
-            <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+            <h1 className="text-2xl font-black text-[var(--theme-text)] uppercase tracking-tight">
               Nouveau Devis
             </h1>
-            <p className="text-slate-500 text-sm">
+            <p className="text-[var(--theme-muted)] text-sm">
               Remplissez les champs ou dictez votre devis
             </p>
           </div>
@@ -127,14 +128,14 @@ export const DevisForm = () => {
         <form onSubmit={handleSubmit} className="p-6 md:p-8 space-y-8">
           {/* SECTION CLIENT */}
           <div className="space-y-4">
-            <label className="text-sm font-bold text-slate-700 uppercase tracking-widest">
+            <label className="text-sm font-bold text-[var(--theme-text)] uppercase tracking-widest">
               Client
             </label>
             <input
               type="text"
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
-              className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all font-medium"
+              className="w-full p-4 rounded-2xl bg-[var(--theme-bg)] border border-[var(--theme-border)] focus:bg-[var(--theme-card)] focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all font-medium"
               placeholder="Nom du client..."
               required
             />
@@ -143,7 +144,7 @@ export const DevisForm = () => {
           {/* SECTION LIGNES DE DEVIS */}
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <label className="text-sm font-bold text-slate-700 uppercase tracking-widest">
+              <label className="text-sm font-bold text-[var(--theme-text)] uppercase tracking-widest">
                 Détails de la prestation
               </label>
               <button
@@ -159,7 +160,7 @@ export const DevisForm = () => {
               {items.map((item, index) => (
                 <div
                   key={index}
-                  className="group flex flex-col md:flex-row gap-3 p-4 rounded-2xl border border-slate-100 bg-white hover:border-blue-200 transition-all shadow-sm"
+                  className="group flex flex-col md:flex-row gap-3 p-4 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] hover:border-blue-200 transition-all shadow-sm"
                 >
                   <div className="flex-[4]">
                     <input
@@ -169,12 +170,12 @@ export const DevisForm = () => {
                       onChange={(e) =>
                         updateItem(index, "description", e.target.value)
                       }
-                      className="w-full bg-transparent font-medium outline-none text-slate-800"
+                      className="w-full bg-transparent font-medium outline-none text-[var(--theme-text)]"
                     />
                   </div>
 
-                  <div className="flex-[1] flex items-center gap-2 border-l md:pl-4 border-slate-100">
-                    <span className="text-[10px] text-slate-400 font-bold md:hidden">
+                  <div className="flex-[1] flex items-center gap-2 border-l md:pl-4 border-[var(--theme-border)]">
+                    <span className="text-[10px] text-[var(--theme-muted)] font-bold md:hidden">
                       Qté:
                     </span>
                     <input
@@ -188,8 +189,8 @@ export const DevisForm = () => {
                     />
                   </div>
 
-                  <div className="flex-[2] flex items-center gap-2 border-l md:pl-4 border-slate-100">
-                    <span className="text-[10px] text-slate-400 font-bold md:hidden">
+                  <div className="flex-[2] flex items-center gap-2 border-l md:pl-4 border-[var(--theme-border)]">
+                    <span className="text-[10px] text-[var(--theme-muted)] font-bold md:hidden">
                       Prix:
                     </span>
                     <input
@@ -201,7 +202,7 @@ export const DevisForm = () => {
                       }
                       className="w-full bg-transparent outline-none text-right font-black text-blue-600"
                     />
-                    <span className="text-slate-400 font-bold">€</span>
+                    <span className="text-[var(--theme-muted)] font-bold">€</span>
                   </div>
 
                   <button
@@ -218,11 +219,11 @@ export const DevisForm = () => {
           </div>
 
           {/* TOTAL & SUBMIT */}
-          <div className="pt-8 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="pt-8 border-t border-[var(--theme-border)] flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="bg-slate-900 rounded-2xl p-4 px-8 text-white flex items-center gap-4 shadow-xl">
               <Calculator className="w-6 h-6 text-blue-400" />
               <div>
-                <p className="text-[10px] uppercase font-bold text-slate-400 leading-none mb-1">
+                <p className="text-[10px] uppercase font-bold text-[var(--theme-muted)] leading-none mb-1">
                   Total TTC
                 </p>
                 <p className="text-3xl font-black tracking-tighter">

@@ -115,13 +115,13 @@ export default function ExpertHubPanel({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex gap-2 p-3 bg-white border-b border-slate-100">
+      <div className="flex gap-2 p-3 bg-[var(--theme-card)] border-b border-[var(--theme-border)]">
         <button
           onClick={() => onChangeTab("chat")}
           className={`flex-1 px-3 py-2 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition ${
             activeTab === "chat"
               ? "bg-slate-900 text-white"
-              : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+              : "bg-[var(--theme-bg)] text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
           }`}
         >
           <MessageSquare size={14} />
@@ -133,7 +133,7 @@ export default function ExpertHubPanel({
           className={`flex-1 px-3 py-2 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition ${
             activeTab === "strategy"
               ? "bg-slate-900 text-white"
-              : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+              : "bg-[var(--theme-bg)] text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
           }`}
         >
           <TrendingUp size={14} />
@@ -141,7 +141,7 @@ export default function ExpertHubPanel({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-slate-50">
+      <div className="flex-1 overflow-y-auto bg-[var(--theme-bg)]">
         {activeTab === "chat" ? (
           hydrationDone ? (
             <ExpertChatPanel
@@ -151,7 +151,7 @@ export default function ExpertHubPanel({
               setMessages={setMessages}
             />
           ) : (
-            <div className="p-4 text-sm text-slate-600">Chargement…</div>
+            <div className="p-4 text-sm text-[var(--theme-muted)]">Chargement…</div>
           )
         ) : (
           <AiModePanel />

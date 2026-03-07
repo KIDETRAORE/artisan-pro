@@ -1,4 +1,3 @@
-// apps/frontend/src/pages/ProjectDetail.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -123,7 +122,7 @@ function getHealthLabel(status: ProjectAnalytics["health_status"]) {
 }
 
 function getAlertClasses(level: ProjectAlert["level"]) {
-  if (level === "info") return "border-slate-200 bg-slate-50 text-slate-700";
+  if (level === "info") return "border-[var(--theme-border)] bg-[var(--theme-bg)] text-[var(--theme-text)]";
   if (level === "warning") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-red-200 bg-red-50 text-red-700";
 }
@@ -209,21 +208,21 @@ export default function ProjectDetail() {
     : "—";
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
+    <div className="mx-auto max-w-7xl space-y-8 animate-in fade-in duration-700 text-[var(--theme-text)]">
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link
             to="/projects"
-            className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900"
+            className="inline-flex items-center gap-2 text-sm font-bold text-[var(--theme-muted)] hover:text-[var(--theme-text)]"
           >
             <ArrowLeft size={16} /> Retour
           </Link>
 
-          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-2">
+          <h2 className="mt-2 text-3xl font-extrabold tracking-tight text-[var(--theme-text)]">
             {project?.name ?? "Chantier"}
           </h2>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-[var(--theme-muted)]">
             {project?.client_name ? <span>Client : {project.client_name}</span> : null}
             {project?.status ? <span>Statut : {project.status}</span> : null}
             {project?.address ? <span>{project.address}</span> : null}
@@ -232,7 +231,7 @@ export default function ProjectDetail() {
 
         {analytics ? (
           <div
-            className={`px-3 py-2 rounded-2xl text-sm font-black uppercase tracking-widest ${getHealthBadgeClasses(
+            className={`rounded-2xl px-3 py-2 text-sm font-black uppercase tracking-widest ${getHealthBadgeClasses(
               analytics.health_status
             )}`}
           >
@@ -242,13 +241,13 @@ export default function ProjectDetail() {
       </div>
 
       {error ? (
-        <div className="bg-white border border-red-100 rounded-2xl p-4 text-sm text-red-700 flex items-start gap-3">
+        <div className="flex items-start gap-3 rounded-2xl border border-red-100 bg-[var(--theme-card)] p-4 text-sm text-red-700">
           <AlertTriangle size={18} className="mt-0.5" />
           <div>{error}</div>
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="CA chantier"
           value={analytics ? formatEurFromCents(analytics.revenue_cents) : "—"}
@@ -285,13 +284,13 @@ export default function ProjectDetail() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
           <Card
             title="Rentabilité chantier"
             description="Vue synthétique budget, dépenses et marge."
           >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <InfoRow
                 label="Budget chantier"
                 value={
@@ -331,7 +330,7 @@ export default function ProjectDetail() {
                 ))}
               </div>
             ) : (
-              <div className="text-sm text-slate-500">
+              <div className="text-sm text-[var(--theme-muted)]">
                 Aucune alerte détectée pour le moment.
               </div>
             )}
@@ -344,17 +343,17 @@ export default function ProjectDetail() {
             {insight ? (
               <div className="space-y-5">
                 <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-4">
-                  <div className="flex items-center gap-2 text-indigo-700 font-bold">
+                  <div className="flex items-center gap-2 font-bold text-indigo-700">
                     <Sparkles size={16} />
                     {insight.title}
                   </div>
-                  <div className="mt-3 text-sm text-slate-700">
+                  <div className="mt-3 text-sm text-[var(--theme-text)]">
                     {insight.recommendation}
                   </div>
                 </div>
 
                 <div>
-                  <div className="text-sm font-bold text-slate-900 mb-2">
+                  <div className="mb-2 text-sm font-bold text-[var(--theme-text)]">
                     Points d’attention
                   </div>
                   {insight.issues.length > 0 ? (
@@ -364,14 +363,14 @@ export default function ProjectDetail() {
                       ))}
                     </div>
                   ) : (
-                    <div className="text-sm text-slate-500">
+                    <div className="text-sm text-[var(--theme-muted)]">
                       Aucun point bloquant signalé.
                     </div>
                   )}
                 </div>
 
                 <div>
-                  <div className="text-sm font-bold text-slate-900 mb-2">
+                  <div className="mb-2 text-sm font-bold text-[var(--theme-text)]">
                     Actions recommandées
                   </div>
                   <div className="space-y-2">
@@ -382,7 +381,7 @@ export default function ProjectDetail() {
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-slate-500">
+              <div className="text-sm text-[var(--theme-muted)]">
                 Analyse IA indisponible pour ce chantier.
               </div>
             )}
@@ -399,25 +398,25 @@ export default function ProjectDetail() {
                 {topExpenses.map((expense) => (
                   <div
                     key={expense.id}
-                    className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
+                    className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-4 py-3"
                   >
-                    <div className="text-sm font-bold text-slate-900">
+                    <div className="text-sm font-bold text-[var(--theme-text)]">
                       {expense.label ||
                         expense.description ||
                         expense.category ||
                         "Dépense"}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="mt-1 text-xs text-[var(--theme-muted)]">
                       {expense.category || "Sans catégorie"}
                     </div>
-                    <div className="mt-2 text-sm font-black text-slate-900">
+                    <div className="mt-2 text-sm font-black text-[var(--theme-text)]">
                       {formatEurFromCents(Number(expense.amount_cents ?? 0))}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-sm text-slate-500">
+              <div className="text-sm text-[var(--theme-muted)]">
                 Aucune dépense rattachée à ce chantier.
               </div>
             )}
@@ -443,7 +442,7 @@ export default function ProjectDetail() {
       </div>
 
       {loading ? (
-        <div className="text-sm text-slate-500">Chargement…</div>
+        <div className="text-sm text-[var(--theme-muted)]">Chargement…</div>
       ) : null}
     </div>
   );
@@ -461,20 +460,20 @@ function MetricCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 overflow-hidden">
-      <div className="p-5 flex items-start justify-between gap-4">
+    <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
+      <div className="flex items-start justify-between gap-4 p-5">
         <div>
-          <div className="text-xs font-black uppercase tracking-widest text-slate-400">
+          <div className="text-xs font-black uppercase tracking-widest text-[var(--theme-muted)]">
             {title}
           </div>
-          <div className="mt-3 text-2xl font-extrabold text-slate-900">
+          <div className="mt-3 text-2xl font-extrabold text-[var(--theme-text)]">
             {value}
           </div>
-          <div className="mt-2 text-xs text-slate-500 font-medium">
+          <div className="mt-2 text-xs font-medium text-[var(--theme-muted)]">
             {subtitle}
           </div>
         </div>
-        <div className="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-700">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--theme-bg)] text-[var(--theme-text)]">
           {icon}
         </div>
       </div>
@@ -492,11 +491,11 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 overflow-hidden">
-      <div className="p-6 border-b border-slate-50">
-        <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+    <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl">
+      <div className="border-b border-[var(--theme-border)] p-6">
+        <h3 className="text-lg font-bold text-[var(--theme-text)]">{title}</h3>
         {description ? (
-          <p className="text-[11px] text-slate-500 font-medium mt-1">
+          <p className="mt-1 text-[11px] font-medium text-[var(--theme-muted)]">
             {description}
           </p>
         ) : null}
@@ -515,8 +514,10 @@ function InfoRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <div className="text-sm text-slate-500">{label}</div>
-      <div className="text-sm font-bold text-slate-900 text-right">{value}</div>
+      <div className="text-sm text-[var(--theme-muted)]">{label}</div>
+      <div className="text-right text-sm font-bold text-[var(--theme-text)]">
+        {value}
+      </div>
     </div>
   );
 }
@@ -524,8 +525,8 @@ function InfoRow({
 function Bullet({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex gap-3">
-      <CheckCircle2 size={16} className="mt-0.5 text-emerald-600 shrink-0" />
-      <div className="text-sm text-slate-700">{children}</div>
+      <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+      <div className="text-sm text-[var(--theme-text)]">{children}</div>
     </div>
   );
 }

@@ -1,4 +1,3 @@
-// apps/frontend/src/components/projects/ProjectInsightsCard.tsx
 import React from "react";
 
 type Props = {
@@ -68,19 +67,24 @@ export default function ProjectInsightsCard({
   const insight = getInsight(revenueCents, expensesCents, profitCents);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h3 className="text-lg font-semibold text-slate-900">{insight.title}</h3>
+    <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+      <h3 className="text-lg font-semibold text-[var(--theme-text)]">
+        {insight.title}
+      </h3>
 
-      <ul className="mt-4 space-y-2 text-sm text-slate-700">
+      <ul className="mt-4 space-y-2 text-sm text-[var(--theme-text)]">
         {insight.bullets.map((item) => (
           <li key={item} className="flex gap-2">
-            <span className="mt-[6px] h-1.5 w-1.5 rounded-full bg-slate-400" />
+            <span
+              className="mt-[6px] h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: "var(--theme-muted)" }}
+            />
             <span>{item}</span>
           </li>
         ))}
       </ul>
 
-      <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-800 border border-slate-100">
+      <div className="mt-4 rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] p-4 text-sm text-[var(--theme-text)]">
         <span className="font-semibold">Conseil IA : </span>
         {insight.recommendation.replace(/^Conseil IA :\s*/i, "")}
       </div>

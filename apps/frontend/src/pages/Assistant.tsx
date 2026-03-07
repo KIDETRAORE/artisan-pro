@@ -240,14 +240,17 @@ export default function Assistant() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto h-[calc(100vh-140px)] flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-700 px-4">
+    <div className="mx-auto flex h-[calc(100vh-140px)] max-w-4xl flex-col animate-in fade-in slide-in-from-bottom-4 duration-700 px-4">
       {/* Barre d'outils supérieure */}
-      <div className="flex justify-between items-center mb-4 px-2 pt-2">
+      <div className="mb-4 flex items-center justify-between px-2 pt-2">
         <div className="flex items-center gap-2">
-          <div className="bg-blue-500 p-1.5 rounded-lg">
-            <Sparkles className="text-white" size={14} />
+          <div
+            className="rounded-lg p-1.5"
+            style={{ backgroundColor: "var(--theme-primary)" }}
+          >
+            <Sparkles className="text-[var(--theme-primary-contrast)]" size={14} />
           </div>
-          <span className="text-xs font-black text-slate-700 uppercase tracking-widest">
+          <span className="text-xs font-black uppercase tracking-widest text-[var(--theme-text)]">
             {analysisContext ? "Analyse Expert Active" : "Expert AI Mode"}
           </span>
         </div>
@@ -257,17 +260,17 @@ export default function Assistant() {
             setMessages([getWelcomeMessage()]);
             setAnalysisContext(null);
           }}
-          className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 hover:text-red-500 transition-colors tracking-tighter"
+          className="flex items-center gap-2 text-[10px] font-black uppercase tracking-tighter text-[var(--theme-muted)] transition-colors hover:text-red-500"
         >
           <Trash2 size={12} /> Effacer
         </button>
       </div>
 
-      <div className="flex-1 bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 flex flex-col overflow-hidden mb-4">
+      <div className="mb-4 flex flex-1 flex-col overflow-hidden rounded-[2.5rem] border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-2xl">
         {/* Messages */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-slate-50/30"
+          className="flex-1 space-y-6 overflow-y-auto bg-[var(--theme-bg)] p-4 md:p-8"
         >
           {messages.map((msg) => (
             <div
@@ -277,16 +280,21 @@ export default function Assistant() {
               }`}
             >
               <div
-                className={`flex gap-3 max-w-[90%] ${
+                className={`flex max-w-[90%] gap-3 ${
                   msg.role === "user" ? "flex-row-reverse" : ""
                 }`}
               >
                 <div
-                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl shadow-sm ${
                     msg.role === "user"
-                      ? "bg-white text-slate-600 border border-slate-200"
-                      : "bg-slate-900 text-white"
+                      ? "border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)]"
+                      : "text-[var(--theme-primary-contrast)]"
                   }`}
+                  style={
+                    msg.role === "user"
+                      ? undefined
+                      : { backgroundColor: "var(--theme-primary)" }
+                  }
                 >
                   {msg.role === "user" ? (
                     <User size={16} />
@@ -296,11 +304,16 @@ export default function Assistant() {
                 </div>
 
                 <div
-                  className={`p-4 rounded-2xl text-[13px] leading-relaxed shadow-sm whitespace-pre-wrap ${
+                  className={`whitespace-pre-wrap rounded-2xl p-4 text-[13px] leading-relaxed shadow-sm ${
                     msg.role === "user"
-                      ? "bg-blue-600 text-white rounded-tr-none font-medium"
-                      : "bg-white text-slate-700 border border-slate-100 rounded-tl-none"
+                      ? "rounded-tr-none text-white font-medium"
+                      : "rounded-tl-none border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-text)]"
                   }`}
+                  style={
+                    msg.role === "user"
+                      ? { backgroundColor: "var(--theme-primary)" }
+                      : undefined
+                  }
                 >
                   {msg.content}
                 </div>
@@ -309,12 +322,15 @@ export default function Assistant() {
           ))}
 
           {isLoading && (
-            <div className="flex justify-start animate-pulse">
-              <div className="flex gap-3 items-center">
-                <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white">
+            <div className="flex animate-pulse justify-start">
+              <div className="flex items-center gap-3">
+                <div
+                  className="flex h-8 w-8 items-center justify-center rounded-xl text-[var(--theme-primary-contrast)]"
+                  style={{ backgroundColor: "var(--theme-primary)" }}
+                >
                   <Loader2 size={16} className="animate-spin" />
                 </div>
-                <div className="text-slate-400 text-[11px] font-bold italic uppercase tracking-wider">
+                <div className="text-[11px] font-bold italic uppercase tracking-wider text-[var(--theme-muted)]">
                   Expertise en cours...
                 </div>
               </div>
@@ -323,7 +339,7 @@ export default function Assistant() {
         </div>
 
         {/* Saisie */}
-        <div className="p-4 bg-white border-t border-slate-100">
+        <div className="border-t border-[var(--theme-border)] bg-[var(--theme-card)] p-4">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <input
@@ -336,11 +352,11 @@ export default function Assistant() {
                     ? "Posez une question sur l'analyse..."
                     : "Posez votre question technique..."
                 }
-                className="w-full pl-6 pr-12 py-4 bg-slate-100 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl transition-all text-sm outline-none"
+                className="w-full rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] py-4 pl-6 pr-12 text-sm text-[var(--theme-text)] outline-none transition-all placeholder:text-[var(--theme-muted)] focus:bg-[var(--theme-card)]"
               />
               <button
                 type="button"
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600 transition-colors"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--theme-muted)] transition-colors hover:text-[var(--theme-primary)]"
                 onClick={() => {
                   // Optionnel: futur upload dans le chat
                 }}
@@ -352,7 +368,8 @@ export default function Assistant() {
             <button
               onClick={handleSend}
               disabled={isLoading || !input.trim()}
-              className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 disabled:bg-slate-200 transition-all shadow-lg active:scale-95"
+              className="rounded-2xl p-4 text-white shadow-lg transition-all active:scale-95 disabled:opacity-50"
+              style={{ backgroundColor: "var(--theme-primary)" }}
             >
               <Send size={20} />
             </button>
