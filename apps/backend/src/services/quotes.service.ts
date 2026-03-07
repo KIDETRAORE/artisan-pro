@@ -32,7 +32,8 @@ export async function listPendingQuotes(userId: string): Promise<Quote[]> {
     .from("quotes")
     .select("*")
     .eq("user_id", userId)
-    .in("status", ["pending", "sent", "open"])
+    .in("status", ["pending", "sent", "open", "accepted"])
+    .is("invoice_id", null)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -64,13 +65,15 @@ export async function createQuote(
 }
 
 export async function updateQuoteStatus(
+  userId: string,
   id: string,
   status: string
 ): Promise<void> {
   const { error } = await supabaseAdmin
     .from("quotes")
     .update({ status })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("user_id", userId);
 
   if (error) throw error;
 }

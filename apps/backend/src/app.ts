@@ -25,9 +25,6 @@ import openApiRoutes from "./routes/openapi.routes";
 // ✅ AJOUT: Expert routes (mount direct /ai/expert)
 import expertRouter from "./routes/expert.routes";
 
-// ✅ AJOUT: Quotes routes
-import quotesRoutes from "./routes/quotes.routes";
-
 // ✅ AJOUT: Scheduler relances (cron BullMQ)
 import { startInvoiceRemindersScheduler } from "./schedulers/reminders.scheduler";
 
@@ -166,7 +163,6 @@ app.use(
     next: express.NextFunction
   ) => {
     if (err instanceof Error && err.message === "CORS_NOT_ALLOWED") {
-      // ✅ MODIF: sendError attend 5 args (pas de details ici)
       return sendError(req, res, 403, "cors_forbidden", "Origine non autorisée");
     }
     return next(err);
@@ -205,12 +201,6 @@ app.use(openApiRoutes);
 app.use("/ai/expert", expertRouter);
 
 /**
- * ✅ QUOTES ROUTES
- * /quotes/*
- */
-app.use("/quotes", quotesRoutes);
-
-/**
  * ======================
  * ROUTES (SOURCE UNIQUE)
  * ======================
@@ -223,7 +213,6 @@ app.use("/", router);
  * ======================
  */
 app.use((req, res) => {
-  // ✅ MODIF: sendError attend 5 args (pas de details ici)
   return sendError(req, res, 404, "not_found", "Route introuvable");
 });
 

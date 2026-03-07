@@ -206,8 +206,21 @@ export class DashboardController {
       })
       .slice(0, 3);
 
-    // Devis: pas de table/feature devis dans ce repo (routes devis = stub)
-    const quotesPendingCount = 0;
+    // ✅ MODIF UNIQUE : devis en attente réels depuis la table quotes
+    const { count: quotesPendingCountRaw, error: quotesErr } = await supabaseAdmin
+      .from("quotes")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .in("status", ["pending", "sent", "open"]);
+
+    if (quotesErr) {
+      logger.warn("Dashboard: erreur récupération quotes pending", {
+        userId: user.id,
+        message: quotesErr.message,
+      });
+    }
+
+    const quotesPendingCount = quotesPendingCountRaw ?? 0;
 
     const kpisPayload = {
       revenue: {

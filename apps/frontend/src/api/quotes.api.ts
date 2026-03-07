@@ -145,19 +145,21 @@ function compareByNewest(a: Quote, b: Quote): number {
 }
 
 /**
- * Définition frontend "en attente" :
+ * Définition frontend de la liste exploitable dans DashboardQuotes :
  * - pending
  * - sent
  * - open
+ * - accepted
  *
- * Si ton backend utilise un autre wording, il suffira d’ajuster ici.
+ * accepted reste visible pour permettre la conversion en facture.
  */
 function isPendingQuoteStatus(status: string): boolean {
   const normalized = status.trim().toLowerCase();
   return (
     normalized === "pending" ||
     normalized === "sent" ||
-    normalized === "open"
+    normalized === "open" ||
+    normalized === "accepted"
   );
 }
 

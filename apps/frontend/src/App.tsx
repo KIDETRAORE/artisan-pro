@@ -62,14 +62,24 @@ type DashboardResponse = {
 };
 
 export default function App() {
-  const { user, accessToken } = useAuth();
+  const { user, accessToken, isLoading, restoreSession } = useAuth();
   const { setUserData, clearUserData } = useUser();
 
   // ✅ MODIF: évite multi-fetch /dashboard en boucle
   const dashboardFetchInFlightRef = useRef(false);
 
+  // ✅ MODIF: évite double restore en StrictMode
+  const restoreOnceRef = useRef(false);
+
   // ✅ MODIF: dépendance stable (évite boucle si `user` change de référence)
   const userEmail = user?.email ?? null;
+
+  // ✅ MODIF: restauration session au boot
+  useEffect(() => {
+    if (restoreOnceRef.current) return;
+    restoreOnceRef.current = true;
+    void restoreSession();
+  }, [restoreSession]);
 
   useEffect(() => {
     const run = async () => {
@@ -118,6 +128,11 @@ export default function App() {
 
     void run();
   }, [accessToken, userEmail, setUserData, clearUserData]);
+
+  // ✅ MODIF: on attend la restauration avant de router
+  if (isLoading) {
+    return <div className="p-4">Chargement…</div>;
+  }
 
   return (
     <Suspense fallback={<div className="p-4">Chargement…</div>}>
