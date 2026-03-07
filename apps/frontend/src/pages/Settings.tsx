@@ -268,7 +268,7 @@ export default function Settings() {
               type="button"
               onClick={handleConnectPennylane}
               disabled={integrationLoading}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-bold text-white hover:bg-blue-600 disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[var(--theme-primary)] px-5 py-3 text-sm font-bold text-white hover:bg-blue-600 disabled:opacity-60"
             >
               <PlugZap size={16} />
               {pennylaneConnection?.hasCredential
@@ -365,7 +365,7 @@ export default function Settings() {
       </Section>
 
       <div className="pt-4">
-        <button className="flex items-center gap-2 rounded-2xl bg-slate-900 px-6 py-3 font-bold text-white">
+        <button className="flex items-center gap-2 rounded-2xl bg-[var(--theme-primary)] px-6 py-3 font-bold text-white">
           <Save size={16} />
           Sauvegarder
         </button>

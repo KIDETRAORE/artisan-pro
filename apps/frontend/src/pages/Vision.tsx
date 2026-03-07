@@ -138,7 +138,7 @@ export default function Vision() {
         {/* ✅ Import catalogue (inchangé) */}
         <div
           onClick={() => !isProcessing && fileInputRef.current?.click()}
-          className="border-2 border-dashed border-slate-50 rounded-xl py-4 flex flex-col items-center justify-center gap-1 text-[var(--theme-muted)] hover:bg-[var(--theme-bg)] transition-colors cursor-pointer group"
+          className="border-2 border-dashed border-[var(--theme-border)] rounded-xl py-4 flex flex-col items-center justify-center gap-1 text-[var(--theme-muted)] hover:bg-[var(--theme-bg)] transition-colors cursor-pointer group"
         >
           <span className="text-[11px] font-medium italic opacity-60 flex items-center gap-2">
             ☁️ Importer un catalogue (Excel/CSV)
@@ -177,7 +177,7 @@ export default function Vision() {
                 </div>
               ) : (
                 <>
-                  <div className="w-14 h-14 bg-[var(--theme-card)] rounded-full shadow-md flex items-center justify-center text-[#4f46e5] mb-3 border border-slate-50 group-hover:scale-105 transition-transform">
+                  <div className="w-14 h-14 bg-[var(--theme-card)] rounded-full shadow-md flex items-center justify-center text-[#4f46e5] mb-3 border border-[var(--theme-border)] group-hover:scale-105 transition-transform">
                     <Camera size={24} />
                   </div>
                   <span className="font-black text-[var(--theme-text)] text-[13px] uppercase tracking-wide">
@@ -206,7 +206,7 @@ export default function Vision() {
 
             <button
               onClick={() => setAnalysis(null)}
-              className="w-full py-3 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest"
+              className="w-full py-3 bg-[var(--theme-primary)] text-white rounded-xl text-[10px] font-bold uppercase tracking-widest"
             >
               Nouvelle Inspection
             </button>

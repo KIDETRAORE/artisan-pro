@@ -213,7 +213,7 @@ export const DevisAiActions = ({ onAnalysisComplete }: DevisAiActionsProps) => {
         )}
       </button>
 
-      <div className="w-[1px] h-6 bg-slate-200" />
+      <div className="w-[1px] h-6 bg-[var(--theme-bg)]" />
 
       <button
         type="button"

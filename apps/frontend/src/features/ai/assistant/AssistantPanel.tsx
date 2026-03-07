@@ -162,7 +162,7 @@ export default function AssistantPanel({ variant = "page" }: Props) {
         />
         <button
           onClick={handleSend}
-          className="bg-slate-900 text-white px-4 rounded-xl"
+          className="bg-[var(--theme-primary)] text-white px-4 rounded-xl"
         >
           <Send size={16} />
         </button>

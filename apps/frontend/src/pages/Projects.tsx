@@ -156,7 +156,7 @@ export default function Projects() {
                         <td className="py-3 pr-0">
                           <Link
                             to={`/projects/${project.id}`}
-                            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-medium text-white hover:bg-slate-800"
+                            className="rounded-xl bg-[var(--theme-primary)] px-3 py-2 text-xs font-medium text-white hover:bg-[var(--theme-primary)]"
                           >
                             Ouvrir
                           </Link>

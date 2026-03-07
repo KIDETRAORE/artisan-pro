@@ -133,7 +133,7 @@ export default function DashboardQuotes() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-          <div className="p-6 border-b border-slate-50">
+          <div className="p-6 border-b border-[var(--theme-border)]">
             <h3 className="text-lg font-bold text-[var(--theme-text)]">Analyse</h3>
             <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
               Ce que l’écran peut faire dès maintenant.
@@ -144,7 +144,7 @@ export default function DashboardQuotes() {
             <ul className="space-y-2">
               {analysis.actions.map((a) => (
                 <li key={a} className="text-sm text-[var(--theme-muted)] flex gap-3">
-                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-slate-300" />
+                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--theme-bg)]" />
                   <span>{a}</span>
                 </li>
               ))}
@@ -153,7 +153,7 @@ export default function DashboardQuotes() {
         </div>
 
         <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-          <div className="p-6 border-b border-slate-50">
+          <div className="p-6 border-b border-[var(--theme-border)]">
             <h3 className="text-lg font-bold text-[var(--theme-text)]">
               {hasComptaReport ? "Top dépenses" : "Actions rapides"}
             </h3>
@@ -192,7 +192,7 @@ export default function DashboardQuotes() {
               <>
                 <Link
                   to="/devis"
-                  className="block bg-slate-900 text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors"
+                  className="block bg-[var(--theme-primary)] text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors"
                 >
                   Ouvrir le module Devis
                 </Link>

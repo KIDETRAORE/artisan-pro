@@ -94,14 +94,14 @@ export default function Invoices() {
         <button
           onClick={onCreate}
           disabled={loading}
-          className="inline-flex items-center gap-2 bg-slate-900 text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors disabled:opacity-60"
+          className="inline-flex items-center gap-2 bg-[var(--theme-primary)] text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors disabled:opacity-60"
         >
           <Plus size={16} /> Nouvelle facture
         </button>
       </div>
 
       <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-        <div className="p-4 border-b border-slate-50 flex items-center justify-between gap-3">
+        <div className="p-4 border-b border-[var(--theme-border)] flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 w-full max-w-md bg-[var(--theme-bg)] rounded-2xl px-3 py-2 border border-[var(--theme-border)]">
             <Search size={16} className="text-[var(--theme-muted)]" />
             <input

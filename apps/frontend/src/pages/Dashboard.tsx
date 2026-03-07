@@ -378,7 +378,7 @@ function InvoiceReminderItem({ client, amount, daysLate, dueDate }: any) {
 
       <div className="flex items-center gap-4">
         <span className="text-sm font-black text-[var(--theme-text)]">{amount}</span>
-        <button className="flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white opacity-0 shadow-lg shadow-slate-200 transition-all group-hover:opacity-100 hover:bg-blue-600">
+        <button className="flex items-center gap-2 rounded-xl bg-[var(--theme-primary)] px-3 py-2 text-xs font-bold text-white opacity-0 shadow-lg shadow-slate-200 transition-all group-hover:opacity-100 hover:bg-blue-600">
           <Send size={12} /> Relancer
         </button>
       </div>

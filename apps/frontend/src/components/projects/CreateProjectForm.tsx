@@ -77,7 +77,7 @@ export default function CreateProjectForm({ onCreated }: Props) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ex: Maison Dupont"
-            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-slate-400"
+            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-border)]"
           />
         </div>
 
@@ -90,7 +90,7 @@ export default function CreateProjectForm({ onCreated }: Props) {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Travaux, contexte, infos utiles…"
             rows={4}
-            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-slate-400"
+            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-border)]"
           />
         </div>
 
@@ -102,7 +102,7 @@ export default function CreateProjectForm({ onCreated }: Props) {
             value={budget}
             onChange={(e) => setBudget(e.target.value)}
             placeholder="Ex: 5000"
-            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-slate-400"
+            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-border)]"
           />
         </div>
 
@@ -113,7 +113,7 @@ export default function CreateProjectForm({ onCreated }: Props) {
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-slate-400"
+            className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-border)]"
           >
             <option value="active">Actif</option>
             <option value="paused">En pause</option>
@@ -130,7 +130,7 @@ export default function CreateProjectForm({ onCreated }: Props) {
         <button
           type="submit"
           disabled={loading}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+          className="rounded-xl bg-[var(--theme-primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--theme-primary)] disabled:opacity-50"
         >
           {loading ? "Création..." : "Créer le chantier"}
         </button>

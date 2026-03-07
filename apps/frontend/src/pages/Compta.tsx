@@ -495,7 +495,7 @@ export default function Compta() {
           <div className="flex flex-wrap gap-3 items-center">
             <button
               onClick={() => inputRef.current?.click()}
-              className="px-4 py-3 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase tracking-widest flex items-center gap-2"
+              className="px-4 py-3 rounded-2xl bg-[var(--theme-primary)] text-white font-black text-xs uppercase tracking-widest flex items-center gap-2"
             >
               <CloudUpload size={16} />
               Choisir un fichier
@@ -590,7 +590,7 @@ export default function Compta() {
                 </div>
               </div>
 
-              <div className="bg-slate-900 rounded-2xl p-4 text-white">
+              <div className="bg-[var(--theme-primary)] rounded-2xl p-4 text-white">
                 <div className="text-xs font-black uppercase tracking-widest text-white/70">
                   À payer
                 </div>

@@ -107,7 +107,7 @@ export default function InvoiceLinesEditor({
 
   return (
     <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-      <div className="p-6 border-b border-slate-50 flex items-center justify-between gap-3">
+      <div className="p-6 border-b border-[var(--theme-border)] flex items-center justify-between gap-3">
         <div>
           <h3 className="text-lg font-bold text-[var(--theme-text)]">Lignes de facture</h3>
           <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
@@ -174,7 +174,7 @@ export default function InvoiceLinesEditor({
             <button
               onClick={add}
               disabled={loading || !draftDesc.trim()}
-              className="w-full inline-flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors disabled:opacity-60"
+              className="w-full inline-flex items-center justify-center gap-2 bg-[var(--theme-primary)] text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors disabled:opacity-60"
             >
               <Plus size={16} /> Ajouter
             </button>
@@ -357,7 +357,7 @@ function LineRow({
                   tax_rate: tax,
                 })
               }
-              className="px-3 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-blue-600 transition-colors"
+              className="px-3 py-2 rounded-xl bg-[var(--theme-primary)] text-white font-bold text-xs hover:bg-blue-600 transition-colors"
             >
               OK
             </button>

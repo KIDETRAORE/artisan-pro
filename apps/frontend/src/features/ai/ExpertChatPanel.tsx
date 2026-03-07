@@ -292,7 +292,7 @@ export default function ExpertChatPanel({
             }`}
           >
             {m.role !== "user" && (
-              <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+              <div className="w-8 h-8 rounded-xl bg-[var(--theme-primary)] text-white flex items-center justify-center">
                 <Bot className="w-4 h-4" />
               </div>
             )}
@@ -300,7 +300,7 @@ export default function ExpertChatPanel({
             <div
               className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
                 m.role === "user"
-                  ? "bg-slate-900 text-white"
+                  ? "bg-[var(--theme-primary)] text-white"
                   : "bg-[var(--theme-card)] border text-[var(--theme-text)]"
               }`}
             >
@@ -308,7 +308,7 @@ export default function ExpertChatPanel({
             </div>
 
             {m.role === "user" && (
-              <div className="w-8 h-8 rounded-xl bg-slate-200 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-xl bg-[var(--theme-bg)] flex items-center justify-center">
                 <User className="w-4 h-4" />
               </div>
             )}
@@ -317,7 +317,7 @@ export default function ExpertChatPanel({
 
         {isLoading && (
           <div className="flex items-start gap-2">
-            <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+            <div className="w-8 h-8 rounded-xl bg-[var(--theme-primary)] text-white flex items-center justify-center">
               <Bot className="w-4 h-4" />
             </div>
 
@@ -343,7 +343,7 @@ export default function ExpertChatPanel({
           <button
             onClick={() => void send()}
             disabled={isLoading || !input.trim()}
-            className="px-4 py-3 rounded-2xl bg-slate-900 text-white font-black disabled:opacity-50 flex items-center gap-2"
+            className="px-4 py-3 rounded-2xl bg-[var(--theme-primary)] text-white font-black disabled:opacity-50 flex items-center gap-2"
           >
             <Send className="w-4 h-4" />
             Envoyer

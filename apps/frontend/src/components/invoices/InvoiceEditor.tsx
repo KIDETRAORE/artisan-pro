@@ -76,7 +76,7 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
 
   return (
     <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-      <div className="p-6 border-b border-slate-50">
+      <div className="p-6 border-b border-[var(--theme-border)]">
         <h3 className="text-lg font-bold text-[var(--theme-text)]">Informations client</h3>
         <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
           Renseigne le client, l’échéance et rattache la facture à un chantier si
@@ -134,7 +134,7 @@ export default function InvoiceEditor({ loading, invoice, onSave }: Props) {
           <button
             onClick={submit}
             disabled={!canSave || loading}
-            className="inline-flex items-center justify-center bg-slate-900 text-white px-5 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors disabled:opacity-60 w-full md:w-auto"
+            className="inline-flex items-center justify-center bg-[var(--theme-primary)] text-white px-5 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors disabled:opacity-60 w-full md:w-auto"
           >
             Enregistrer
           </button>

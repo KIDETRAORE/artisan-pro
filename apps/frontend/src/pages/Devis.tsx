@@ -215,7 +215,7 @@ export default function Devis() {
             ${
               isProcessing
                 ? "bg-[var(--theme-bg)] border-blue-200"
-                : "border-[var(--theme-border)] hover:bg-[var(--theme-bg)] hover:border-slate-300"
+                : "border-[var(--theme-border)] hover:bg-[var(--theme-bg)] hover:border-[var(--theme-border)]"
             }
           `}
         >
@@ -295,7 +295,7 @@ export default function Devis() {
 
             <button
               onClick={() => setAnalysisResult(null)}
-              className="w-full py-3 bg-slate-900 text-white rounded-xl text-[11px] font-bold uppercase mt-4"
+              className="w-full py-3 bg-[var(--theme-primary)] text-white rounded-xl text-[11px] font-bold uppercase mt-4"
             >
               Nouveau Devis
             </button>
@@ -310,12 +310,12 @@ export default function Devis() {
               <button
                 onClick={isRecording ? stopRecording : startRecording}
                 disabled={isProcessing}
-                className={`w-32 h-32 rounded-full flex items-center justify-center border-8 border-slate-50 shadow-2xl transition-all active:scale-95
+                className={`w-32 h-32 rounded-full flex items-center justify-center border-8 border-[var(--theme-border)] shadow-2xl transition-all active:scale-95
                   ${
                     isRecording
                       ? "bg-red-500 text-white animate-pulse border-red-100"
                       : isProcessing
-                      ? "bg-[var(--theme-bg)] text-slate-300"
+                      ? "bg-[var(--theme-bg)] text-[var(--theme-muted)]"
                       : "bg-blue-600 text-white hover:bg-blue-700"
                   }
                 `}
@@ -344,7 +344,7 @@ export default function Devis() {
             </div>
 
             {/* BARRE D'ICÔNES CORRIGÉE */}
-            <div className="w-full pt-4 border-t border-slate-50 flex justify-around opacity-30">
+            <div className="w-full pt-4 border-t border-[var(--theme-border)] flex justify-around opacity-30">
               <div className="flex flex-col items-center gap-1">
                 <User size={16} />
                 <span className="text-[7px] font-bold uppercase">Client</span>

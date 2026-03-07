@@ -125,11 +125,11 @@ export default function Compta() {
                   <td className="px-6 py-5">
                     <div className="flex items-center justify-end gap-2">
                       {fac.statut === 'RETARD' && (
-                        <button className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-tighter hover:bg-blue-600 transition-all shadow-sm">
+                        <button className="flex items-center gap-2 bg-[var(--theme-primary)] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-tighter hover:bg-blue-600 transition-all shadow-sm">
                           <Send size={12} /> Relance IA
                         </button>
                       )}
-                      <button className="p-2 text-slate-300 hover:text-[var(--theme-muted)] rounded-lg transition-all">
+                      <button className="p-2 text-[var(--theme-muted)] hover:text-[var(--theme-muted)] rounded-lg transition-all">
                         <History size={18} />
                       </button>
                     </div>

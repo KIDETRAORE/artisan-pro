@@ -120,7 +120,7 @@ export default function ExpertHubPanel({
           onClick={() => onChangeTab("chat")}
           className={`flex-1 px-3 py-2 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition ${
             activeTab === "chat"
-              ? "bg-slate-900 text-white"
+              ? "bg-[var(--theme-primary)] text-white"
               : "bg-[var(--theme-bg)] text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
           }`}
         >
@@ -132,7 +132,7 @@ export default function ExpertHubPanel({
           onClick={() => onChangeTab("strategy")}
           className={`flex-1 px-3 py-2 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition ${
             activeTab === "strategy"
-              ? "bg-slate-900 text-white"
+              ? "bg-[var(--theme-primary)] text-white"
               : "bg-[var(--theme-bg)] text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
           }`}
         >

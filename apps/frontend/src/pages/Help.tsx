@@ -21,7 +21,7 @@ export default function Help() {
 
         <button
           onClick={openExpertChat}
-          className="mt-4 px-4 py-2 rounded-xl bg-slate-900 text-white font-bold hover:opacity-90"
+          className="mt-4 px-4 py-2 rounded-xl bg-[var(--theme-primary)] text-white font-bold hover:opacity-90"
         >
           Ouvrir le Mode Expert IA
         </button>

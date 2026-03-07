@@ -301,7 +301,7 @@ export default function InvoiceDetail() {
           <button
             onClick={onFinalize}
             disabled={!canFinalize || loading}
-            className="inline-flex items-center gap-2 bg-slate-900 text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors disabled:opacity-60"
+            className="inline-flex items-center gap-2 bg-[var(--theme-primary)] text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors disabled:opacity-60"
           >
             <CheckCircle2 size={16} /> Finaliser & Sync
           </button>
@@ -334,7 +334,7 @@ export default function InvoiceDetail() {
 
         <div className="space-y-6">
           <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-            <div className="p-6 border-b border-slate-50">
+            <div className="p-6 border-b border-[var(--theme-border)]">
               <h3 className="text-lg font-bold text-[var(--theme-text)]">Totaux</h3>
               <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
                 Calculs en centimes (MVP).
@@ -379,7 +379,7 @@ export default function InvoiceDetail() {
           </div>
 
           <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-            <div className="p-6 border-b border-slate-50">
+            <div className="p-6 border-b border-[var(--theme-border)]">
               <h3 className="text-lg font-bold text-[var(--theme-text)]">Sync Pennylane</h3>
             </div>
 
@@ -419,7 +419,7 @@ export default function InvoiceDetail() {
           </div>
 
           <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-            <div className="p-6 border-b border-slate-50">
+            <div className="p-6 border-b border-[var(--theme-border)]">
               <h3 className="text-lg font-bold text-[var(--theme-text)]">Recommandations</h3>
             </div>
             <div className="p-6 space-y-2 text-sm text-[var(--theme-muted)]">
@@ -461,7 +461,7 @@ function Row({
 function Bullet({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex gap-3">
-      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-slate-300" />
+      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-[var(--theme-bg)]" />
       <div>{children}</div>
     </div>
   );

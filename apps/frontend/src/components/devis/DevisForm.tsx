@@ -113,7 +113,7 @@ export const DevisForm = () => {
     <div className="max-w-4xl mx-auto p-4 md:p-8">
       <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl border border-[var(--theme-border)] overflow-hidden">
         {/* HEADER AVEC ACTIONS IA */}
-        <div className="p-6 border-b border-slate-50 bg-[var(--theme-bg)]/50 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="p-6 border-b border-[var(--theme-border)] bg-[var(--theme-bg)]/50 flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <h1 className="text-2xl font-black text-[var(--theme-text)] uppercase tracking-tight">
               Nouveau Devis
@@ -208,7 +208,7 @@ export const DevisForm = () => {
                   <button
                     type="button"
                     onClick={() => removeItem(index)}
-                    className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                    className="p-2 text-[var(--theme-muted)] hover:text-red-500 transition-colors"
                     title="Supprimer la ligne"
                   >
                     <Trash2 className="w-5 h-5" />
@@ -220,7 +220,7 @@ export const DevisForm = () => {
 
           {/* TOTAL & SUBMIT */}
           <div className="pt-8 border-t border-[var(--theme-border)] flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="bg-slate-900 rounded-2xl p-4 px-8 text-white flex items-center gap-4 shadow-xl">
+            <div className="bg-[var(--theme-primary)] rounded-2xl p-4 px-8 text-white flex items-center gap-4 shadow-xl">
               <Calculator className="w-6 h-6 text-blue-400" />
               <div>
                 <p className="text-[10px] uppercase font-bold text-[var(--theme-muted)] leading-none mb-1">

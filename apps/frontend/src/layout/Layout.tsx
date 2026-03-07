@@ -475,7 +475,7 @@ export default function Layout() {
       <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-end gap-4">
         {isChatOpen && (
           <div className="flex max-h-[650px] w-[380px] flex-col overflow-hidden rounded-[2.5rem] border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-2xl animate-in slide-in-from-bottom-5 duration-300">
-            <div className="flex items-center justify-between bg-slate-900 p-5 text-white">
+            <div className="flex items-center justify-between bg-[var(--theme-primary)] p-5 text-white">
               <span className="flex items-center gap-2 text-xs font-black uppercase tracking-widest">
                 <Sparkles size={14} className="text-purple-400" />
                 Mode Expert IA
@@ -511,7 +511,7 @@ export default function Layout() {
           }}
           className={`flex h-14 w-14 items-center justify-center rounded-full border-4 border-white shadow-2xl transition-all duration-300 ${
             isChatOpen
-              ? "scale-90 rotate-90 bg-slate-900 text-white"
+              ? "scale-90 rotate-90 bg-[var(--theme-primary)] text-white"
               : "bg-gradient-to-tr from-purple-600 to-blue-600 text-white hover:scale-110 active:scale-95"
           }`}
           title="Mode Expert IA"

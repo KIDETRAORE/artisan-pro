@@ -230,7 +230,7 @@ export default function DashboardRevenue() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-          <div className="p-6 border-b border-slate-50">
+          <div className="p-6 border-b border-[var(--theme-border)]">
             <h3 className="text-lg font-bold text-[var(--theme-text)]">Analyse & optimisation</h3>
             <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
               Recommandations pragmatiques.
@@ -242,7 +242,7 @@ export default function DashboardRevenue() {
             <ul className="space-y-2">
               {analysis.actions.map((a) => (
                 <li key={a} className="text-sm text-[var(--theme-muted)] flex gap-3">
-                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-slate-300" />
+                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--theme-bg)]" />
                   <span>{a}</span>
                 </li>
               ))}
@@ -251,7 +251,7 @@ export default function DashboardRevenue() {
         </div>
 
         <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
-          <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+          <div className="p-6 border-b border-[var(--theme-border)] flex items-center justify-between">
             <h3 className="text-lg font-bold text-[var(--theme-text)]">
               {hasComptaReport ? "Top recettes" : "Factures payées (mois)"}
             </h3>
