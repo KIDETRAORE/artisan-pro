@@ -206,8 +206,19 @@ export class DashboardController {
       })
       .slice(0, 3);
 
-    // Devis: pas de table/feature devis dans ce repo (routes devis = stub)
-    const quotesPendingCount = 0;
+    const { count: quotesPendingCount, error: quotesErr } = await supabaseAdmin
+      .from("quotes")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .in("status", ["pending", "sent", "open", "accepted"]);
+
+    if (quotesErr) {
+      logger.error("Dashboard: erreur récupération quotes pending count", {
+        userId: user.id,
+        message: quotesErr.message,
+      });
+      throw new HttpError(500, "Erreur lors du chargement du dashboard");
+    }
 
     const kpisPayload = {
       revenue: {
@@ -222,7 +233,7 @@ export class DashboardController {
         preview,
       },
       quotes: {
-        pendingCount: quotesPendingCount,
+        pendingCount: quotesPendingCount ?? 0,
       },
     };
 

@@ -73,8 +73,13 @@ export async function postQuote(req: Request, res: Response) {
 }
 
 export async function patchQuoteStatus(req: Request, res: Response) {
+  const userId = req.user?.id;
   const rawId = req.params.id;
   const { status } = req.body;
+
+  if (!userId) {
+    return sendError(req, res, 401, "unauthorized", "Unauthorized");
+  }
 
   const id = typeof rawId === "string" ? rawId : undefined;
 
@@ -93,7 +98,7 @@ export async function patchQuoteStatus(req: Request, res: Response) {
   }
 
   try {
-    await updateQuoteStatus(id, status);
+    await updateQuoteStatus(userId, id, status);
     return res.json({ success: true });
   } catch {
     return sendError(
