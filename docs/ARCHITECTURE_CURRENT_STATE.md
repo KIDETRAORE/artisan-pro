@@ -1,744 +1,906 @@
-# ARCHITECTURE_CURRENT_STATE (ArtisanPro)
-
-> This document is the **single source of truth** for the current architecture + the anti-regression rules.  
-> It is meant to be read at the beginning of each new session.
->
-> Note: `ARCHITECTURE_CURRENT_STATE2.md` has been renamed to **`ARCHITECTURE_CURRENT_STATE.md`** and we keep this name.
-
----
-
-## ✅ Changelog (only the fixes made during THIS chat)
-
-### 1) Anti-regression guards added (repo-level)
-- Added **Husky hooks**:
-  - `.husky/pre-commit` → runs `npx lint-staged`
-  - `.husky/pre-push` → runs `npm run guards:all`
-- Added **lint-staged** config (root `package.json`) to block regressions on staged files:
-  - Backend guards:
-    - `node scripts/guards/guard-error-shape.mjs`
-    - `node scripts/guards/guard-profiles-misuse.mjs`
-    - `node scripts/guards/guard-quota-writes.mjs`
-  - Frontend guard: currently **no ESLint** in hooks (ESLint temporarily removed because `eslint` was not installed).
-- Added script: `npm run guards:all` → `node scripts/guards/run-all.mjs`
-
-### 2) Error response format regression fixed on key backend files
-Replaced remaining forbidden patterns (`{ success:false, error:"..." }`) with **sendError(...)** in:
-- `apps/backend/src/middlewares/rateLimit.middleware.ts`
-- `apps/backend/src/middlewares/requireRole.middleware.ts`
-- `apps/backend/src/routes/stripe.routes.ts`
-- `apps/backend/src/routes/stripe.webhook.ts` (errors)
-- `apps/backend/src/controllers/vision.controller.ts` (GET /vision/:id)
-- `apps/backend/src/controllers/vocal.controller.ts` (413/415 in upload middleware)
-
-### 3) DB schema is now provisioned via Supabase migrations (source of truth)
-- ✅ **Source of truth (provisioning):** `apps/backend/supabase/migrations/*.sql`
-  - Core tables: `20260302110000_create_core_tables.sql`
-  - Quota RPCs: `ensure_ai_quota`, `consume_ai_quota`
-  - Automation RPCs: `take_next_invoice_to_remind`, `mark_invoice_reminded`
-  - DB guardrails: constraints/indexes/FKs via `20260302120300_audit_db_constraints_indexes_fk.sql`
-  - Monthly analytics guardrails (optional): `user_usage` uniqueness + view (via dedicated migration if present)
-- ⚠️ `apps/backend/database/schema.sql` is kept as a **legacy snapshot** (not used for provisioning).
-- ⚠️ `apps/backend/database/migrations/*` are **legacy/manual SQL** (not applied by Supabase CLI unless ported into `supabase/migrations`).
-
-### 4) Frontend plan normalization fixes (lowercase only)
-- Frontend now treats plan as **lowercase** (`"free" | "pro"`) and normalizes API values:
-  - `apps/frontend/src/context/user.context.tsx`: `normalizePlan`, `normalizeStatus`, `isProActive`
-  - `apps/frontend/src/App.tsx`: uses normalizers (no more `"FREE" | "PRO"` typed plan)
-
-### 5) ✅ New architectural rules to prevent “spam loops” + invalid AI JSON regressions
-We observed 2 recurring failure modes during the chat:
-- **Spam / loops**: repeated calls to `/dashboard` and high-frequency polling to `/ai/status/:id`.
-- **Invalid JSON**: AI returns text / Markdown / malformed JSON → frontend schema parse fails → poor UX and sometimes polling confusion.
-
-✅ We lock these new rules:
-
-#### 5.1 Single “Dashboard hydration” owner (no duplicated fetch)
-- **ONLY `App.tsx`** is allowed to fetch `/dashboard` for session hydration (plan/status/quota/user).
-- Pages (ex: `Dashboard.tsx`) must **not** do extra “best effort” `/dashboard` calls unless there is a strict functional reason.
-- Reason: duplicated `/dashboard` fetch creates noisy logs (`OPTIONS`, repeated “Utilisateur authentifié”), and makes it harder to detect real regressions.
-
-#### 5.2 Polling is strictly single-instance + must always stop
-Frontend polling for async AI jobs (e.g. `/ai/status/:jobId`) MUST follow:
-- Only **one polling loop per jobId** (guard with `isPollingRef` or equivalent).
-- Always clear polling in ALL terminal cases:
-  - `status === "completed"`
-  - `status === "failed"`
-  - any thrown error / network error
-  - component unmount (cleanup)
-- Avoid overlapping requests:
-  - Prefer a `setTimeout` loop (schedule next tick only after previous completes), OR
-  - If using `setInterval`, ensure no concurrent in-flight tick (lock boolean) and always clear on completion.
-- 429 backoff is allowed/encouraged; but it must not restart infinite loops.
-
-#### 5.3 Backend must never “complete” with invalid compta payload
-For `feature="compta"` (and any route expecting “strict JSON”), backend MUST guarantee:
+ARCHITECTURE_CURRENT_STATE (ArtisanPro)
 
-- Persist BOTH:
-  - `response_raw` (string, debug)
-  - `response_json` (JSONB, validated payload)
-- If AI output cannot be parsed or does not validate against the expected schema:
-  - mark job as `failed`
-  - return `status="failed"` with an error code like `invalid_ai_json`
-  - NEVER mark as `completed` with a broken payload
-- Reason: if backend returns “completed” with invalid content, frontend will fail Zod parse and user sees “JSON invalide”, plus polling logic becomes harder to reason about.
+This document is the single source of truth for the current scanned state of the project.
+It is based on the uploaded ZIP content and the uploaded database schema.
+No assumption is allowed beyond what is present in the scanned files.
 
-#### 5.4 Multi-device restore must return JSON (not a wrapper mismatch)
-If frontend restores the last compta report via backend endpoint:
-- Endpoint should return a JSON payload that is easy to validate.
-- If the API returns a wrapper `{ success: true, report: ... }`, frontend must parse **`report`**, not the wrapper.
-- “No report” should return **404 or 204** (both ok) and frontend handles silently.
+1) Active repository structure
+Active application paths
 
----
+The active app paths used by CI, root guards, and the main repo structure are:
 
-# Choix quota
+apps/backend
 
-Source de vérité quota : table `ai_quota` (`monthly_limit`, `used`, `reset_at`).
+apps/frontend
 
-## Immuable (non négociable)
-- **`ai_quota.used` ne peut être modifié QUE via la RPC PostgreSQL** :
-  - `public.consume_ai_quota(uid uuid, amt int)`
-  - (transaction + `FOR UPDATE` + reset mensuel + incrément)
+Duplicate mirrored tree present in the repository
 
-➡️ Interdit :
-- tout `UPDATE ai_quota SET used = ...` en dehors de cette RPC
-- tout `INSERT INTO ai_quota` depuis le code Node runtime
-- toute requête SQL directe (`pool.query`) modifiant `ai_quota.used`
+A second mirrored tree also exists:
 
-## Autorisé & contrôlé (init / paramétrage)
-- La création de la ligne `ai_quota` (si absente) et l’ajustement de **`monthly_limit` / `reset_at`** sont autorisés **uniquement via des RPC dédiées et contrôlées** :
-  - `public.ensure_ai_quota(uid uuid)`  
-    (crée la row si absente, réaligne `reset_at` si nécessaire, ne touche jamais `used`)
-  - `public.set_ai_quota_limit(uid uuid, new_limit int)` (si implémentée)  
-    (modifie `monthly_limit` de manière contrôlée)
+apps/apps/backend
 
-➡️ Interdit :
-- tout `UPDATE ai_quota.monthly_limit` depuis Node
-- tout `UPDATE ai_quota.reset_at` depuis Node
+apps/apps/frontend
 
-## Pré-check (avant appel IA) : middleware `quotaMiddleware` (lecture-only)
-- lit `subscriptions` → si PRO active : bypass
-- lit `ai_quota` → refuse si `used + weight > limit`
-- ne fait aucun reset, aucune écriture DB.
-- si quota dépassé → **403** avec `code="quota_exceeded"` et `details` (pour UI upgrade) :
-  - `{ feature, used, limit, weight, resetAt }`
+This mirrored tree is not the primary source of truth for the current repo orchestration, because:
 
-## Consommation réelle (après succès IA)
-- `quotaService.recordUsage(...)` appelle exclusivement `consume_ai_quota`.
+root package.json guards target apps/backend and apps/frontend
 
-Suppression cache UI : aucune écriture quota/plan dans `profiles` (pas de `monthly_quota_*`, `quota_reset_at`, etc.).
+GitHub CI workflows run in apps/backend and apps/frontend
 
-Poids : `FEATURE_WEIGHTS` (ex: vision, compta…) → `amt >= 1` garanti.
+the main active paths referenced by the repo are apps/backend / apps/frontend
 
----
+Architectural rule
 
-# Choix plan
+Unless explicitly stated otherwise, all future work must treat these as the active source paths:
 
-DB standard : `subscriptions.plan` stocké en lowercase uniquement : `free | pro`.
+apps/backend/**
 
-Normalization unique : helper central `normalizePlan(plan?: string|null) -> "free"|"pro"`.
+apps/frontend/**
 
-Status unique : helper `normalizeStatus(status?: string|null) -> SubscriptionStatus`.
+The duplicated apps/apps/** tree must be treated as a parallel copy, not as the primary runtime source.
 
-Eligibilité PRO : `isProActive(plan, status)` (`pro` + `active/trialing`).
+2) Monorepo / tooling state
+Root-level tooling
 
-Règle : toute comparaison/écriture plan passe par `normalizePlan` (pas de `.toUpperCase()` / `.toLowerCase()` dispersés).
+Root package.json currently contains:
 
----
+Husky
 
-# Choix auth
+lint-staged
 
-Format unique `req.user` (backend) :
+root guard scripts
 
-```ts
-{
-  id: string;
-  email?: string;
-  role: "user" | "admin";
-  permissions: Permission[];
-}
+no root workspace orchestration
 
-Injection : authMiddleware :
+no root TypeScript build pipeline for both apps together
 
-valide le Bearer token via Supabase
+Root Git hooks
 
-récupère role depuis profiles.role (fallback "user")
+Current hooks:
 
-récupère permissions depuis user.app_metadata.permissions (filtrées via union)
+.husky/pre-commit → npx lint-staged
+.husky/pre-push → npm run guards:all
 
-Typing : augmentation Express dans apps/backend/src/types/express/index.d.ts:
-declare global namespace Express { interface Request { user?: AuthUser } }
+Root scripts
 
-Règle : aucun req as any pour req.user en dehors de cas exceptionnels (Stripe runtime typing ok).
-
-Format erreurs
-
-Format unique pour toutes les erreurs API :
-
-{
-  "success": false,
-  "error": { "code": "string", "message": "string" },
-  "requestId": "string",
-  "details": {}
-}
-
-requestId est toujours présent (au minimum "unknown").
-
-details est optionnel (présent uniquement quand utile : quota, validation, debug contrôlé).
-
-Helper unique : sendError(req, res, status, code, message, details?).
-
-Middleware global : error.middleware.ts :
-
-gère ZodError → 400 + validation_error + details.issues
-
-gère QuotaError → 403/429 selon mapping + meta en details
-
-gère HttpError → status + code/message
-
-fallback → 500 internal_error
-
-Règle : validate.middleware, auth.middleware, cors, 404, quotaMiddleware doivent tous utiliser sendError (pas de { message } ou { success:false, error:"..." }).
-
-Endpoints clés
-Auth
-
-POST /auth/register
-
-POST /auth/login
-
-POST /auth/refresh
-
-POST /auth/logout
-
-GET /auth/me
-
-Vision (multipart)
-
-POST /vision/analyze — multipart/form-data, champ fichier image, auth + precheck quota, consommation quota après succès.
-
-GET /vision/history
-
-GET /vision/:id
-
-Devis / Vocal (si présents)
-
-POST /devis/... (selon ton routing)
-
-POST /vocal/... (upload audio en multipart)
-
-Billing / Stripe
-
-POST /stripe/webhook — raw body (AVANT express.json)
-
-endpoints checkout/portal si présents (ex: /stripe/checkout, /stripe/portal)
-
-AI async (BullMQ)
-
-POST /ai/run
-
-GET /ai/status/:jobId
-
-GET /ai/export/:jobId?format=json|csv (si présent)
-
-✅ Multi-device restore (compta):
-
-GET /ai/compta/latest
-
-MUST be auth-required (req.user.id)
-
-MUST return last completed report for feature=compta
-
-MUST return JSON payload (response_json) and not only raw text
-
-🚨 NON-NEGOTIABLE BACKEND CONSTRAINTS (ANTI-REGRESSION RULES)
-
-These rules MUST NEVER be violated in future refactors, file rewrites, or new feature additions.
-
-If a future change contradicts these rules, it is considered a regression.
-
-1️⃣ Unified Error Response Format (MANDATORY)
-
-All API errors MUST follow this structure:
-
-{
-  "success": false,
-  "error": {
-    "code": "string_code",
-    "message": "Human readable message"
-  },
-  "requestId": "string",
-  "details": {}
-}
-
-requestId is ALWAYS present (at minimum "unknown").
-
-details is OPTIONAL (can be omitted).
-
-❌ Forbidden patterns
-
-res.json({ success:false, error:"..." })
-
-res.status(...).json({ error:"..." })
-
-res.json({ success:false, message:"..." })
-
-✅ Allowed patterns only
-
-return sendError(req, res, status, code, message, details?)
-
-OR throw new HttpError(status, code, message, details)
-
-Handled centrally by error.middleware.ts. No exception.
-
-2️⃣ profiles Table Is NOT A Cache
-
-The table public.profiles contains ONLY:
-
-id
-
-full_name
-
-company_name
-
-email
-
-role
-
-created_at
-
-It MUST NEVER contain:
-
-plan
-
-subscription_status
-
-quota fields
-
-monthly counters
-
-Note:
-
-email is allowed for read purposes only.
-
-email must never be logged.
-
-plan/status/quota must never be sourced from profiles.
-
-All subscription logic → public.subscriptions
-All quota logic → public.ai_quota + RPC consume_ai_quota
-
-Any reference to:
-
-profiles.plan
-
-subscription_status
-
-monthly_quota_*
-
-quota_reset_at
-
-is a regression.
-
-3️⃣ Quota Architecture Rules
-
-Quota check:
-
-Performed by quotaMiddleware
-
-READ-ONLY
-
-Never writes to DB
-
-Quota consumption:
-
-ONLY via RPC: consume_ai_quota(uid, amt)
-
-Called AFTER successful AI execution
-
-Never manually UPDATE ai_quota.used outside RPC.
-
-4️⃣ Stripe v20 Constraints
-
-When accessing Stripe runtime-only fields:
-
-(obj as any).current_period_end
-
-(invoice as any).subscription
-
-No @ts-ignore allowed.
-No custom Stripe type overrides.
-
-5️⃣ Single Source of Truth
-
-Subscriptions → public.subscriptions
-Quota → public.ai_quota
-Authentication → Supabase Auth
-
-AI usage events (runtime) → public.ai_usage
-
-Monthly analytics (optional) → public.user_usage (+ public.user_usage_view)
-
-profiles is NOT business logic storage.
-
-DB provisioning source of truth → apps/backend/supabase/migrations/*
-
-6️⃣ Regression Detection
-Automated (recommended)
+Current root script:
 
 npm run guards:all
 
-Git hooks:
+Current implementation runs backend guard scans and frontend no-console checks.
 
-pre-commit: lint-staged runs guards on staged files
+3) CI / deployment targeting
+GitHub CI
 
-pre-push: runs guards:all
+.github/workflows/ci.yml targets:
 
-Manual searches
+Backend working directory:
 
-Select-String -Path "apps/backend/src/**/.ts" -Pattern 'success\s:\sfalse\s,\serror\s:\s*["'']'
+apps/backend
 
-Expected result: NONE
+Frontend working directory:
 
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles.plan|subscription_status|monthly_quota_|quota_reset_at'
+apps/frontend
 
-Expected result: NONE
+This confirms the active build targets.
 
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern '.update\(\s*["'']ai_quota["'']|\.update\(\{[^}]*used'
+Docker / infra
 
-Expected result: only inside RPC definitions (DB), never in Node code
+Current root docker-compose.yml provisions:
 
-If any violation appears → fix required.
+Redis
 
-🔒 ARCHITECTURAL IMMUTABILITY PROTOCOL
+No full local orchestration of backend + frontend currently exists in the scanned state.
 
-(Mandatory Workflow For Every New Session)
+4) Backend runtime architecture
+Backend stack
 
-This protocol defines how the project must evolve without introducing regressions.
+The backend currently uses:
 
-It applies to:
+Node.js
 
-New features
+Express
 
-Refactors
+TypeScript
 
-File rewrites
+BullMQ
 
-Hotfixes
+Redis
 
-Stripe updates
+Supabase
 
-Quota updates
+Stripe
 
-Error handling changes
+Zod
 
-If this protocol is not followed, the architecture is considered unstable.
+Multer
 
-1️⃣ Session Boot Sequence (MANDATORY)
+Google Gemini
 
-At the beginning of every new ChatGPT session:
+Backend entrypoints
 
-Upload FULL project ZIP
+Primary runtime files:
 
-Require a complete scan of ALL files
+apps/backend/src/server.ts
+apps/backend/src/app.ts
 
-Require reading of:
+Server boot
 
-ARCHITECTURE_CURRENT_STATE.md
+server.ts currently:
 
-Database schema (Supabase migrations + live DB)
+creates the HTTP server
 
-No assumptions allowed.
-No partial memory allowed.
-No inferred structure allowed.
-All decisions must be based on the uploaded code only.
+starts the main API
 
-2️⃣ No Full File Regeneration Without Justification
+imports the AI worker
 
-Rule:
-Full file rewrites are forbidden unless:
+starts the automation scheduler
 
-The file is fundamentally broken
+starts the invoice reminders scheduler
 
-The architecture requires structural redesign
+imports reminder workers
 
-Explicitly requested
+App bootstrap
 
-Preferred method:
+app.ts currently mounts middleware in the following order:
 
-Provide targeted patches
+security middleware
 
-Replace specific blocks only
+observability middleware
 
-Preserve untouched logic
+Stripe webhook raw-body route
 
-Reason: Full rewrites increase regression risk.
+global rate limit
 
-3️⃣ Mandatory Post-Modification Verification
+CORS
 
-After any backend modification, the following checks MUST be run:
+JSON/urlencoded parsers
 
-Error shape validation
-Select-String -Path "apps/backend/src/**/.ts" -Pattern 'success\s:\sfalse\s,\serror\s:\s*["'']'
-Expected result: NONE
+cookie parser
 
-profiles misuse validation
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern 'profiles.plan|subscription_status|monthly_quota_|quota_reset_at'
-Expected result: NONE
+dev logger
 
-Quota write validation
-Select-String -Path "apps/backend/src/**/*.ts" -Pattern '.update\(\s*["'']ai_quota["'']|\.update\(\{[^}]*used'
-Expected result: never in Node code, only DB/RPC
+OpenAPI routes
 
-If any violation appears → modification is rejected.
+direct /ai/expert route mount
 
-4️⃣ Error Handling Architecture Is Immutable
+main router /
 
-All errors MUST follow:
+404 handler
 
+global error handler
+
+Important behavior
+
+startInvoiceRemindersScheduler() is currently called in both:
+
+apps/backend/src/app.ts
+
+apps/backend/src/server.ts
+
+So the current scanned state includes duplicate scheduler startup.
+
+5) Backend routing map
+Central router
+
+Main router file:
+
+apps/backend/src/routes/index.ts
+
+Public route
+
+/health
+
+Authenticated business routes
+
+Mounted route families include:
+
+/stripe
+
+/dashboard
+
+/devis
+
+/quotes
+
+/invoices
+
+/clients
+
+/projects
+
+/usage
+
+/integrations
+
+/ai
+
+/assistant
+
+/compta
+
+/vision
+
+/vocal
+
+/automation
+
+Root mounted routers
+
+Some routers are mounted at / because the path is defined inside the router:
+
+invoice lines
+
+project expenses
+
+project accounting imports
+
+Direct mount outside central router
+
+Expert routes are mounted directly in app.ts:
+
+/ai/expert/*
+
+This separation avoids double mounting.
+
+6) Backend middleware architecture
+
+Current middleware families include:
+
+auth.middleware.ts
+
+can.middleware.ts
+
+error.middleware.ts
+
+httpLogger.middleware.ts
+
+observability.middleware.ts
+
+quota.middleware.ts
+
+rateLimit.middleware.ts
+
+requirePermission.middleware.ts
+
+requireRole.middleware.ts
+
+security.middleware.ts
+
+validate.middleware.ts
+
+Auth runtime shape
+
+authMiddleware injects:
+
+req.user = {
+  id: string,
+  email?: string,
+  role: "user" | "admin" | "free" | "pro",
+  permissions: Permission[]
+}
+Auth sources of truth
+
+Authentication flow:
+
+Token validation → Supabase Auth
+Role lookup → public.profiles.role
+Permissions → user.app_metadata.permissions if present
+Fallback permissions → derived from role
+
+7) Error response architecture
+
+Current helper:
+
+apps/backend/src/utils/apiError.ts
+
+Helper function:
+
+sendError(req, res, status, code, message)
+
+Error response format
 {
   "success": false,
-  "error": { "code": "...", "message": "..." },
-  "requestId": "string",
-  "details": {}
+  "error": {
+    "code": "string",
+    "message": "string"
+  },
+  "requestId": "string"
 }
+Error middleware
 
-Allowed mechanisms:
+error.middleware.ts additionally supports:
 
-return sendError(...)
+Zod validation errors
 
-throw new HttpError(...)
+Multer errors
 
-Forbidden:
+QuotaError
 
-res.json({ success:false, error:"..." })
+HttpError
 
-res.json({ error:"..." })
+Stripe signature errors
 
-res.json({ success:false, message:"..." })
+unknown exceptions
 
-5️⃣ Quota System Rules (Immutable)
+Important note
 
-Pre-check:
+sendError() does not currently support a details parameter.
 
-quotaMiddleware
+However the error middleware can attach details.
 
-READ-ONLY
+8) Validation architecture
 
-No DB writes
+Validation system uses:
 
-Consumption:
+Zod schemas
 
-Only via RPC consume_ai_quota(uid, amt)
+validateStrip(schema, target)
 
-Only after successful AI execution
-
-No manual increment of ai_quota.used allowed.
-
-6️⃣ profiles Table Is Structural Only
-
-profiles contains only:
-
-id
-
-full_name
-
-company_name
-
-email
-
-role
-
-created_at
-
-It is NOT:
-
-a cache
-
-a subscription store
-
-a quota store
-
-an email business-logic source
-
-All subscription logic → subscriptions
-All quota logic → ai_quota
-
-7️⃣ Stripe Integration Rules
-
-Stripe v20 only
-
-Runtime-only fields accessed via (obj as any)
-
-No @ts-ignore
-
-subscriptions table is single source of truth
-
-8️⃣ Decision Hierarchy
-
-When in doubt:
-
-ARCHITECTURE_CURRENT_STATE.md
-
-Database schema (Supabase migrations + live DB)
-
-Existing production logic
-
-Minimal change principle
-
-Never redesign unless explicitly requested.
-
-9️⃣ Stability Principle
-
-The system must evolve by:
-
-Adding layers
-
-Improving modules
-
-Refactoring internally
-But never by breaking invariants defined in this document.
-
-🔟 Definition of Regression
-
-A regression is:
-
-Reintroducing forbidden error shapes
-
-Writing business logic into profiles
-
-Writing quota outside RPC
-
-Creating duplicate middleware logic
-
-Breaking unified response format
-
-Reintroducing spam loops (duplicate hydration or uncontrolled polling)
-
-Marking AI jobs “completed” with invalid compta JSON payload
-
-Any regression invalidates the change.
-
-11️⃣ Input Validation Rules (Immutable)
-
-All external inputs must be validated using Zod schemas.
-This applies to:
+Validated inputs include:
 
 req.body
 
 req.params
 
-req.query
+Multipart rule
 
-No controller is allowed to access raw request data without prior validation.
-
-Mandatory Pattern:
-Each route must:
-
-Define a Zod schema
-
-Use validateStrip(schema, target)
-
-Only use validated data (no manual casting without schema)
-
-✅ Example (Compliant)
-
-const AiChatBodySchema = z.object({
-  type: z.string().min(1).max(40).optional(),
-  prompt: z.string().min(1).max(10_000),
-  context: z.unknown().optional(),
-});
-
-router.post(
-  "/chat",
-  validateStrip(AiChatBodySchema, "body"),
-  async (req, res) => {
-    const { type, prompt, context } =
-      req.body as z.infer<typeof AiChatBodySchema>;
-  }
-);
-
-Multipart Special Case:
 For multipart routes:
 
-Zod validates text fields
+Multer handles files
 
-Multer validates file presence and size
+MIME validation checks file types
 
-Runtime check validates mime-type
+Zod validates body fields
 
-Forbidden Patterns:
+Controllers must not rely on unvalidated input.
 
-const { type } = req.body as { type?: string };
+9) Database source of truth
 
-if (!req.body.prompt) { ... }
+Primary provisioning source:
 
-Manual validation without Zod schema is not allowed.
+apps/backend/supabase/migrations/*
 
-Architectural Objective:
+Legacy SQL also exists:
 
-Enforce strict API contracts
+apps/backend/database/schema.sql
+apps/backend/database/migrations/*
 
-Eliminate manual validation logic
+These must be treated as legacy snapshots, not provisioning truth.
 
-Prevent silent runtime inconsistencies
+10) Core business tables
 
-Prepare for future OpenAPI generation
+The scanned schema confirms the presence of these tables:
 
+subscriptions
 
----
+ai_quota
 
-## 12️⃣ UI Theme System (Design Tokens)
+ai_logs
 
-ArtisanPro uses a **theme-based design system**.
+ai_usage
 
-All UI colors must rely on **CSS variables**, not hardcoded Tailwind colors.
+quotes
 
-### ❌ Forbidden
+invoices
 
-Do NOT use hardcoded colors such as:
+invoice_lines
 
-bg-white  
-text-slate-900  
-border-slate-200  
-bg-slate-50  
-text-gray-500  
+clients
 
-These break the theme system.
+projects
 
-### ✅ Required
+project_expenses
 
-Use theme tokens instead:
+dashboard_stats
 
-bg-[var(--theme-bg)]  
-bg-[var(--theme-card)]  
-text-[var(--theme-text)]  
-text-[var(--theme-muted)]  
-border-[var(--theme-border)]
+integrations
 
-Primary color:
+integration_tokens
 
-bg-[var(--theme-primary)]  
-text-[var(--theme-primary-contrast)]
+integration_sync_state
 
-### Theme tokens defined in:
+external_id_map
 
-apps/frontend/src/index.css
+accounting_events
 
-.app-theme  
-.app-theme-classic  
-.app-theme-midnight  
-.app-theme-sunset
+expert_conversations
 
-### Goal
+expert_messages
 
-Guarantee that all UI components support:
+vision_analyses
 
-- classic theme
-- midnight theme
-- sunset theme
+user_usage
 
-### Rule
+user_usage_view
 
-Hardcoded Tailwind color tokens in UI components are considered **architecture violations**.
+ai_exports
+
+stripe_events
+
+profiles
+
+11) Profiles table rule
+
+profiles currently contains:
+
+id
+
+email
+
+full_name
+
+company_name
+
+role
+
+created_at
+
+profiles must not become the business source of truth for:
+
+plan
+
+subscription
+
+quota
+
+12) Subscription architecture
+
+Source of truth:
+
+public.subscriptions
+
+Relevant fields:
+
+plan
+
+status
+
+current_period_end
+
+stripe_customer_id
+
+stripe_subscription_id
+
+Backend helpers:
+
+apps/backend/src/domain/plan.ts
+
+Frontend normalization:
+
+apps/frontend/src/context/user.context.tsx
+
+Canonical frontend plan values:
+
+free | pro
+
+13) Quota architecture
+
+Source of truth:
+
+public.ai_quota
+
+Columns:
+
+user_id
+
+monthly_limit
+
+used
+
+reset_at
+
+Quota service:
+
+apps/backend/src/services/quota.service.ts
+
+Atomic consumption:
+
+RPC → consume_ai_quota(uid, amt)
+
+Node code must never directly update ai_quota.used.
+
+14) AI / BullMQ architecture
+
+Queue files:
+
+queues/ai.queue.ts
+
+workers/ai.worker.ts
+
+Async flow:
+
+request validated
+
+quota pre-check
+
+job enqueue
+
+worker executes AI
+
+quota consumed
+
+status retrieved via /ai/status/:jobId
+
+Status normalization:
+
+waiting / delayed / paused → pending
+active → processing
+completed → completed
+failed → failed
+
+Ownership check ensures users can only read their own jobs.
+
+15) Gemini AI service
+
+Core file:
+
+services/ai/gemini.service.ts
+
+AI types:
+
+assistant
+
+devis
+
+compta
+
+vision
+
+relance
+
+vocal
+
+expert
+
+Current model:
+
+gemini-2.5-flash
+
+Retry logic handles:
+
+429
+
+timeouts
+
+internal errors
+
+Compta outputs must be strict JSON.
+
+16) AI persistence
+
+Tables used:
+
+ai_logs
+
+ai_usage
+
+ai_exports
+
+ai_logs contains:
+
+feature
+
+prompt
+
+response
+
+response_json
+
+tokens_used
+
+status
+
+created_at
+
+Endpoint:
+
+GET /ai/compta/latest
+
+Returns:
+
+{
+  report,
+  createdAt,
+  id
+}
+
+If none exists:
+
+200
+report: null
+17) Expert chat persistence
+
+Tables:
+
+expert_conversations
+
+expert_messages
+
+Persistence handled by:
+
+services/expertConversation.service.ts
+
+Expert history is stored server-side.
+
+18) Stripe architecture
+
+Routes:
+
+stripe.routes.ts
+
+stripe.webhook.ts
+
+Webhook must remain mounted before JSON body parser.
+
+Subscription source of truth:
+
+subscriptions
+
+Stripe events table:
+
+stripe_events
+
+Typing rule:
+
+runtime fields accessed via (obj as any).
+
+No @ts-ignore.
+
+19) Quotes / invoices / projects
+
+Confirmed modules:
+
+quotes
+
+invoices
+
+invoice lines
+
+clients
+
+projects
+
+project expenses
+
+integrations
+
+Dashboard KPIs are generated via:
+
+RPC get_dashboard_kpis.
+
+Quotes support:
+
+quote → invoice conversion.
+
+Invoices support:
+
+reminders
+
+payment page
+
+invoice editor
+
+invoice lines editor.
+
+20) Dashboard architecture
+
+Backend endpoint:
+
+GET /dashboard
+
+Response includes:
+
+user
+
+subscription
+
+features
+
+quota
+
+kpis
+
+optional copilot snapshot
+
+Frontend files:
+
+Dashboard.tsx
+
+DashboardRevenue.tsx
+
+DashboardUnpaid.tsx
+
+DashboardQuotes.tsx
+
+App.tsx hydrates global session state.
+
+Feature pages may also call /dashboard.
+
+21) Frontend architecture
+
+Stack:
+
+React
+
+TypeScript
+
+Vite
+
+React Router
+
+Zustand
+
+Supabase client
+
+Tailwind
+
+Zod
+
+Main files:
+
+App.tsx
+
+Layout.tsx
+
+user.context.tsx
+
+auth.store.ts
+
+Protected routes render under Layout.tsx.
+
+22) Frontend compta persistence
+
+Store:
+
+store/comptaReport.store.ts
+
+Backend restore endpoint:
+
+GET /ai/compta/latest
+
+Backend ai_logs.response_json is the persistent source.
+
+Frontend store is a cache.
+
+23) Expert UI architecture
+
+Files:
+
+ExpertHubPanel.tsx
+
+ExpertChatPanel.tsx
+
+AiModePanel.tsx
+
+AssistantPanel.tsx
+
+Layout.tsx manages expert UI state and open events.
+
+Conversation persistence lives server-side.
+
+24) Theme system
+
+Theme classes in:
+
+index.css
+
+Themes:
+
+classic
+
+midnight
+
+sunset
+
+Theme store:
+
+uiTheme.store.ts
+
+Experience modes:
+
+embedded-lite
+
+embedded-panel
+
+Some legacy Tailwind slate utilities still exist in global CSS.
+
+25) Guard system
+
+Guard scripts include:
+
+guard-ai-queue-precheck
+
+guard-error-shape
+
+guard-no-console
+
+guard-no-hardcoded-ui-colors
+
+guard-no-pg
+
+guard-no-ts-ignore
+
+guard-profiles-misuse
+
+guard-quota-writes
+
+lint-staged currently enforces:
+
+Backend:
+
+error shape
+
+profiles misuse
+
+quota writes
+
+Frontend:
+
+no-console
+
+The hardcoded color guard exists but is not fully wired.
+
+26) Immutable architecture rules
+
+A change is considered a regression if it:
+
+breaks unified error shape
+
+stores plan/quota in profiles
+
+bypasses quota RPC
+
+breaks Stripe webhook ordering
+
+treats apps/apps/* as primary source
+
+removes plan normalization
+
+breaks AI job ownership checks
+
+breaks compta persistence
+
+introduces uncontrolled polling
+
+27) Known inconsistencies
+
+The current codebase contains:
+
+duplicate apps/apps tree
+
+duplicate invoice reminder scheduler startup
+
+mixed uppercase/lowercase plan values
+
+sendError without details parameter
+
+UI color guard not wired into main pipeline
+
+legacy Tailwind slate utilities in index.css
+
+/ai/compta/latest returns 200 + null instead of 404
+
+redundant auth guards in dashboard routes
+
+These are part of the scanned architecture.
+
+28) Session workflow rule
+
+At the beginning of any architecture session:
+
+upload latest project ZIP
+
+scan entire repository
+
+read this document first
+
+verify DB statements against migrations and schema
+
+avoid relying on past chat memory
+
+29) Final stability rule
+
+Any modification that violates the rules defined in this document is considered a critical architectural regression.
 
 🔒 This rule is considered architecturally immutable.
