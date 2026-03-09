@@ -101,6 +101,33 @@ async function markSyncError(
   await IntegrationsService.markOdooSyncError(userId, errorMessage);
 }
 
+async function insertSyncEvent(params: {
+  userId: string;
+  provider: SupportedSyncProvider;
+  status: "success" | "error";
+  message: string;
+  objectType?: string | null;
+  objectId?: string | null;
+}): Promise<void> {
+  const { error } = await supabaseAdmin.from("sync_events").insert({
+    user_id: params.userId,
+    provider: params.provider,
+    status: params.status,
+    message: params.message,
+    object_type: params.objectType ?? "sync",
+    object_id: params.objectId ?? null,
+  });
+
+  if (error) {
+    logger.warn("AccountingSyncService.insertSyncEvent failed", {
+      userId: params.userId,
+      provider: params.provider,
+      status: params.status,
+      message: error.message,
+    });
+  }
+}
+
 export class AccountingSyncService {
   static async syncInvoices(
     userId: string,
@@ -126,7 +153,9 @@ export class AccountingSyncService {
       const lastCursor = await getLastCursor(userId, provider);
       const syncStartedAt = new Date().toISOString();
 
-      const externalInvoices = await connector.listInvoices(lastCursor ?? undefined);
+      const externalInvoices = await connector.listInvoices(
+        lastCursor ?? undefined
+      );
 
       for (const external of externalInvoices) {
         try {
@@ -247,12 +276,26 @@ export class AccountingSyncService {
 
       await markSyncSuccess(userId, provider, syncStartedAt);
 
+      await insertSyncEvent({
+        userId,
+        provider,
+        status: "success",
+        message: `Accounting sync completed (created: ${stats.created}, linked: ${stats.linked}, upgraded: ${stats.upgraded}, ignored: ${stats.ignored}, conflicts: ${stats.conflicts})`,
+      });
+
       return stats;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Accounting sync failed";
 
       await markSyncError(userId, provider, message);
+
+      await insertSyncEvent({
+        userId,
+        provider,
+        status: "error",
+        message,
+      });
 
       throw error;
     }

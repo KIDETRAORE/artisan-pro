@@ -92,6 +92,66 @@ function EventList({
   );
 }
 
+function LastSyncSummary({
+  events,
+  syncing,
+}: {
+  events: Array<{
+    id: string;
+    status: string;
+    message: string | null;
+    created_at: string;
+  }>;
+  syncing: boolean;
+}) {
+  const latestEvent = events.length > 0 ? events[0] : null;
+  const isSuccess =
+    String(latestEvent?.status ?? "").toLowerCase() === "success";
+
+  return (
+    <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-black uppercase tracking-[0.2em] text-[var(--theme-muted)]">
+            Dernière synchronisation
+          </div>
+          <div className="mt-1 text-sm font-bold text-[var(--theme-text)]">
+            {syncing
+              ? "Synchronisation en cours..."
+              : latestEvent
+                ? formatDateTime(latestEvent.created_at)
+                : "Aucune synchronisation enregistrée"}
+          </div>
+        </div>
+
+        <div
+          className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] border ${
+            syncing
+              ? "border-blue-200 bg-blue-50 text-blue-700"
+              : latestEvent
+                ? isSuccess
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-red-200 bg-red-50 text-red-700"
+                : "border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-muted)]"
+          }`}
+        >
+          {syncing
+            ? "En cours"
+            : latestEvent
+              ? latestEvent.status
+              : "Aucun événement"}
+        </div>
+      </div>
+
+      {latestEvent?.message ? (
+        <div className="mt-2 text-sm text-[var(--theme-muted)]">
+          {latestEvent.message}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ProviderCard({
   title,
   subtitle,
@@ -149,7 +209,7 @@ function ProviderCard({
             </span>
 
             {usesWorkspaceKey ? (
-              <span className="inline-flex items-center gap-2 text-xs text-indigo-600 font-bold">
+              <span className="inline-flex items-center gap-2 text-xs font-bold text-indigo-600">
                 <ShieldCheck size={12} />
                 Clé workspace
               </span>
@@ -337,11 +397,18 @@ export default function IntegrationsPanel() {
           </div>
         ) : null}
 
-        <div className="mt-6">
-          <h4 className="mb-3 text-sm font-black uppercase tracking-wider text-[var(--theme-text)]">
-            Événements récents
-          </h4>
-          <EventList events={pennylane.recentEvents} />
+        <div className="mt-6 space-y-4">
+          <LastSyncSummary
+            events={pennylane.recentEvents}
+            syncing={pennylane.syncing}
+          />
+
+          <div>
+            <h4 className="mb-3 text-sm font-black uppercase tracking-wider text-[var(--theme-text)]">
+              Événements récents
+            </h4>
+            <EventList events={pennylane.recentEvents} />
+          </div>
         </div>
       </ProviderCard>
 
@@ -426,11 +493,15 @@ export default function IntegrationsPanel() {
           </div>
         ) : null}
 
-        <div className="mt-6">
-          <h4 className="mb-3 text-sm font-black uppercase tracking-wider text-[var(--theme-text)]">
-            Événements récents
-          </h4>
-          <EventList events={odoo.recentEvents} />
+        <div className="mt-6 space-y-4">
+          <LastSyncSummary events={odoo.recentEvents} syncing={odoo.syncing} />
+
+          <div>
+            <h4 className="mb-3 text-sm font-black uppercase tracking-wider text-[var(--theme-text)]">
+              Événements récents
+            </h4>
+            <EventList events={odoo.recentEvents} />
+          </div>
         </div>
       </ProviderCard>
     </div>

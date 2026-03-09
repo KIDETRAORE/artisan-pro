@@ -3,7 +3,7 @@ import express from "express";
 import cors, { type CorsOptions } from "cors";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
-import helmet from "helmet"; // ✅ ajout
+import helmet from "helmet";
 
 import { ENV } from "./config/env";
 import { errorHandler } from "@middlewares/error.middleware";
@@ -25,37 +25,9 @@ import openApiRoutes from "./routes/openapi.routes";
 // ✅ AJOUT: Expert routes (mount direct /ai/expert)
 import expertRouter from "./routes/expert.routes";
 
-// ✅ AJOUT: Scheduler relances (cron BullMQ)
-import { startInvoiceRemindersScheduler } from "./schedulers/reminders.scheduler";
-
-// ✅ AJOUT: Scheduler sync compta
-import { startAccountingSyncScheduler } from "./jobs/accountingSync.scheduler";
-
-// ✅ AJOUT: workers relances (side-effect imports)
-import "./workers/remindersScan.worker";
-import "./workers/invoiceReminder.worker";
-
-// ✅ AJOUT: worker sync compta (side-effect import)
-import "./jobs/accountingSync.job";
-
 const app = express();
 
-const isProd = ENV.NODE_ENV === "production"; // ✅ ajout
-
-/**
- * ✅ AJOUT: démarre le scheduler (non bloquant)
- * - le job repeatable "invoice_reminders_scan" sera programmé (02:00 Europe/Paris)
- */
-startInvoiceRemindersScheduler().catch((e) => {
-  logger.error("Failed to start invoice reminders scheduler", {
-    message: e instanceof Error ? e.message : String(e),
-  });
-});
-
-/**
- * ✅ AJOUT: démarre le scheduler de synchronisation comptable
- */
-startAccountingSyncScheduler();
+const isProd = ENV.NODE_ENV === "production";
 
 /**
  * ======================
@@ -71,7 +43,6 @@ app.set("trust proxy", 1);
  */
 applySecurity(app);
 
-// ✅ ajout : CSP dev permissif / prod strict (sans nonce)
 app.use(
   helmet({
     contentSecurityPolicy: {
