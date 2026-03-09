@@ -1,8 +1,9 @@
 // apps/frontend/src/pages/InvoiceDetail.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
+  createInvoiceDraft,
   deleteInvoice,
   deleteInvoiceLine,
   finalizeInvoice,
@@ -21,6 +22,7 @@ import {
 } from "../services/integrations.api";
 import InvoiceEditor from "../components//invoices/InvoiceEditor";
 import InvoiceLinesEditor from "../components/invoices/InvoiceLinesEditor";
+import { ApiRequestError } from "../utils/apiRequestError";
 
 function formatEurFromCents(cents: number): string {
   const euros = (Number.isFinite(cents) ? cents : 0) / 100;
@@ -34,6 +36,7 @@ function formatEurFromCents(cents: number): string {
 export default function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
   const invoiceId = String(id || "");
+  const isCreateMode = invoiceId === "new" || invoiceId.length === 0;
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
@@ -44,12 +47,41 @@ export default function InvoiceDetail() {
   const [syncEvents, setSyncEvents] = useState<PennylaneInvoiceSyncEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchOnceRef = useRef(false);
+  const editorInvoice = useMemo<Invoice | null>(() => {
+    if (invoice) return invoice;
+    if (!isCreateMode) return null;
+
+    return {
+      id: "new",
+      client_name: "",
+      client_email: null,
+      due_date: "",
+      status: "draft",
+      project_id: null,
+      total_amount: 0,
+      total_amount_cents: 0,
+      invoice_number: null,
+      source_type: "manual",
+      source_id: null,
+      reminder_count: 0,
+      last_reminder_at: null,
+      paid_at: null,
+    };
+  }, [invoice, isCreateMode]);
 
   const load = async () => {
+    if (isCreateMode) {
+      setError(null);
+      setInvoice(null);
+      setLines([]);
+      return;
+    }
+
     if (!invoiceId) return;
+
     setLoading(true);
     setError(null);
+
     try {
       const inv = await getInvoice(invoiceId);
       const lns = await listInvoiceLines(invoiceId);
@@ -65,7 +97,13 @@ export default function InvoiceDetail() {
   };
 
   const loadSyncEvents = async () => {
+    if (isCreateMode) {
+      setSyncEvents([]);
+      return;
+    }
+
     if (!invoiceId) return;
+
     setSyncEventsLoading(true);
     try {
       const events = await getPennylaneInvoiceSyncEvents(invoiceId);
@@ -78,11 +116,9 @@ export default function InvoiceDetail() {
   };
 
   useEffect(() => {
-    if (fetchOnceRef.current) return;
-    fetchOnceRef.current = true;
     void load();
     void loadSyncEvents();
-  }, [invoiceId]);
+  }, [invoiceId, isCreateMode]);
 
   const totals = useMemo(() => {
     const subtotal = lines.reduce((a, l) => a + (l.line_total_cents ?? 0), 0);
@@ -95,18 +131,57 @@ export default function InvoiceDetail() {
     return { subtotal, tax, total };
   }, [lines]);
 
-  const canFinalize = useMemo(() => {
-    const st = String(invoice?.status ?? "").toLowerCase();
+  const status = String(invoice?.status ?? "").toLowerCase();
+
+  const canEditHeader = useMemo(() => {
+    if (isCreateMode) return true;
     if (!invoice) return false;
-    if (st !== "draft" && st !== "sent") return false;
+    return status === "draft" || status === "sent" || status === "overdue";
+  }, [invoice, isCreateMode, status]);
+
+  const canEditLines = useMemo(() => {
+    if (isCreateMode) return true;
+    if (!invoice) return false;
+    return status === "draft";
+  }, [invoice, isCreateMode, status]);
+
+  const canDelete = useMemo(() => {
+    if (!invoice) return false;
+    return status === "draft";
+  }, [invoice, status]);
+
+  const editableFields = useMemo(
+    () => ({
+      client_name: isCreateMode || status === "draft",
+      client_email:
+        isCreateMode ||
+        status === "draft" ||
+        status === "sent" ||
+        status === "overdue",
+      due_date:
+        isCreateMode ||
+        status === "draft" ||
+        status === "sent" ||
+        status === "overdue",
+      project_id:
+        isCreateMode ||
+        status === "draft" ||
+        status === "sent" ||
+        status === "overdue",
+    }),
+    [isCreateMode, status]
+  );
+
+  const canFinalize = useMemo(() => {
+    if (!invoice) return false;
+    if (status !== "draft" && status !== "sent") return false;
     return lines.length > 0;
-  }, [invoice, lines.length]);
+  }, [invoice, status, lines.length]);
 
   const canPay = useMemo(() => {
     if (!invoice) return false;
 
-    const st = String(invoice.status ?? "").toLowerCase();
-    if (st === "paid" || st === "canceled") return false;
+    if (status === "paid" || status === "canceled") return false;
 
     const emailOk =
       !!invoice.client_email && String(invoice.client_email).trim().length > 0;
@@ -114,13 +189,12 @@ export default function InvoiceDetail() {
 
     const amountCents = moneyCentsFromInvoice(invoice);
     return Number.isFinite(amountCents) && amountCents > 0;
-  }, [invoice]);
+  }, [invoice, status]);
 
   const canResyncPennylane = useMemo(() => {
     if (!invoice) return false;
-    const st = String(invoice.status ?? "").toLowerCase();
-    return st === "sent";
-  }, [invoice]);
+    return status === "sent";
+  }, [invoice, status]);
 
   const latestSyncEvent = useMemo(() => {
     return syncEvents.length > 0 ? syncEvents[0] : null;
@@ -132,14 +206,37 @@ export default function InvoiceDetail() {
     due_date: string;
     project_id: string | null;
   }) => {
-    if (!invoice) return;
+    if (!canEditHeader) return;
+
     setLoading(true);
     setError(null);
+
     try {
+      if (isCreateMode && !invoice) {
+        const created = await createInvoiceDraft({
+          client_name: patch.client_name,
+          client_email: patch.client_email,
+          due_date: patch.due_date,
+          project_id: patch.project_id,
+          source_type: "manual",
+          source_id: null,
+        });
+
+        setInvoice(created);
+        navigate(`/invoices/${created.id}`, { replace: true });
+        return;
+      }
+
+      if (!invoice) return;
+
       const updated = await patchInvoice(invoice.id, patch);
       setInvoice(updated);
-    } catch {
-      setError("Impossible d’enregistrer les modifications.");
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        setError(error.message);
+      } else {
+        setError("Impossible d’enregistrer les modifications.");
+      }
     } finally {
       setLoading(false);
     }
@@ -220,7 +317,7 @@ export default function InvoiceDetail() {
   };
 
   const onDeleteInvoice = async () => {
-    if (!invoice) return;
+    if (!invoice || !canDelete) return;
 
     const confirmed = window.confirm(
       "Supprimer cette facture ? Cette action est irréversible."
@@ -244,8 +341,6 @@ export default function InvoiceDetail() {
     }
   };
 
-  const status = String(invoice?.status ?? "").toLowerCase();
-
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
       <div className="flex items-start justify-between gap-4">
@@ -258,11 +353,15 @@ export default function InvoiceDetail() {
           </Link>
 
           <h2 className="text-3xl font-extrabold text-[var(--theme-text)] tracking-tight mt-2">
-            Facture
+            {isCreateMode ? "Nouvelle facture" : "Facture"}
           </h2>
 
           <p className="text-[var(--theme-muted)] mt-1">
-            {invoice ? `#${invoice.id.slice(0, 8)}` : "Chargement…"}
+            {isCreateMode
+              ? "La facture sera créée lors de l’enregistrement."
+              : invoice
+                ? `#${invoice.id.slice(0, 8)}`
+                : "Chargement…"}
           </p>
         </div>
 
@@ -276,7 +375,7 @@ export default function InvoiceDetail() {
 
           <button
             onClick={onDeleteInvoice}
-            disabled={loading}
+            disabled={loading || !canDelete}
             className="hidden sm:inline-flex items-center gap-2 bg-[var(--theme-card)] border border-red-200 text-red-700 px-4 py-3 rounded-2xl font-bold text-sm hover:bg-red-50 transition-colors disabled:opacity-60"
           >
             Supprimer
@@ -315,20 +414,33 @@ export default function InvoiceDetail() {
         </div>
       ) : null}
 
+      {!isCreateMode && invoice ? (
+        <div className="bg-[var(--theme-card)] border border-[var(--theme-border)] rounded-2xl p-4 text-sm text-[var(--theme-muted)]">
+          {status === "draft"
+            ? "Facture en brouillon : édition complète autorisée."
+            : status === "sent" || status === "overdue"
+              ? "Facture envoyée : seules les informations d’en-tête non sensibles restent modifiables. Les lignes sont verrouillées."
+              : "Facture en lecture seule : aucune modification n’est autorisée."}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <InvoiceEditor
             loading={loading}
-            invoice={invoice}
+            invoice={editorInvoice}
             onSave={onSaveHeader}
+            canEdit={canEditHeader}
+            editableFields={editableFields}
           />
 
           <InvoiceLinesEditor
             loading={loading}
-            invoiceId={invoiceId}
+            invoiceId={invoice?.id ?? ""}
             lines={lines}
             onChangeLines={setLines}
             onReload={load}
+            readOnly={!canEditLines}
           />
         </div>
 
@@ -384,7 +496,9 @@ export default function InvoiceDetail() {
             </div>
 
             <div className="p-6 space-y-3 text-sm text-[var(--theme-muted)]">
-              {syncEventsLoading ? (
+              {isCreateMode ? (
+                <div>La synchronisation sera disponible après création de la facture.</div>
+              ) : syncEventsLoading ? (
                 <div>Chargement des événements…</div>
               ) : latestSyncEvent ? (
                 <>

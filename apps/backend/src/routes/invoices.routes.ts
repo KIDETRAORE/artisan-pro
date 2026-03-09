@@ -34,9 +34,6 @@ async function invoiceHasLines(invoiceId: string): Promise<boolean> {
   return !!data;
 }
 
-/**
- * LIST
- */
 router.get(
   "/",
   requirePermission(PERMISSIONS.INVOICES_READ),
@@ -50,9 +47,6 @@ router.get(
   })
 );
 
-/**
- * GET ONE
- */
 router.get(
   "/:id",
   requirePermission(PERMISSIONS.INVOICES_READ),
@@ -67,9 +61,6 @@ router.get(
   })
 );
 
-/**
- * CREATE
- */
 router.post(
   "/",
   requirePermission(PERMISSIONS.INVOICES_WRITE),
@@ -83,9 +74,6 @@ router.post(
   })
 );
 
-/**
- * UPDATE
- */
 router.patch(
   "/:id",
   requirePermission(PERMISSIONS.INVOICES_WRITE),
@@ -104,9 +92,6 @@ router.patch(
   })
 );
 
-/**
- * DELETE
- */
 router.delete(
   "/:id",
   requirePermission(PERMISSIONS.INVOICES_WRITE),
@@ -124,15 +109,25 @@ router.delete(
   })
 );
 
-/**
- * ✅ PAY
- * POST /invoices/:id/pay
- *
- * Objectif:
- * - Créer une Stripe Checkout Session (mode payment)
- * - Sauver stripe_checkout_id sur la facture
- * - Renvoyer l'URL de paiement
- */
+router.post(
+  "/:id/remind",
+  requirePermission(PERMISSIONS.INVOICES_WRITE),
+  asyncHandler(async (req, res) => {
+    const r = req as AuthedRequest;
+    const userId = r.user?.id;
+    if (!userId) throw new HttpError(401, "Unauthorized");
+
+    const invoiceId = String(req.params.id);
+    const result = await InvoicesService.enqueueReminder(userId, invoiceId);
+
+    return res.status(200).json({
+      ok: true,
+      invoiceId,
+      jobId: result.jobId,
+    });
+  })
+);
+
 router.post(
   "/:id/pay",
   requirePermission(PERMISSIONS.INVOICES_WRITE),
@@ -153,21 +148,6 @@ router.post(
   })
 );
 
-/**
- * ✅ FINALIZE
- * POST /invoices/:id/finalize
- *
- * Objectif:
- * - Refuser si 0 lignes (évite sync “vide”)
- * - Mettre status=sent
- * - Enqueue sync Pennylane (même si déjà sent, ça sert de "resync" best-effort)
- *
- * Note:
- * - InvoicesService.updateInvoice déclenche déjà la sync lors de la transition -> sent.
- * - Ici on force aussi un enqueue best-effort (idempotent via jobId), utile si:
- *   - facture déjà "sent" mais besoin de resync,
- *   - ou si un précédent enqueue a échoué.
- */
 router.post(
   "/:id/finalize",
   requirePermission(PERMISSIONS.INVOICES_WRITE),
@@ -178,21 +158,17 @@ router.post(
 
     const invoiceId = String(req.params.id);
 
-    // S’assure que la facture appartient bien au user
     const current = await InvoicesService.getInvoice(userId, invoiceId);
 
-    // Refuse si pas de lignes
     const hasLines = await invoiceHasLines(invoiceId);
     if (!hasLines) {
       throw new HttpError(400, "Impossible de finaliser une facture sans lignes");
     }
 
-    // Mettre sent (si déjà sent, updateInvoice sera no-op, mais OK)
     const updated = await InvoicesService.updateInvoice(userId, invoiceId, {
       status: "sent",
     });
 
-    // Enqueue best-effort (idempotent jobId)
     try {
       await integrationQueue.add(
         "push_invoice",

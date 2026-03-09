@@ -5,10 +5,7 @@ import { redisOptions } from "../config/redis";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
 import { HttpError } from "../utils/httpError";
-
-// ✅ MODIF: utiliser le vrai service email Resend
 import { sendReminderEmail } from "../services/email.service";
-// ✅ MODIF: ne pas logger l'email en clair
 import { redactEmail } from "../utils/redact";
 
 const InvoiceReminderJobSchema = z.object({
@@ -40,7 +37,6 @@ function buildReminderEmail(params: {
   invoiceNumber: string;
   amount: string;
   dueDate: string;
-  paymentLink: string;
 }) {
   const subject = `Relance facture ${params.invoiceNumber}`;
 
@@ -50,8 +46,9 @@ function buildReminderEmail(params: {
     `La facture ${params.invoiceNumber} d'un montant de ${params.amount}`,
     `arrivée à échéance le ${params.dueDate} semble toujours impayée.`,
     "",
-    "Vous pouvez la régler ici :",
-    params.paymentLink,
+    "Merci de bien vouloir procéder au règlement dans les meilleurs délais.",
+    "",
+    "Si le paiement a déjà été effectué, vous pouvez ignorer ce message.",
     "",
     "Merci",
   ].join("\n");
@@ -64,9 +61,10 @@ function buildReminderEmail(params: {
       arrivée à échéance le <strong>${params.dueDate}</strong> semble toujours impayée.
     </p>
     <p>
-      Vous pouvez la régler ici :
-      <br />
-      <a href="${params.paymentLink}">${params.paymentLink}</a>
+      Merci de bien vouloir procéder au règlement dans les meilleurs délais.
+    </p>
+    <p>
+      Si le paiement a déjà été effectué, vous pouvez ignorer ce message.
     </p>
     <p>Merci</p>
   `;
@@ -141,22 +139,17 @@ export const invoiceReminderWorker = new Worker(
       `#${String((invoice as any).id).slice(0, 8)}`;
 
     const amountCents = Number((invoice as any).total_amount_cents ?? 0);
-    const dueDate = new Date(String((invoice as any).due_date)).toLocaleDateString(
-      "fr-FR"
-    );
-
-    // ⚠️ À remplacer plus tard par un vrai lien de paiement si tu branches Stripe
-    const paymentLink = "https://example.com/paiement";
+    const dueDateRaw = String((invoice as any).due_date ?? "").trim();
+    const dueDate = dueDateRaw
+      ? new Date(dueDateRaw).toLocaleDateString("fr-FR")
+      : "date inconnue";
 
     const email = buildReminderEmail({
       invoiceNumber,
       amount: formatAmountCents(amountCents),
       dueDate,
-      paymentLink,
     });
 
-    // ✅ MODIF: envoi réel via Resend (service centralisé)
-    // On passe email.text -> email.service transforme en HTML via <br>
     await sendReminderEmail(clientEmail, email.subject, email.text);
 
     const currentReminderCount = Number((invoice as any).reminder_count ?? 0);
@@ -180,7 +173,6 @@ export const invoiceReminderWorker = new Worker(
       throw new HttpError(500, "Failed to update invoice reminder state");
     }
 
-    // ✅ MODIF: ne pas logger l'email client en clair
     const toSafe = redactEmail(clientEmail);
 
     logger.info("✅ [WORKER-INVOICE-REMINDER] Reminder sent", {

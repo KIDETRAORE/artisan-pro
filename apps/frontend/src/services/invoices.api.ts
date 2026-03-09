@@ -17,10 +17,13 @@ export type Invoice = {
   total_amount?: number | null;
   created_at?: string;
 
-  // ✅ AJOUT: architecture anti-doublon
   invoice_number?: string | null;
   source_type?: InvoiceSourceType | string | null;
   source_id?: string | null;
+
+  reminder_count?: number | null;
+  last_reminder_at?: string | null;
+  paid_at?: string | null;
 };
 
 export type InvoiceLine = {
@@ -34,13 +37,11 @@ export type InvoiceLine = {
   created_at?: string;
 };
 
-// ✅ AJOUT: réponse attendue du backend pour Stripe Checkout
 export type PayInvoiceResponse = {
   checkoutUrl: string;
   sessionId?: string;
 };
 
-// ✅ AJOUT UNIQUE: réponses backend des lignes
 type ListInvoiceLinesResponse = {
   success: boolean;
   lines: InvoiceLine[];
@@ -55,9 +56,14 @@ type DeleteInvoiceLineResponse = {
   success: boolean;
 };
 
-// ✅ AJOUT UNIQUE: réponse suppression facture
 type DeleteInvoiceResponse = {
   success: boolean;
+};
+
+type SendInvoiceReminderResponse = {
+  ok: boolean;
+  invoiceId: string;
+  jobId?: string | null;
 };
 
 export type InvoiceSoftDuplicateParams = {
@@ -71,16 +77,12 @@ export type InvoiceSoftDuplicateMatch = {
   reasons: Array<"client" | "date" | "amount">;
 };
 
-// ✅ Centralise les endpoints => facile à adapter si besoin
 const API = {
   invoices: "/invoices",
   invoiceById: (id: string) => `/invoices/${encodeURIComponent(id)}`,
   finalize: (id: string) => `/invoices/${encodeURIComponent(id)}/finalize`,
-
-  // ✅ AJOUT: payer une facture (Stripe Checkout)
   pay: (id: string) => `/invoices/${encodeURIComponent(id)}/pay`,
-
-  // ✅ MODIF UNIQUE: aligné avec le backend réel
+  remind: (id: string) => `/invoices/${encodeURIComponent(id)}/remind`,
   invoiceLines: "/invoice-lines",
   invoiceLinesByInvoice: (invoiceId: string) =>
     `/invoice-lines?invoiceId=${encodeURIComponent(invoiceId)}`,
@@ -121,8 +123,6 @@ export async function createInvoiceDraft(params: {
   client_email?: string | null;
   due_date: string;
   project_id?: string | null;
-
-  // ✅ AJOUT: architecture source / anti-doublon
   invoice_number?: string | null;
   source_type?: InvoiceSourceType;
   source_id?: string | null;
@@ -138,8 +138,6 @@ export async function createInvoiceDraft(params: {
       status: "draft",
       total_amount: 0,
       total_amount_cents: 0,
-
-      // ✅ AJOUT
       invoice_number: params.invoice_number ?? null,
       source_type: params.source_type ?? "manual",
       source_id: params.source_id ?? null,
@@ -184,14 +182,20 @@ export async function finalizeInvoice(
   );
 }
 
-// ✅ AJOUT: Stripe Checkout (POST /invoices/:id/pay)
 export async function payInvoice(id: string): Promise<PayInvoiceResponse> {
   return await fetchWithAuth<PayInvoiceResponse>(API.pay(id), {
     method: "POST",
   });
 }
 
-// ✅ AJOUT UNIQUE: suppression facture
+export async function sendInvoiceReminder(
+  id: string
+): Promise<SendInvoiceReminderResponse> {
+  return await fetchWithAuth<SendInvoiceReminderResponse>(API.remind(id), {
+    method: "POST",
+  });
+}
+
 export async function deleteInvoice(
   id: string
 ): Promise<DeleteInvoiceResponse> {
@@ -200,17 +204,6 @@ export async function deleteInvoice(
   });
 }
 
-/**
- * ✅ AJOUT: détection douce de doublon côté frontend
- * Règle:
- * - même client
- * - même date
- * - même montant (si fourni)
- *
- * Important:
- * - ceci est une alerte UX
- * - l'unicité réelle doit être imposée côté backend / base
- */
 export async function findPotentialInvoiceDuplicates(
   params: InvoiceSoftDuplicateParams
 ): Promise<InvoiceSoftDuplicateMatch[]> {
@@ -247,9 +240,6 @@ export async function findPotentialInvoiceDuplicates(
     .filter((match) => match.reasons.length >= 2);
 }
 
-/**
- * ===== Lines =====
- */
 export async function listInvoiceLines(
   invoiceId: string
 ): Promise<InvoiceLine[]> {

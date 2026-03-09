@@ -119,6 +119,8 @@ export async function convertQuoteToInvoice(
     total_amount: totalAmountCents / 100,
     due_date: new Date().toISOString(),
     status: "draft",
+    source_type: "quote",
+    source_id: typedQuote.id,
   });
 
   const { data: updatedQuote, error: updateError } = await supabaseAdmin

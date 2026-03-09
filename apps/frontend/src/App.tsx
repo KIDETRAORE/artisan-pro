@@ -160,6 +160,7 @@ export default function App() {
 
           {/* ✅ MODIF: utilisation de Facture */}
           <Route path="/invoices" element={<Facture />} />
+          <Route path="/invoices/new" element={<InvoiceDetail />} />
           <Route path="/invoices/:id" element={<InvoiceDetail />} />
           <Route path="/factures" element={<Navigate to="/invoices" replace />} />
 

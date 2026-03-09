@@ -30,6 +30,82 @@ const UpdateInvoiceLineSchema = z.object({
   tax_rate: z.number().nonnegative().optional(),
 });
 
+function normalizeStatus(value: unknown): string {
+  return String(value ?? "").toLowerCase().trim();
+}
+
+async function recomputeInvoiceTotals(invoiceId: string): Promise<void> {
+  const { error } = await supabaseAdmin.rpc("recompute_invoice_totals_cents", {
+    p_invoice_id: invoiceId,
+  });
+
+  if (error) {
+    logger.error("InvoiceLinesService.recomputeInvoiceTotals failed", {
+      invoiceId,
+      message: error.message,
+    });
+    throw new HttpError(500, "Failed to recompute invoice totals");
+  }
+}
+
+async function assertInvoiceIsDraft(invoiceId: string): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from("invoices")
+    .select("id, status")
+    .eq("id", invoiceId)
+    .maybeSingle();
+
+  if (error) {
+    logger.error("InvoiceLinesService.assertInvoiceIsDraft lookup failed", {
+      invoiceId,
+      message: error.message,
+    });
+    throw new HttpError(500, "Failed to validate invoice status");
+  }
+
+  if (!data) {
+    throw new HttpError(404, "Invoice not found");
+  }
+
+  const status = normalizeStatus((data as any).status);
+  if (status !== "draft") {
+    throw new HttpError(
+      409,
+      "Invoice lines can only be edited while invoice is draft"
+    );
+  }
+}
+
+async function getLineWithInvoiceStatus(lineId: string): Promise<{
+  invoice_id: string;
+  quantity: number;
+  unit_price_cents: number;
+}> {
+  const { data, error } = await supabaseAdmin
+    .from("invoice_lines")
+    .select("invoice_id, quantity, unit_price_cents")
+    .eq("id", lineId)
+    .maybeSingle();
+
+  if (error) {
+    logger.error("InvoiceLinesService.getLineWithInvoiceStatus lookup failed", {
+      lineId,
+      message: error.message,
+    });
+    throw new HttpError(500, "Failed to update invoice line");
+  }
+
+  if (!data) {
+    throw new HttpError(404, "Invoice line not found");
+  }
+
+  return {
+    invoice_id: String((data as any).invoice_id),
+    quantity: Number((data as any).quantity ?? 0),
+    unit_price_cents: Number((data as any).unit_price_cents ?? 0),
+  };
+}
+
 export class InvoiceLinesService {
   static async createLine(
     invoiceId: string,
@@ -40,6 +116,8 @@ export class InvoiceLinesService {
     if (!parsed.success) {
       throw new HttpError(400, "Invalid invoice line payload");
     }
+
+    await assertInvoiceIsDraft(invoiceId);
 
     const payload = parsed.data;
 
@@ -66,6 +144,8 @@ export class InvoiceLinesService {
 
       throw new HttpError(500, "Failed to create invoice line");
     }
+
+    await recomputeInvoiceTotals(invoiceId);
 
     return data as InvoiceLineRow;
   }
@@ -101,31 +181,15 @@ export class InvoiceLinesService {
 
     const patch = parsed.data;
 
-    // ✅ MODIF: recalculer line_total_cents même si on modifie seulement quantity OU unit_price_cents
-    const { data: existing, error: existingErr } = await supabaseAdmin
-      .from("invoice_lines")
-      .select("quantity, unit_price_cents")
-      .eq("id", lineId)
-      .maybeSingle();
-
-    if (existingErr) {
-      logger.error("InvoiceLinesService.updateLine lookup failed", {
-        lineId,
-        message: existingErr.message,
-      });
-      throw new HttpError(500, "Failed to update invoice line");
-    }
-
-    if (!existing) {
-      throw new HttpError(404, "Invoice line not found");
-    }
+    const existing = await getLineWithInvoiceStatus(lineId);
+    await assertInvoiceIsDraft(existing.invoice_id);
 
     const nextQuantity =
-      patch.quantity !== undefined ? patch.quantity : (existing as any).quantity;
+      patch.quantity !== undefined ? patch.quantity : existing.quantity;
     const nextUnitPriceCents =
       patch.unit_price_cents !== undefined
         ? patch.unit_price_cents
-        : (existing as any).unit_price_cents;
+        : existing.unit_price_cents;
 
     const updatePayload: Record<string, unknown> = {
       ...patch,
@@ -150,10 +214,15 @@ export class InvoiceLinesService {
       throw new HttpError(500, "Failed to update invoice line");
     }
 
+    await recomputeInvoiceTotals(existing.invoice_id);
+
     return data as InvoiceLineRow;
   }
 
   static async deleteLine(lineId: string): Promise<void> {
+    const existing = await getLineWithInvoiceStatus(lineId);
+    await assertInvoiceIsDraft(existing.invoice_id);
+
     const { error } = await supabaseAdmin
       .from("invoice_lines")
       .delete()
@@ -167,5 +236,7 @@ export class InvoiceLinesService {
 
       throw new HttpError(500, "Failed to delete invoice line");
     }
+
+    await recomputeInvoiceTotals(existing.invoice_id);
   }
 }

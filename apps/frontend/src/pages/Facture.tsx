@@ -17,11 +17,10 @@ import {
   Trash2,
 } from "lucide-react";
 import {
-  createInvoiceDraft,
   deleteInvoice,
-  findPotentialInvoiceDuplicates,
   listInvoices,
   moneyCentsFromInvoice,
+  sendInvoiceReminder,
   type Invoice,
 } from "../services/invoices.api";
 import { useComptaReportStore } from "../store/comptaReport.store";
@@ -36,12 +35,11 @@ interface FactureItem {
   nbRelances: number;
   source: "compta" | "invoice";
   invoiceId?: string;
-}
-
-function isoDatePlusDays(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  referenceNormalized: string;
+  clientNormalized: string;
+  dateIso: string | null;
+  amountCents: number;
+  canSendReminder: boolean;
 }
 
 function formatMoney(value: number | undefined): string {
@@ -56,6 +54,32 @@ function formatDate(value: string | null | undefined): string {
   } catch {
     return value;
   }
+}
+
+function toIsoDate(value: string | null | undefined): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+    return raw.slice(0, 10);
+  }
+
+  const frMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (frMatch) {
+    const [, dd, mm, yyyy] = frMatch;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString().slice(0, 10);
 }
 
 function mapInvoiceStatus(
@@ -85,6 +109,14 @@ function normalizeText(value: unknown): string {
     .trim();
 }
 
+function normalizeReference(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 function parseNumericValue(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -111,19 +143,23 @@ function findColumnIndex(headers: string[], candidates: string[]): number {
   );
 }
 
-function inferComptaStatus(value: unknown): FactureItem["statut"] {
+function inferComptaStatus(
+  value: unknown
+): Exclude<FactureItem["statut"], "ATTENTE"> | null {
   const normalized = normalizeText(value);
+
+  if (!normalized) {
+    return null;
+  }
 
   if (
     normalized.includes("pay") ||
     normalized.includes("paye") ||
-    normalized.includes("paye e") ||
     normalized.includes("regl") ||
     normalized.includes("regle") ||
     normalized.includes("reglee") ||
     normalized.includes("encaiss") ||
     normalized.includes("solde") ||
-    normalized.includes("soldé") ||
     normalized.includes("sold")
   ) {
     return "PAYÉ";
@@ -140,7 +176,7 @@ function inferComptaStatus(value: unknown): FactureItem["statut"] {
     return "RETARD";
   }
 
-  return "ATTENTE";
+  return null;
 }
 
 function isDateLike(value: unknown): boolean {
@@ -161,11 +197,11 @@ function isReferenceLike(value: unknown): boolean {
   return /^(fac|inv|facture|invoice|piece|doc)[-_/#\s]?\w+/i.test(raw);
 }
 
-function isPastDue(value: string): boolean {
-  const raw = String(value ?? "").trim();
-  if (!raw) return false;
+function isPastDue(value: string | null | undefined): boolean {
+  const iso = toIsoDate(value);
+  if (!iso) return false;
 
-  const parsed = new Date(raw);
+  const parsed = new Date(iso);
   if (Number.isNaN(parsed.getTime())) return false;
 
   const now = new Date();
@@ -228,13 +264,15 @@ function pickBestReference(
   return fallback;
 }
 
-function findStatusInRow(row: unknown[]): FactureItem["statut"] | null {
+function findStatusInRow(
+  row: unknown[]
+): Exclude<FactureItem["statut"], "ATTENTE"> | null {
   for (const cell of row) {
     const raw = String(cell ?? "").trim();
     if (!raw) continue;
 
     const status = inferComptaStatus(raw);
-    if (status !== "ATTENTE") {
+    if (status) {
       return status;
     }
   }
@@ -290,13 +328,13 @@ function hasPaymentEvidence(row: unknown[]): boolean {
 function resolveComptaStatus(params: {
   report: ComptaReport;
   row: unknown[];
-  directStatus: FactureItem["statut"] | null;
+  directStatus: Exclude<FactureItem["statut"], "ATTENTE"> | null;
   client: string;
   id: string;
-  date: string;
+  dateIso: string | null;
   amount: number;
 }): FactureItem["statut"] {
-  const { report, row, directStatus, client, id, date, amount } = params;
+  const { report, row, directStatus, client, id, dateIso, amount } = params;
 
   if (directStatus) {
     return directStatus;
@@ -315,7 +353,7 @@ function resolveComptaStatus(params: {
     return "PAYÉ";
   }
 
-  if (date && isPastDue(date) && amount > 0) {
+  if (dateIso && isPastDue(dateIso) && amount > 0) {
     return "RETARD";
   }
 
@@ -399,11 +437,12 @@ function buildComptaFactures(report: ComptaReport | null): FactureItem[] {
       statusIndex >= 0 ? inferComptaStatus(row?.[statusIndex]) : null;
 
     const client = directClient || pickBestClient(row);
-    const date = directDate || pickBestDate(row);
+    const dateRaw = directDate || pickBestDate(row);
+    const dateIso = toIsoDate(dateRaw);
     const amount = directAmount !== 0 ? directAmount : pickBestAmount(row);
     const id = pickBestReference(row, fallbackId, idIndex);
 
-    if (!client && !date && amount === 0) return;
+    if (!client && !dateIso && amount === 0) return;
 
     const statut = resolveComptaStatus({
       report,
@@ -411,22 +450,76 @@ function buildComptaFactures(report: ComptaReport | null): FactureItem[] {
       directStatus,
       client,
       id,
-      date,
+      dateIso,
       amount,
     });
+
+    const amountCents = Math.round(amount * 100);
 
     items.push({
       id,
       client: client || `Ligne ${index + 1}`,
-      echeance: date ? formatDate(date) : formatDate(report.meta.generatedAt),
+      echeance: dateIso ? formatDate(dateIso) : "—",
       montant: formatMoney(amount),
       statut,
-      nbRelances: statut === "RETARD" ? 1 : 0,
+      nbRelances: 0,
       source: "compta",
+      referenceNormalized: normalizeReference(id),
+      clientNormalized: normalizeText(client || `Ligne ${index + 1}`),
+      dateIso,
+      amountCents,
+      canSendReminder: false,
     });
   });
 
   return items;
+}
+
+function dedupeFactures(params: {
+  comptaFactures: FactureItem[];
+  realFactures: FactureItem[];
+}): FactureItem[] {
+  const { comptaFactures, realFactures } = params;
+
+  const referenceSet = new Set(
+    realFactures
+      .map((item) => item.referenceNormalized)
+      .filter((value) => value.length > 0)
+  );
+
+  const signatureSet = new Set(
+    realFactures
+      .filter(
+        (item) =>
+          item.clientNormalized.length > 0 &&
+          item.dateIso &&
+          item.amountCents > 0
+      )
+      .map(
+        (item) => `${item.clientNormalized}__${item.dateIso}__${item.amountCents}`
+      )
+  );
+
+  const filteredCompta = comptaFactures.filter((item) => {
+    if (item.referenceNormalized && referenceSet.has(item.referenceNormalized)) {
+      return false;
+    }
+
+    if (
+      item.clientNormalized &&
+      item.dateIso &&
+      item.amountCents > 0 &&
+      signatureSet.has(
+        `${item.clientNormalized}__${item.dateIso}__${item.amountCents}`
+      )
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return [...realFactures, ...filteredCompta];
 }
 
 export default function Facture() {
@@ -435,6 +528,9 @@ export default function Facture() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [remindingInvoiceId, setRemindingInvoiceId] = useState<string | null>(
+    null
+  );
   const [realInvoices, setRealInvoices] = useState<Invoice[]>([]);
   const [hiddenComptaIds, setHiddenComptaIds] = useState<string[]>([]);
   const fetchOnceRef = useRef(false);
@@ -462,27 +558,45 @@ export default function Facture() {
   }, [report, hiddenComptaIds]);
 
   const realFactures = useMemo<FactureItem[]>(() => {
-    return realInvoices.map((invoice) => ({
-      id: String(invoice.invoice_number ?? invoice.id ?? ""),
-      client: invoice.client_name || "Client",
-      echeance: formatDate(invoice.due_date),
-      montant: formatMoney(moneyCentsFromInvoice(invoice) / 100),
-      statut: mapInvoiceStatus(invoice.status),
-      nbRelances: 0,
-      source: "invoice",
-      invoiceId: invoice.id,
-    }));
+    return realInvoices.map((invoice) => {
+      const dueDateIso = toIsoDate(invoice.due_date);
+      const amountCents = moneyCentsFromInvoice(invoice);
+
+      return {
+        id: String(invoice.invoice_number ?? invoice.id ?? ""),
+        client: invoice.client_name || "Client",
+        echeance: formatDate(invoice.due_date),
+        montant: formatMoney(amountCents / 100),
+        statut: mapInvoiceStatus(invoice.status),
+        nbRelances: Number(invoice.reminder_count ?? 0),
+        source: "invoice",
+        invoiceId: invoice.id,
+        referenceNormalized: normalizeReference(
+          invoice.invoice_number ?? invoice.id ?? ""
+        ),
+        clientNormalized: normalizeText(invoice.client_name || "Client"),
+        dateIso: dueDateIso,
+        amountCents,
+        canSendReminder:
+          mapInvoiceStatus(invoice.status) === "RETARD" && Boolean(invoice.id),
+      };
+    });
   }, [realInvoices]);
 
   const mergedFactures = useMemo(() => {
-    return [...comptaFactures, ...realFactures];
+    return dedupeFactures({
+      comptaFactures,
+      realFactures,
+    });
   }, [comptaFactures, realFactures]);
 
   const filteredFactures = useMemo(() => {
+    const needle = searchTerm.toLowerCase();
+
     return mergedFactures.filter(
       (item) =>
-        item.client.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.id.toLowerCase().includes(searchTerm.toLowerCase())
+        item.client.toLowerCase().includes(needle) ||
+        item.id.toLowerCase().includes(needle)
     );
   }, [mergedFactures, searchTerm]);
 
@@ -545,48 +659,12 @@ export default function Facture() {
     return "5 390€";
   }, [report]);
 
-  const onCreate = async () => {
-    setLoading(true);
+  const onCreate = () => {
+    navigate("/invoices/new");
+  };
 
-    try {
-      const dueDate = isoDatePlusDays(14);
-
-      const duplicates = await findPotentialInvoiceDuplicates({
-        client_name: "Nouveau client",
-        due_date: dueDate,
-        total_amount_cents: 0,
-      });
-
-      if (duplicates.length > 0) {
-        const firstDuplicate = duplicates[0]?.invoice;
-        const shouldContinue = window.confirm(
-          `Une facture similaire existe déjà${
-            firstDuplicate?.invoice_number
-              ? ` (${firstDuplicate.invoice_number})`
-              : ""
-          }. Voulez-vous quand même créer une nouvelle facture ?`
-        );
-
-        if (!shouldContinue) {
-          setLoading(false);
-          return;
-        }
-      }
-
-      const inv = await createInvoiceDraft({
-        client_name: "Nouveau client",
-        client_email: null,
-        due_date: dueDate,
-        source_type: "manual",
-        source_id: null,
-      });
-
-      navigate(`/invoices/${inv.id}`);
-    } catch {
-      // best-effort
-    } finally {
-      setLoading(false);
-    }
+  const onOpenInvoice = (invoiceId: string) => {
+    navigate(`/invoices/${invoiceId}`);
   };
 
   const onDeleteInvoice = async (invoiceId: string) => {
@@ -620,6 +698,22 @@ export default function Facture() {
     setHiddenComptaIds((prev) =>
       prev.includes(comptaId) ? prev : [...prev, comptaId]
     );
+  };
+
+  const onSendReminder = async (invoiceId: string) => {
+    if (!invoiceId) return;
+
+    setRemindingInvoiceId(invoiceId);
+
+    try {
+      await sendInvoiceReminder(invoiceId);
+      const refreshed = await listInvoices();
+      setRealInvoices(Array.isArray(refreshed) ? refreshed : []);
+    } catch {
+      // best-effort
+    } finally {
+      setRemindingInvoiceId(null);
+    }
   };
 
   return (
@@ -774,11 +868,22 @@ export default function Facture() {
             <tbody className="divide-y divide-slate-50">
               {filteredFactures.map((fac) => {
                 const invoiceId = fac.invoiceId;
+                const isReminding = remindingInvoiceId === invoiceId;
+                const canOpenInvoice = fac.source === "invoice" && Boolean(invoiceId);
 
                 return (
                   <tr
-                    key={fac.id}
-                    className="hover:bg-[var(--theme-bg)]/40 transition-colors group"
+                    key={`${fac.source}-${fac.id}`}
+                    className={`transition-colors group ${
+                      canOpenInvoice
+                        ? "hover:bg-[var(--theme-bg)]/40 cursor-pointer"
+                        : "hover:bg-[var(--theme-bg)]/40"
+                    }`}
+                    onClick={
+                      canOpenInvoice && invoiceId
+                        ? () => onOpenInvoice(invoiceId)
+                        : undefined
+                    }
                   >
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
@@ -804,14 +909,25 @@ export default function Facture() {
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex items-center justify-end gap-2">
-                        {fac.statut === "RETARD" && (
-                          <button className="flex items-center gap-2 bg-[var(--theme-primary)] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-tighter hover:bg-blue-600 transition-all shadow-sm">
-                            <Send size={12} /> Relance IA
+                        {fac.canSendReminder && invoiceId ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void onSendReminder(invoiceId);
+                            }}
+                            disabled={isReminding}
+                            className="flex items-center gap-2 bg-[var(--theme-primary)] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-tighter hover:bg-blue-600 transition-all shadow-sm disabled:opacity-60"
+                          >
+                            <Send size={12} />{" "}
+                            {isReminding ? "Relance..." : "Relance IA"}
                           </button>
-                        )}
+                        ) : null}
                         {fac.source === "invoice" && invoiceId ? (
                           <button
-                            onClick={() => void onDeleteInvoice(invoiceId)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void onDeleteInvoice(invoiceId);
+                            }}
                             className="p-2 text-red-500 hover:text-red-600 rounded-lg transition-all"
                           >
                             <Trash2 size={18} />
@@ -819,7 +935,10 @@ export default function Facture() {
                         ) : null}
                         {fac.source === "compta" ? (
                           <button
-                            onClick={() => onDeleteComptaInvoice(fac.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteComptaInvoice(fac.id);
+                            }}
                             className="p-2 text-red-500 hover:text-red-600 rounded-lg transition-all"
                           >
                             <Trash2 size={18} />

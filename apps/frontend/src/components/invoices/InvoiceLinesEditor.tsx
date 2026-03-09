@@ -6,7 +6,7 @@ import {
   deleteInvoiceLine,
   patchInvoiceLine,
   type InvoiceLine,
-} from "../../services/invoices.api"; // ✅ MODIF: chemin corrigé
+} from "../../services/invoices.api";
 
 type Props = {
   loading: boolean;
@@ -14,6 +14,7 @@ type Props = {
   lines: InvoiceLine[];
   onChangeLines: (lines: InvoiceLine[]) => void;
   onReload: () => Promise<void> | void;
+  readOnly?: boolean;
 };
 
 function formatEurFromCents(cents: number): string {
@@ -31,6 +32,7 @@ export default function InvoiceLinesEditor({
   lines,
   onChangeLines,
   onReload,
+  readOnly = false,
 }: Props) {
   const [draftDesc, setDraftDesc] = useState("");
   const [draftQty, setDraftQty] = useState<number>(1);
@@ -55,6 +57,8 @@ export default function InvoiceLinesEditor({
   }, [draftUnitEur]);
 
   const add = async () => {
+    if (readOnly) return;
+
     const desc = draftDesc.trim();
     if (!desc) return;
 
@@ -78,6 +82,8 @@ export default function InvoiceLinesEditor({
   };
 
   const remove = async (id: string) => {
+    if (readOnly) return;
+
     try {
       await deleteInvoiceLine(id);
       onChangeLines(lines.filter((l) => l.id !== id));
@@ -86,10 +92,16 @@ export default function InvoiceLinesEditor({
     }
   };
 
-  const startEdit = (id: string) => setEditingId(id);
+  const startEdit = (id: string) => {
+    if (readOnly) return;
+    setEditingId(id);
+  };
+
   const stopEdit = () => setEditingId(null);
 
   const saveEdit = async (line: InvoiceLine, patch: Partial<InvoiceLine>) => {
+    if (readOnly) return;
+
     try {
       const updated = await patchInvoiceLine(line.id, {
         description: patch.description ?? line.description,
@@ -109,9 +121,13 @@ export default function InvoiceLinesEditor({
     <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
       <div className="p-6 border-b border-[var(--theme-border)] flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-bold text-[var(--theme-text)]">Lignes de facture</h3>
+          <h3 className="text-lg font-bold text-[var(--theme-text)]">
+            Lignes de facture
+          </h3>
           <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
-            Ajoute au moins 1 ligne avant de finaliser.
+            {readOnly
+              ? "Les lignes sont verrouillées pour cette facture."
+              : "Ajoute au moins 1 ligne avant de finaliser."}
           </p>
         </div>
 
@@ -125,7 +141,6 @@ export default function InvoiceLinesEditor({
       </div>
 
       <div className="p-6 space-y-4">
-        {/* Ajout ligne */}
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div className="md:col-span-2">
             <Label>Description</Label>
@@ -133,7 +148,8 @@ export default function InvoiceLinesEditor({
               value={draftDesc}
               onChange={(e) => setDraftDesc(e.target.value)}
               placeholder="Ex: Main d’œuvre"
-              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
+              disabled={readOnly || loading}
+              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)] disabled:opacity-60"
             />
           </div>
 
@@ -145,7 +161,8 @@ export default function InvoiceLinesEditor({
               step={1}
               value={draftQty}
               onChange={(e) => setDraftQty(Number(e.target.value))}
-              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
+              disabled={readOnly || loading}
+              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)] disabled:opacity-60"
             />
           </div>
 
@@ -154,7 +171,8 @@ export default function InvoiceLinesEditor({
             <input
               value={draftUnitEur}
               onChange={(e) => setDraftUnitEur(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
+              disabled={readOnly || loading}
+              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)] disabled:opacity-60"
             />
           </div>
 
@@ -166,14 +184,15 @@ export default function InvoiceLinesEditor({
               step={0.1}
               value={draftTax}
               onChange={(e) => setDraftTax(Number(e.target.value))}
-              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)]"
+              disabled={readOnly || loading}
+              className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)] disabled:opacity-60"
             />
           </div>
 
           <div className="flex items-end">
             <button
               onClick={add}
-              disabled={loading || !draftDesc.trim()}
+              disabled={readOnly || loading || !draftDesc.trim() || !invoiceId}
               className="w-full inline-flex items-center justify-center gap-2 bg-[var(--theme-primary)] text-white px-4 py-3 rounded-2xl font-bold text-sm hover:bg-blue-600 transition-colors disabled:opacity-60"
             >
               <Plus size={16} /> Ajouter
@@ -181,7 +200,6 @@ export default function InvoiceLinesEditor({
           </div>
         </div>
 
-        {/* Table */}
         <div className="overflow-x-auto">
           <table className="min-w-full text-left">
             <thead className="bg-[var(--theme-bg)]/60">
@@ -201,16 +219,20 @@ export default function InvoiceLinesEditor({
                   <LineRow
                     key={l.id}
                     line={l}
-                    isEditing={editingId === l.id}
+                    isEditing={!readOnly && editingId === l.id}
+                    readOnly={readOnly}
                     onStartEdit={() => startEdit(l.id)}
                     onCancel={stopEdit}
-                    onSave={(patch: Partial<InvoiceLine>) => saveEdit(l, patch)} // ✅ MODIF: typage patch
+                    onSave={(patch: Partial<InvoiceLine>) => saveEdit(l, patch)}
                     onDelete={() => remove(l.id)}
                   />
                 ))
               ) : (
                 <tr>
-                  <td className="px-3 py-6 text-sm text-[var(--theme-muted)]" colSpan={6}>
+                  <td
+                    className="px-3 py-6 text-sm text-[var(--theme-muted)]"
+                    colSpan={6}
+                  >
                     Aucune ligne.
                   </td>
                 </tr>
@@ -250,10 +272,10 @@ function Label({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ✅ MODIF: typage des props (évite patch:any implicite)
 type LineRowProps = {
   line: InvoiceLine;
   isEditing: boolean;
+  readOnly: boolean;
   onStartEdit: () => void;
   onCancel: () => void;
   onSave: (patch: Partial<InvoiceLine>) => void;
@@ -263,6 +285,7 @@ type LineRowProps = {
 function LineRow({
   line,
   isEditing,
+  readOnly,
   onStartEdit,
   onCancel,
   onSave,
@@ -278,7 +301,13 @@ function LineRow({
     setQty(line.quantity);
     setUnit(line.unit_price_cents);
     setTax(line.tax_rate);
-  }, [line.id]);
+  }, [
+    line.id,
+    line.description,
+    line.quantity,
+    line.unit_price_cents,
+    line.tax_rate,
+  ]);
 
   const totalHT = Math.round(qty * unit);
 
@@ -368,6 +397,10 @@ function LineRow({
               Annuler
             </button>
           </div>
+        ) : readOnly ? (
+          <span className="text-xs font-bold text-[var(--theme-muted)]">
+            Verrouillé
+          </span>
         ) : (
           <div className="inline-flex items-center gap-2">
             <button

@@ -5,9 +5,8 @@ import { ENV } from "../config/env";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
-
-// ✅ Gardé: la queue sert maintenant au bon moment (finalisation)
 import { integrationQueue } from "../queues/integration.queue";
+import { reminderQueue } from "../queues/reminder.queue";
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "canceled";
 export type InvoiceSourceType = "manual" | "quote" | "compta_import";
@@ -23,26 +22,14 @@ export type InvoiceRow = {
   last_reminder_at: string | null;
   reminder_count: number;
   created_at: string;
-
-  // ✅ AJOUT: liaison facture ↔ chantier
   project_id: string | null;
-
-  // ✅ AJOUT: numérotation facture
   invoice_number?: string | null;
-
-  // ✅ AJOUT: source anti-doublon
   source_type?: InvoiceSourceType | string | null;
   source_id?: string | null;
-
-  // ✅ AJOUT: totaux en cents (si présents en DB)
   total_amount_cents?: number | null;
   subtotal_cents?: number | null;
   tax_amount_cents?: number | null;
-
-  // ✅ AJOUT: issue_date (si présent en DB)
   issue_date?: string | null;
-
-  // (éventuels champs ajoutés par migration paiement)
   stripe_checkout_id?: string | null;
   paid_at?: string | null;
 };
@@ -52,17 +39,13 @@ const CreateInvoiceSchema = z.object({
   client_email: z.string().email().optional().nullable(),
   total_amount: z.number().finite().nonnegative(),
   due_date: z.string().min(1),
-
   project_id: z.string().uuid().optional().nullable(),
-
-  // ✅ AJOUT: architecture source / anti-doublon
   invoice_number: z.string().min(1).optional().nullable(),
   source_type: z
     .enum(["manual", "quote", "compta_import"])
     .optional()
     .default("manual"),
   source_id: z.string().optional().nullable(),
-
   status: z
     .enum(["draft", "sent", "paid", "overdue", "canceled"])
     .optional()
@@ -75,18 +58,16 @@ const UpdateInvoiceSchema = z.object({
   total_amount: z.number().finite().nonnegative().optional(),
   due_date: z.string().min(1).optional(),
   project_id: z.string().uuid().optional().nullable(),
-
-  // ✅ AJOUT: architecture source / anti-doublon
   invoice_number: z.string().min(1).optional().nullable(),
-  source_type: z.enum(["manual", "quote", "compta_import"]).optional().nullable(),
+  source_type: z
+    .enum(["manual", "quote", "compta_import"])
+    .optional()
+    .nullable(),
   source_id: z.string().optional().nullable(),
-
   status: z.enum(["draft", "sent", "paid", "overdue", "canceled"]).optional(),
 });
 
-const stripe = new Stripe(ENV.STRIPE_SECRET_KEY, {
-  // apiVersion: "2024-06-20",
-});
+const stripe = new Stripe(ENV.STRIPE_SECRET_KEY, {});
 
 function normalizeStatus(s: unknown): string {
   return String(s ?? "").toLowerCase().trim();
@@ -102,6 +83,28 @@ function toCentsFallback(invoice: InvoiceRow): number {
     return Math.round(eur * 100);
 
   return 0;
+}
+
+function assertInvoiceUpdateAllowed(
+  beforeStatus: string,
+  patch: Record<string, unknown>
+): void {
+  if (beforeStatus === "paid" || beforeStatus === "canceled") {
+    throw new HttpError(409, "Invoice is read-only in its current state");
+  }
+
+  if (beforeStatus === "sent" || beforeStatus === "overdue") {
+    const allowedFields = new Set(["client_email", "due_date", "project_id"]);
+    const patchKeys = Object.keys(patch);
+
+    const hasForbiddenField = patchKeys.some((key) => !allowedFields.has(key));
+    if (hasForbiddenField) {
+      throw new HttpError(
+        409,
+        "Only client_email, due_date and project_id can be edited once invoice is sent"
+      );
+    }
+  }
 }
 
 async function invoiceHasLines(invoiceId: string): Promise<boolean> {
@@ -123,7 +126,6 @@ async function invoiceHasLines(invoiceId: string): Promise<boolean> {
   return !!data;
 }
 
-// ✅ MODIF UNIQUE : ajout dedupe + retry + backoff BullMQ
 async function enqueuePennylanePush(params: {
   userId: string;
   invoiceId: string;
@@ -174,8 +176,6 @@ export class InvoicesService {
         due_date: payload.due_date,
         project_id: payload.project_id ?? null,
         status: payload.status,
-
-        // ✅ AJOUT: architecture source / anti-doublon
         invoice_number: payload.invoice_number ?? null,
         source_type: payload.source_type ?? "manual",
         source_id: payload.source_id ?? null,
@@ -251,6 +251,8 @@ export class InvoicesService {
     const before = await InvoicesService.getInvoice(userId, invoiceId);
     const beforeStatus = normalizeStatus(before.status);
 
+    assertInvoiceUpdateAllowed(beforeStatus, patch);
+
     const { data, error } = await supabaseAdmin
       .from("invoices")
       .update(patch)
@@ -292,7 +294,12 @@ export class InvoicesService {
   }
 
   static async deleteInvoice(userId: string, invoiceId: string): Promise<void> {
-    await InvoicesService.getInvoice(userId, invoiceId);
+    const invoice = await InvoicesService.getInvoice(userId, invoiceId);
+    const status = normalizeStatus(invoice.status);
+
+    if (status !== "draft") {
+      throw new HttpError(409, "Only draft invoices can be deleted");
+    }
 
     const { error } = await supabaseAdmin
       .from("invoices")
@@ -390,12 +397,59 @@ export class InvoicesService {
     return data as InvoiceRow;
   }
 
-  /**
-   * ✅ AJOUT: createPaymentSession
-   * - Crée une Stripe Checkout Session (mode payment)
-   * - Stocke stripe_checkout_id sur invoices
-   * - Renvoie { id, url }
-   */
+  static async enqueueReminder(
+    userId: string,
+    invoiceId: string
+  ): Promise<{ jobId: string }> {
+    const invoice = await InvoicesService.getInvoice(userId, invoiceId);
+
+    const status = normalizeStatus(invoice.status);
+    if (status !== "sent" && status !== "overdue") {
+      throw new HttpError(409, "Invoice cannot be reminded in its current state");
+    }
+
+    const clientEmail = String(invoice.client_email ?? "").trim();
+    if (!clientEmail) {
+      throw new HttpError(400, "Client email required for reminder");
+    }
+
+    const amountCents = toCentsFallback(invoice);
+    if (amountCents <= 0) {
+      throw new HttpError(400, "Invoice amount must be > 0");
+    }
+
+    const jobId = `invoice_reminder:manual:${invoice.id}`;
+
+    try {
+      await reminderQueue.add(
+        "invoice_reminder",
+        {
+          invoiceId: invoice.id,
+          userId,
+        },
+        {
+          jobId,
+        }
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const duplicateJob =
+        message.toLowerCase().includes("job") &&
+        message.toLowerCase().includes("exists");
+
+      if (!duplicateJob) {
+        logger.error("InvoicesService.enqueueReminder failed", {
+          userId,
+          invoiceId,
+          message,
+        });
+        throw new HttpError(500, "Failed to enqueue invoice reminder");
+      }
+    }
+
+    return { jobId };
+  }
+
   static async createPaymentSession(
     userId: string,
     invoiceId: string
