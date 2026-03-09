@@ -3,6 +3,8 @@ import { fetchWithAuth } from "../auth/fetchWithAuth";
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "canceled";
 
+export type InvoiceSourceType = "manual" | "quote" | "compta_import";
+
 export type Invoice = {
   id: string;
   user_id?: string;
@@ -14,6 +16,11 @@ export type Invoice = {
   total_amount_cents?: number | null;
   total_amount?: number | null;
   created_at?: string;
+
+  // ✅ AJOUT: architecture anti-doublon
+  invoice_number?: string | null;
+  source_type?: InvoiceSourceType | string | null;
+  source_id?: string | null;
 };
 
 export type InvoiceLine = {
@@ -53,6 +60,17 @@ type DeleteInvoiceResponse = {
   success: boolean;
 };
 
+export type InvoiceSoftDuplicateParams = {
+  client_name: string;
+  due_date: string;
+  total_amount_cents?: number | null;
+};
+
+export type InvoiceSoftDuplicateMatch = {
+  invoice: Invoice;
+  reasons: Array<"client" | "date" | "amount">;
+};
+
 // ✅ Centralise les endpoints => facile à adapter si besoin
 const API = {
   invoices: "/invoices",
@@ -69,9 +87,21 @@ const API = {
   invoiceLineById: (id: string) => `/invoice-lines/${encodeURIComponent(id)}`,
 };
 
+function normalizeText(value: string | null | undefined): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeIsoDate(value: string | null | undefined): string {
+  return String(value ?? "").slice(0, 10);
+}
+
 export function moneyCentsFromInvoice(inv: Invoice): number {
   if (typeof inv.total_amount_cents === "number") return inv.total_amount_cents;
-  if (typeof inv.total_amount === "number") return Math.round(inv.total_amount * 100);
+  if (typeof inv.total_amount === "number")
+    return Math.round(inv.total_amount * 100);
   return 0;
 }
 
@@ -91,6 +121,11 @@ export async function createInvoiceDraft(params: {
   client_email?: string | null;
   due_date: string;
   project_id?: string | null;
+
+  // ✅ AJOUT: architecture source / anti-doublon
+  invoice_number?: string | null;
+  source_type?: InvoiceSourceType;
+  source_id?: string | null;
 }): Promise<Invoice> {
   return await fetchWithAuth<Invoice>(API.invoices, {
     method: "POST",
@@ -103,6 +138,11 @@ export async function createInvoiceDraft(params: {
       status: "draft",
       total_amount: 0,
       total_amount_cents: 0,
+
+      // ✅ AJOUT
+      invoice_number: params.invoice_number ?? null,
+      source_type: params.source_type ?? "manual",
+      source_id: params.source_id ?? null,
     }),
   });
 }
@@ -110,7 +150,17 @@ export async function createInvoiceDraft(params: {
 export async function patchInvoice(
   id: string,
   patch: Partial<
-    Pick<Invoice, "client_name" | "client_email" | "due_date" | "status" | "project_id">
+    Pick<
+      Invoice,
+      | "client_name"
+      | "client_email"
+      | "due_date"
+      | "status"
+      | "project_id"
+      | "invoice_number"
+      | "source_type"
+      | "source_id"
+    >
   > & {
     total_amount?: number;
     total_amount_cents?: number;
@@ -126,9 +176,12 @@ export async function patchInvoice(
 export async function finalizeInvoice(
   id: string
 ): Promise<{ ok: boolean; invoice: Invoice }> {
-  return await fetchWithAuth<{ ok: boolean; invoice: Invoice }>(API.finalize(id), {
-    method: "POST",
-  });
+  return await fetchWithAuth<{ ok: boolean; invoice: Invoice }>(
+    API.finalize(id),
+    {
+      method: "POST",
+    }
+  );
 }
 
 // ✅ AJOUT: Stripe Checkout (POST /invoices/:id/pay)
@@ -139,16 +192,67 @@ export async function payInvoice(id: string): Promise<PayInvoiceResponse> {
 }
 
 // ✅ AJOUT UNIQUE: suppression facture
-export async function deleteInvoice(id: string): Promise<DeleteInvoiceResponse> {
+export async function deleteInvoice(
+  id: string
+): Promise<DeleteInvoiceResponse> {
   return await fetchWithAuth<DeleteInvoiceResponse>(API.invoiceById(id), {
     method: "DELETE",
   });
 }
 
 /**
+ * ✅ AJOUT: détection douce de doublon côté frontend
+ * Règle:
+ * - même client
+ * - même date
+ * - même montant (si fourni)
+ *
+ * Important:
+ * - ceci est une alerte UX
+ * - l'unicité réelle doit être imposée côté backend / base
+ */
+export async function findPotentialInvoiceDuplicates(
+  params: InvoiceSoftDuplicateParams
+): Promise<InvoiceSoftDuplicateMatch[]> {
+  const invoices = await listInvoices();
+
+  const client = normalizeText(params.client_name);
+  const dueDate = normalizeIsoDate(params.due_date);
+  const amount = Number(params.total_amount_cents ?? 0);
+
+  return invoices
+    .map((invoice) => {
+      const reasons: Array<"client" | "date" | "amount"> = [];
+
+      if (normalizeText(invoice.client_name) === client) {
+        reasons.push("client");
+      }
+
+      if (normalizeIsoDate(invoice.due_date) === dueDate) {
+        reasons.push("date");
+      }
+
+      if (
+        typeof params.total_amount_cents === "number" &&
+        moneyCentsFromInvoice(invoice) === amount
+      ) {
+        reasons.push("amount");
+      }
+
+      return {
+        invoice,
+        reasons,
+      };
+    })
+    .filter((match) => match.reasons.length >= 2);
+}
+
+/**
  * ===== Lines =====
  */
-export async function listInvoiceLines(invoiceId: string): Promise<InvoiceLine[]> {
+export async function listInvoiceLines(
+  invoiceId: string
+): Promise<InvoiceLine[]> {
   const data = await fetchWithAuth<ListInvoiceLinesResponse>(
     API.invoiceLinesByInvoice(invoiceId),
     {
@@ -166,7 +270,9 @@ export async function createInvoiceLine(input: {
   tax_rate: number;
 }): Promise<InvoiceLine> {
   const qty = Number.isFinite(input.quantity) ? input.quantity : 1;
-  const unit = Number.isFinite(input.unit_price_cents) ? input.unit_price_cents : 0;
+  const unit = Number.isFinite(input.unit_price_cents)
+    ? input.unit_price_cents
+    : 0;
   const lineTotal = Math.round(qty * unit);
 
   const data = await fetchWithAuth<CreateInvoiceLineResponse>(API.invoiceLines, {
@@ -187,13 +293,20 @@ export async function createInvoiceLine(input: {
 
 export async function patchInvoiceLine(
   id: string,
-  patch: Partial<Pick<InvoiceLine, "description" | "quantity" | "unit_price_cents" | "tax_rate">>
+  patch: Partial<
+    Pick<InvoiceLine, "description" | "quantity" | "unit_price_cents" | "tax_rate">
+  >
 ): Promise<InvoiceLine> {
   const qty = typeof patch.quantity === "number" ? patch.quantity : undefined;
-  const unit = typeof patch.unit_price_cents === "number" ? patch.unit_price_cents : undefined;
+  const unit =
+    typeof patch.unit_price_cents === "number"
+      ? patch.unit_price_cents
+      : undefined;
 
   const line_total_cents =
-    typeof qty === "number" && typeof unit === "number" ? Math.round(qty * unit) : undefined;
+    typeof qty === "number" && typeof unit === "number"
+      ? Math.round(qty * unit)
+      : undefined;
 
   return await fetchWithAuth<InvoiceLine>(API.invoiceLineById(id), {
     method: "PATCH",
@@ -205,7 +318,9 @@ export async function patchInvoiceLine(
   });
 }
 
-export async function deleteInvoiceLine(id: string): Promise<DeleteInvoiceLineResponse> {
+export async function deleteInvoiceLine(
+  id: string
+): Promise<DeleteInvoiceLineResponse> {
   return await fetchWithAuth<DeleteInvoiceLineResponse>(API.invoiceLineById(id), {
     method: "DELETE",
   });

@@ -1,5 +1,5 @@
 // apps/frontend/src/pages/Devis.tsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import {
   Mic,
@@ -9,6 +9,10 @@ import {
   Square,
   Trash2,
   FileText,
+  Sparkles,
+  Receipt,
+  CircleDollarSign,
+  ListChecks,
 } from "lucide-react";
 import { useAuth } from "../store/auth.store";
 import { ApiRequestError, toApiRequestError } from "../utils/apiRequestError";
@@ -83,6 +87,30 @@ function parseAmountToCents(value: number | string | undefined): number {
   }
 
   return 0;
+}
+
+function formatAmount(value: number | string | undefined): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value.toLocaleString("fr-FR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.replace(",", ".").replace(/[^\d.-]/g, "");
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) {
+      return parsed.toLocaleString("fr-FR", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      });
+    }
+
+    return value;
+  }
+
+  return "0";
 }
 
 export default function Devis() {
@@ -285,8 +313,66 @@ export default function Devis() {
     }
   };
 
+  const analysisSummary = useMemo(() => {
+    if (!analysisResult) return null;
+
+    const itemCount = analysisResult.items?.length ?? 0;
+    const client = analysisResult.clientName || "client non identifié";
+    const totalTTC = formatAmount(analysisResult.totalTTC);
+
+    return `Le devis analysé concerne ${client}, pour un total TTC de ${totalTTC} € et ${itemCount} prestation${
+      itemCount > 1 ? "s" : ""
+    } détectée${itemCount > 1 ? "s" : ""}.`;
+  }, [analysisResult]);
+
+  const attentionPoints = useMemo(() => {
+    if (!analysisResult) return [];
+
+    const points: string[] = [];
+    const itemCount = analysisResult.items?.length ?? 0;
+    const totalHTCents = parseAmountToCents(analysisResult.totalHT);
+    const totalTTCCents = parseAmountToCents(analysisResult.totalTTC);
+
+    if (!analysisResult.clientName) {
+      points.push("Le client n’a pas été identifié automatiquement.");
+    }
+
+    if (itemCount === 0) {
+      points.push("Aucune prestation détaillée n’a été extraite du document.");
+    }
+
+    if (totalHTCents <= 0 || totalTTCCents <= 0) {
+      points.push("Les montants du devis doivent être vérifiés avant enregistrement.");
+    }
+
+    if (totalTTCCents > 0 && totalHTCents > totalTTCCents) {
+      points.push("Le total HT semble supérieur au total TTC : contrôle conseillé.");
+    }
+
+    return points;
+  }, [analysisResult]);
+
+  const recommendedActions = useMemo(() => {
+    if (!analysisResult) return [];
+
+    const actions: string[] = [
+      "Relire les prestations avant validation finale.",
+      "Vérifier le montant total avant création du devis.",
+    ];
+
+    if (analysisResult.clientName) {
+      actions.unshift("Confirmer les informations client avant envoi.");
+    }
+
+    if ((analysisResult.items?.length ?? 0) > 0) {
+      actions.push("Contrôler les prix ligne par ligne pour éviter les écarts.");
+    }
+
+    return actions;
+  }, [analysisResult]);
+
   return (
-    <div className="mx-auto flex h-full max-w-md flex-col gap-3 p-4">
+    <div className="mx-auto flex h-full max-w-5xl flex-col gap-4 p-4">
       <input
         type="file"
         ref={fileInputRef}
@@ -330,61 +416,108 @@ export default function Devis() {
               Analyse Terminée
             </h2>
 
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="rounded-lg bg-blue-50 p-2 text-blue-500">
-                  <User size={18} />
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase text-[var(--theme-muted)]">
-                    Client
-                  </p>
-                  <p className="font-bold text-[var(--theme-text)]">
-                    {analysisResult.clientName || "Non identifié"}
-                  </p>
-                </div>
-              </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <SummaryCard
+                icon={<User size={18} />}
+                title="Client"
+                value={analysisResult.clientName || "Non identifié"}
+              />
+              <SummaryCard
+                icon={<Receipt size={18} />}
+                title="Total HT"
+                value={`${formatAmount(analysisResult.totalHT)} €`}
+              />
+              <SummaryCard
+                icon={<CircleDollarSign size={18} />}
+                title="Total TTC"
+                value={`${formatAmount(analysisResult.totalTTC)} €`}
+              />
+              <SummaryCard
+                icon={<ListChecks size={18} />}
+                title="Prestations"
+                value={String(analysisResult.items?.length ?? 0)}
+              />
+            </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-[var(--theme-bg)] p-3">
-                  <p className="text-[10px] font-bold uppercase text-[var(--theme-muted)]">
-                    Total HT
-                  </p>
-                  <p className="text-lg font-black text-[var(--theme-text)]">
-                    {analysisResult.totalHT || "0"} €
-                  </p>
-                </div>
-                <div className="rounded-xl bg-emerald-50 p-3">
-                  <p className="text-[10px] font-bold uppercase text-emerald-500">
-                    Total TTC
-                  </p>
-                  <p className="text-lg font-black text-emerald-600">
-                    {analysisResult.totalTTC || "0"} €
-                  </p>
-                </div>
-              </div>
+            <SectionCard
+              title="Insight IA"
+              icon={<Sparkles size={16} />}
+              description="Synthèse rapide de l’analyse du devis."
+            >
+              <p className="text-sm text-[var(--theme-text)]">
+                {analysisSummary}
+              </p>
+            </SectionCard>
 
+            <SectionCard
+              title="Points d’attention"
+              icon={<FileText size={16} />}
+              description="Éléments à vérifier avant validation."
+            >
+              {attentionPoints.length > 0 ? (
+                <div className="space-y-2">
+                  {attentionPoints.map((point) => (
+                    <div
+                      key={point}
+                      className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700"
+                    >
+                      {point}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-[var(--theme-muted)]">
+                  Aucun point bloquant détecté sur cette analyse.
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Prestations"
+              icon={<ListChecks size={16} />}
+              description="Lignes détectées dans le document."
+            >
+              {analysisResult.items && analysisResult.items.length > 0 ? (
+                <div className="space-y-2">
+                  {analysisResult.items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex justify-between rounded-lg border border-[var(--theme-border)] bg-[var(--theme-bg)] p-2 text-[11px]"
+                    >
+                      <span className="font-medium text-[var(--theme-muted)]">
+                        {item.description || "Prestation"}
+                      </span>
+                      <span className="font-bold text-[var(--theme-text)]">
+                        {formatAmount(item.price)} €
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-[var(--theme-muted)]">
+                  Aucune prestation détaillée extraite.
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Actions"
+              icon={<Sparkles size={16} />}
+              description="Suite logique avant création du devis."
+            >
               <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase text-[var(--theme-muted)]">
-                  Prestations
-                </p>
-                {analysisResult.items?.map((item, idx) => (
+                {recommendedActions.map((action) => (
                   <div
-                    key={idx}
-                    className="flex justify-between rounded-lg border border-[var(--theme-border)] bg-[var(--theme-bg)] p-2 text-[11px]"
+                    key={action}
+                    className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-2 text-sm text-[var(--theme-text)]"
                   >
-                    <span className="font-medium text-[var(--theme-muted)]">
-                      {item.description || "Prestation"}
-                    </span>
-                    <span className="font-bold text-[var(--theme-text)]">
-                      {item.price ?? "0"}€
-                    </span>
+                    {action}
                   </div>
                 ))}
               </div>
-            </div>
+            </SectionCard>
 
-            <div className="mt-4 grid grid-cols-1 gap-3">
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <button
                 onClick={handleCreateQuote}
                 disabled={isSavingQuote}
@@ -415,8 +548,8 @@ export default function Devis() {
                   isRecording
                     ? "animate-pulse border-red-100 bg-red-500 text-white"
                     : isProcessing
-                      ? "bg-[var(--theme-bg)] text-[var(--theme-muted)]"
-                      : "bg-blue-600 text-white hover:bg-blue-700"
+                    ? "bg-[var(--theme-bg)] text-[var(--theme-muted)]"
+                    : "bg-blue-600 text-white hover:bg-blue-700"
                 }`}
               >
                 {isProcessing ? (
@@ -433,8 +566,8 @@ export default function Devis() {
                   {isRecording
                     ? "Enregistrement..."
                     : isProcessing
-                      ? "Analyse en cours..."
-                      : "Appuyez pour parler"}
+                    ? "Analyse en cours..."
+                    : "Appuyez pour parler"}
                 </p>
                 <p className="mt-1 text-[10px] font-bold uppercase italic text-[var(--theme-muted)]">
                   Dictez les travaux, l'IA s'occupe du reste
@@ -459,6 +592,55 @@ export default function Devis() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function SummaryCard({
+  icon,
+  title,
+  value,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] p-3">
+      <div className="flex items-center gap-2 text-[var(--theme-muted)]">
+        {icon}
+        <p className="text-[10px] font-bold uppercase">{title}</p>
+      </div>
+      <p className="mt-2 text-lg font-black text-[var(--theme-text)]">{value}</p>
+    </div>
+  );
+}
+
+function SectionCard({
+  title,
+  icon,
+  description,
+  children,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-2">
+        <div className="text-[var(--theme-text)]">{icon}</div>
+        <div>
+          <h3 className="text-sm font-black uppercase tracking-widest text-[var(--theme-text)]">
+            {title}
+          </h3>
+          <p className="text-[10px] font-medium text-[var(--theme-muted)]">
+            {description}
+          </p>
+        </div>
+      </div>
+      {children}
     </div>
   );
 }

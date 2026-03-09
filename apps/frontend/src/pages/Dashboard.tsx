@@ -362,45 +362,29 @@ export default function Dashboard() {
     ]
   );
 
-  const card1Title = hasComptaReport ? "Recettes" : "Chiffre d'Affaires";
-  const card1Value = hasComptaReport
-    ? formatEuro(recettesHT)
-    : formatEuroFromCents(kpiCaMois);
-  const card1Trend = hasComptaReport
-    ? "Analyse compta IA"
-    : kpisLoading
-      ? "Chargement"
-      : "Payé ce mois";
+  const card1Title = "Chiffre d'Affaires";
+  const card1Value = formatEuroFromCents(kpiCaMois);
+  const card1Trend = kpisLoading ? "Chargement" : "Payé ce mois";
   const card1To = "/dashboard/revenue";
 
-  const card2Title = hasComptaReport ? "Dépenses" : "Devis en attente";
-  const card2Value = hasComptaReport
-    ? formatEuro(depensesHT)
-    : `${kpiDevisPending}`;
-  const card2Trend = hasComptaReport
-    ? "Analyse compta IA"
-    : kpisLoading
-      ? "Chargement"
-      : kpiDevisPending > 0
-        ? `${kpiDevisPending} en attente`
-        : "Aucun";
+  const card2Title = "Devis en attente";
+  const card2Value = `${kpiDevisPending}`;
+  const card2Trend = kpisLoading
+    ? "Chargement"
+    : kpiDevisPending > 0
+      ? `${kpiDevisPending} en attente`
+      : "Aucun";
   const card2To = "/dashboard/quotes";
 
-  const card3Title = hasComptaReport ? "Résultat net" : "Factures impayées";
-  const card3Value = hasComptaReport
-    ? formatEuro(resultatNet)
-    : formatEuroFromCents(kpiImpayes);
-  const card3Trend = hasComptaReport
-    ? resultatNet >= 0
-      ? "Analyse compta IA"
-      : "Vigilance"
-    : kpisLoading
-      ? "Chargement"
-      : impayesCount === 0
-        ? "RAS"
-        : overdueCount > 0
-          ? `${overdueCount} en retard`
-          : "Action requise";
+  const card3Title = "Factures impayées";
+  const card3Value = formatEuroFromCents(kpiImpayes);
+  const card3Trend = kpisLoading
+    ? "Chargement"
+    : impayesCount === 0
+      ? "RAS"
+      : overdueCount > 0
+        ? `${overdueCount} en retard`
+        : "Action requise";
   const card3To = "/dashboard/unpaid";
 
   return (

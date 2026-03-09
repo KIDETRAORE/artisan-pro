@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, FileText, ArrowRight, Search } from "lucide-react";
 import {
-  createInvoiceDraft,
   listInvoices,
   moneyCentsFromInvoice,
   type Invoice,
@@ -18,12 +17,6 @@ function formatEurFromCents(cents: number): string {
   }).format(euros);
 }
 
-function isoDatePlusDays(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 export default function Invoices() {
   const navigate = useNavigate();
   const [items, setItems] = useState<Invoice[]>([]);
@@ -35,7 +28,6 @@ export default function Invoices() {
     setLoading(true);
     try {
       const data = await listInvoices();
-      // ✅ MODIF: normalisation defensive (évite crash si API renvoie autre chose)
       setItems(Array.isArray(data) ? data : []);
     } catch {
       setItems([]);
@@ -62,20 +54,8 @@ export default function Invoices() {
     });
   }, [items, q]);
 
-  const onCreate = async () => {
-    setLoading(true);
-    try {
-      const inv = await createInvoiceDraft({
-        client_name: "Nouveau client",
-        client_email: null,
-        due_date: isoDatePlusDays(14),
-      });
-      navigate(`/invoices/${inv.id}`);
-    } catch {
-      // best-effort
-    } finally {
-      setLoading(false);
-    }
+  const onCreate = () => {
+    navigate("/factures");
   };
 
   return (

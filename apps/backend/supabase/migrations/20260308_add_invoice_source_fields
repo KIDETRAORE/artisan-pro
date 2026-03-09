@@ -1,0 +1,37 @@
+-- apps/backend/supabase/migrations/20260308_add_invoice_source_fields.sql
+
+-- =====================================================
+-- Migration: add_invoice_source_fields
+-- Objectif:
+-- Ajouter les champs permettant de distinguer l'origine
+-- d'une facture :
+--  - manual
+--  - quote
+--  - compta_import
+--
+-- Cela permettra d'éviter les doublons entre :
+--  - factures issues de l'analyse comptable IA
+--  - factures créées dans l'application
+-- =====================================================
+
+-- 1️⃣ Ajout des colonnes source
+ALTER TABLE public.invoices
+ADD COLUMN IF NOT EXISTS source_type text,
+ADD COLUMN IF NOT EXISTS source_id uuid;
+
+-- 2️⃣ Valeur par défaut pour les factures créées dans l'application
+ALTER TABLE public.invoices
+ALTER COLUMN source_type SET DEFAULT 'manual';
+
+-- 3️⃣ Mise à jour des factures existantes
+UPDATE public.invoices
+SET source_type = 'manual'
+WHERE source_type IS NULL;
+
+-- 4️⃣ Index pour accélérer les recherches d'origine
+CREATE INDEX IF NOT EXISTS idx_invoices_source
+ON public.invoices(source_type, source_id);
+
+-- =====================================================
+-- Fin migration
+-- =====================================================

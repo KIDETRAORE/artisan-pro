@@ -78,16 +78,20 @@ function getQuoteStatusClass(status: string): string {
 }
 
 function canConvertQuote(quote: Quote): boolean {
-  return String(quote.status).trim().toLowerCase() === "accepted" && !quote.invoice_id;
+  return (
+    String(quote.status).trim().toLowerCase() === "accepted" && !quote.invoice_id
+  );
 }
 
 export default function DashboardQuotes() {
-  const report = useComptaReportStore((s) => s.report);
+  useComptaReportStore((s) => s.report);
 
   const [loading, setLoading] = useState(false);
   const [pendingQuotes, setPendingQuotes] = useState<Quote[]>([]);
   const [updatingQuoteId, setUpdatingQuoteId] = useState<string | null>(null);
-  const [convertingQuoteId, setConvertingQuoteId] = useState<string | null>(null);
+  const [convertingQuoteId, setConvertingQuoteId] = useState<string | null>(
+    null
+  );
   const fetchOnceRef = useRef(false);
 
   useEffect(() => {
@@ -116,35 +120,10 @@ export default function DashboardQuotes() {
     };
   }, []);
 
-  const hasComptaReport = !!report;
-  const depensesHT = report?.totals?.depensesHT ?? 0;
-  const depensesTTC = report?.totals?.depensesTTC ?? 0;
-  const topDepenses = report?.breakdown?.topDepenses ?? [];
-  const anomalies = report?.anomalies ?? [];
-
   const pendingCount = pendingQuotes.length;
 
-  const analysis = useMemo(() => {
-    if (hasComptaReport) {
-      return {
-        summary:
-          anomalies.length > 0
-            ? `${anomalies.length} anomalie(s) détectée(s). Dépenses analysées : ${formatEur(
-                depensesTTC
-              )} TTC pour ${formatEur(depensesHT)} HT.`
-            : `Dépenses analysées : ${formatEur(depensesTTC)} TTC pour ${formatEur(
-                depensesHT
-              )} HT.`,
-        actions: [
-          "Contrôler les plus gros postes de dépenses pour identifier les dérives.",
-          "Comparer les charges récurrentes avec les mois précédents.",
-          "Prioriser les anomalies critiques détectées par l’analyse IA.",
-          "Rattacher les dépenses aux chantiers pour un pilotage BTP plus fin.",
-        ],
-      };
-    }
-
-    return {
+  const analysis = useMemo(
+    () => ({
       summary:
         pendingCount > 0
           ? `${pendingCount} devis en attente détecté(s) sur la base des statuts devis actuels.`
@@ -155,8 +134,9 @@ export default function DashboardQuotes() {
         "Relier devis → facture pour mesurer le taux de transformation réel.",
         "Ajouter un rattachement chantier/projet pour un suivi commercial plus fin.",
       ],
-    };
-  }, [hasComptaReport, anomalies.length, depensesTTC, depensesHT, pendingCount]);
+    }),
+    [pendingCount]
+  );
 
   const reloadQuotes = async () => {
     const quotes = await listPendingQuotes();
@@ -204,26 +184,21 @@ export default function DashboardQuotes() {
             <ArrowLeft size={16} /> Retour
           </Link>
           <h2 className="mt-2 text-3xl font-extrabold tracking-tight text-[var(--theme-text)]">
-            {hasComptaReport ? "Dépenses" : "Devis en attente"}
+            Devis en attente
           </h2>
           <p className="mt-1 text-[var(--theme-muted)]">
-            {hasComptaReport
-              ? "Analyse structurée des dépenses issues de la compta IA."
-              : "Analyse structurée des devis en attente basée sur les données réelles."}
+            Analyse structurée des devis en attente basée sur les données
+            réelles.
           </p>
         </div>
 
         <div className="hidden items-center gap-2 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-4 py-3 shadow-sm sm:flex">
           <Clock className="text-amber-500" size={18} />
           <span className="text-sm font-black text-[var(--theme-text)]">
-            {loading
-              ? "…"
-              : hasComptaReport
-                ? formatEur(depensesTTC)
-                : String(pendingCount)}
+            {loading ? "…" : String(pendingCount)}
           </span>
           <span className="text-xs font-bold text-[var(--theme-muted)]">
-            {hasComptaReport ? "dépenses" : "en attente"}
+            en attente
           </span>
         </div>
       </div>
@@ -259,42 +234,15 @@ export default function DashboardQuotes() {
         <div className="overflow-hidden rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] shadow-xl shadow-slate-200/50">
           <div className="border-b border-[var(--theme-border)] p-6">
             <h3 className="text-lg font-bold text-[var(--theme-text)]">
-              {hasComptaReport ? "Top dépenses" : "Devis à relancer"}
+              Devis à relancer
             </h3>
             <p className="mt-1 text-[11px] font-medium text-[var(--theme-muted)]">
-              {hasComptaReport
-                ? "Postes détectés par l’analyse comptable."
-                : "Liste réelle des devis en attente."}
+              Liste réelle des devis en attente.
             </p>
           </div>
 
           <div className="space-y-3 p-6">
-            {hasComptaReport ? (
-              topDepenses.length > 0 ? (
-                topDepenses.slice(0, 10).map((item) => (
-                  <div
-                    key={item.label}
-                    className="flex items-center justify-between rounded-2xl border border-[var(--theme-border)] px-4 py-3"
-                  >
-                    <div>
-                      <p className="text-sm font-bold text-[var(--theme-text)]">
-                        {item.label}
-                      </p>
-                      <p className="text-xs font-medium text-[var(--theme-muted)]">
-                        {item.count} occurrence(s)
-                      </p>
-                    </div>
-                    <span className="text-sm font-black text-[var(--theme-text)]">
-                      {formatEur(item.amountHT)}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs font-medium text-[var(--theme-muted)]">
-                  Aucune dépense détaillée détectée.
-                </p>
-              )
-            ) : loading ? (
+            {loading ? (
               <p className="text-xs font-medium text-[var(--theme-muted)]">
                 Chargement des devis…
               </p>
@@ -339,7 +287,8 @@ export default function DashboardQuotes() {
                       type="button"
                       onClick={() => handleStatusUpdate(quote.id, "sent")}
                       disabled={
-                        updatingQuoteId === quote.id || convertingQuoteId === quote.id
+                        updatingQuoteId === quote.id ||
+                        convertingQuoteId === quote.id
                       }
                       className="rounded-xl border border-[var(--theme-border)] px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-[var(--theme-text)] hover:bg-[var(--theme-bg)] disabled:opacity-60"
                     >
@@ -349,7 +298,8 @@ export default function DashboardQuotes() {
                       type="button"
                       onClick={() => handleStatusUpdate(quote.id, "accepted")}
                       disabled={
-                        updatingQuoteId === quote.id || convertingQuoteId === quote.id
+                        updatingQuoteId === quote.id ||
+                        convertingQuoteId === quote.id
                       }
                       className="rounded-xl border border-emerald-200 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
                     >
@@ -359,7 +309,8 @@ export default function DashboardQuotes() {
                       type="button"
                       onClick={() => handleStatusUpdate(quote.id, "rejected")}
                       disabled={
-                        updatingQuoteId === quote.id || convertingQuoteId === quote.id
+                        updatingQuoteId === quote.id ||
+                        convertingQuoteId === quote.id
                       }
                       className="rounded-xl border border-red-200 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-red-700 hover:bg-red-50 disabled:opacity-60"
                     >
@@ -371,7 +322,8 @@ export default function DashboardQuotes() {
                         type="button"
                         onClick={() => handleConvertToInvoice(quote.id)}
                         disabled={
-                          updatingQuoteId === quote.id || convertingQuoteId === quote.id
+                          updatingQuoteId === quote.id ||
+                          convertingQuoteId === quote.id
                         }
                         className="rounded-xl bg-[var(--theme-primary)] px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-white hover:bg-blue-600 disabled:opacity-60"
                       >

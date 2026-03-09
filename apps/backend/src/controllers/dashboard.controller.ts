@@ -210,7 +210,7 @@ export class DashboardController {
       .from("quotes")
       .select("*", { count: "exact", head: true })
       .eq("user_id", user.id)
-      .in("status", ["pending", "sent", "open", "accepted"]);
+      .eq("status", "pending");
 
     if (quotesErr) {
       logger.error("Dashboard: erreur récupération quotes pending count", {

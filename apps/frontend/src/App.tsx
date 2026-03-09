@@ -34,8 +34,8 @@ const DashboardRevenue = lazy(() => import("./pages/DashboardRevenue"));
 const DashboardUnpaid = lazy(() => import("./pages/DashboardUnpaid"));
 const DashboardQuotes = lazy(() => import("./pages/DashboardQuotes"));
 
-// ✅ AJOUT: Factures module
-const Invoices = lazy(() => import("./pages/Invoices"));
+// ✅ MODIF: utilisation de Facture au lieu de Invoices
+const Facture = lazy(() => import("./pages/Facture"));
 const InvoiceDetail = lazy(() => import("./pages/InvoiceDetail"));
 
 // ✅ AJOUT: page publique paiement OK
@@ -62,14 +62,18 @@ type DashboardResponse = {
 };
 
 export default function App() {
-  const { user, accessToken } = useAuth();
+  const { user, accessToken, isLoading, restoreSession } = useAuth();
   const { setUserData, clearUserData } = useUser();
 
-  // ✅ MODIF: évite multi-fetch /dashboard en boucle
   const dashboardFetchInFlightRef = useRef(false);
-
-  // ✅ MODIF: dépendance stable (évite boucle si `user` change de référence)
+  const restoreOnceRef = useRef(false);
   const userEmail = user?.email ?? null;
+
+  useEffect(() => {
+    if (restoreOnceRef.current) return;
+    restoreOnceRef.current = true;
+    void restoreSession();
+  }, [restoreSession]);
 
   useEffect(() => {
     const run = async () => {
@@ -94,7 +98,9 @@ export default function App() {
           emailName.charAt(0).toUpperCase() + emailName.slice(1);
 
         const plan = normalizePlan(data?.subscription?.plan ?? "free");
-        const status = normalizeStatus(data?.subscription?.status ?? "inactive");
+        const status = normalizeStatus(
+          data?.subscription?.status ?? "inactive"
+        );
         const proActive = isProActive(plan, status);
 
         setUserData({
@@ -119,18 +125,21 @@ export default function App() {
     void run();
   }, [accessToken, userEmail, setUserData, clearUserData]);
 
+  if (isLoading) {
+    return <div className="p-4">Chargement…</div>;
+  }
+
   return (
     <Suspense fallback={<div className="p-4">Chargement…</div>}>
       <Routes>
         <Route
           path="/login"
-          element={!accessToken ? <Login /> : <Navigate to="/dashboard" replace />}
+          element={
+            !accessToken ? <Login /> : <Navigate to="/dashboard" replace />
+          }
         />
 
-        {/* ✅ Route publique reset password */}
         <Route path="/reset-password" element={<ResetPassword />} />
-
-        {/* ✅ AJOUT: route publique de succès paiement facture */}
         <Route path="/invoice-paid" element={<InvoicePaid />} />
 
         <Route
@@ -149,11 +158,11 @@ export default function App() {
           <Route path="/assistant" element={<Assistant />} />
           <Route path="/actions" element={<Navigate to="/assistant" replace />} />
 
-          <Route path="/invoices" element={<Invoices />} />
+          {/* ✅ MODIF: utilisation de Facture */}
+          <Route path="/invoices" element={<Facture />} />
           <Route path="/invoices/:id" element={<InvoiceDetail />} />
           <Route path="/factures" element={<Navigate to="/invoices" replace />} />
 
-          {/* ✅ AJOUT: routes chantiers */}
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:id" element={<ProjectDashboard />} />
           <Route
@@ -165,7 +174,6 @@ export default function App() {
           <Route path="/compte" element={<Navigate to="/settings" replace />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-          {/* ✅ routes Stripe */}
           <Route path="/upgrade" element={<Upgrade />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/success" element={<Success />} />

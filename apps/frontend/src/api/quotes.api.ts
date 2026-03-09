@@ -103,8 +103,7 @@ function normalizeQuote(value: unknown): Quote | null {
     asString(value.quote_number) ??
     asString(value.quoteNumber);
 
-  const invoiceId =
-    asString(value.invoice_id) ?? asString(value.invoiceId);
+  const invoiceId = asString(value.invoice_id) ?? asString(value.invoiceId);
 
   return {
     id,
@@ -149,6 +148,7 @@ function compareByNewest(a: Quote, b: Quote): number {
  * - pending
  * - sent
  * - open
+ * - accepted
  *
  * Si ton backend utilise un autre wording, il suffira d’ajuster ici.
  */
@@ -157,7 +157,8 @@ function isPendingQuoteStatus(status: string): boolean {
   return (
     normalized === "pending" ||
     normalized === "sent" ||
-    normalized === "open"
+    normalized === "open" ||
+    normalized === "accepted"
   );
 }
 

@@ -1,5 +1,5 @@
 // apps/frontend/src/pages/Projects.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import CreateProjectForm from "../components/projects/CreateProjectForm";
 import { listProjects, type Project } from "../api/projects.api";
@@ -75,11 +75,80 @@ export default function Projects() {
     setProjects((prev) => [project, ...prev]);
   };
 
+  const projectsInsight = useMemo(() => {
+    if (projects.length === 0) {
+      return "Aucun chantier n'est encore enregistré. Créez votre premier chantier pour suivre vos budgets, vos statuts et identifier rapidement les priorités.";
+    }
+
+    const activeCount = projects.filter((project) => project.status === "active").length;
+    const pausedCount = projects.filter((project) => project.status === "paused").length;
+    const doneCount = projects.filter((project) => project.status === "done").length;
+
+    const budgets = projects
+      .map((project) => project.budget_cents)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+
+    const totalBudgetCents = budgets.reduce((sum, value) => sum + value, 0);
+    const averageBudgetCents =
+      budgets.length > 0 ? Math.round(totalBudgetCents / budgets.length) : 0;
+
+    const topBudgetProject =
+      [...projects]
+        .filter(
+          (project) =>
+            typeof project.budget_cents === "number" &&
+            Number.isFinite(project.budget_cents)
+        )
+        .sort((a, b) => (b.budget_cents ?? 0) - (a.budget_cents ?? 0))[0] ?? null;
+
+    const parts: string[] = [];
+
+    parts.push(
+      `${projects.length} chantier${projects.length > 1 ? "s" : ""} enregistré${
+        projects.length > 1 ? "s" : ""
+      }`
+    );
+
+    if (activeCount > 0) {
+      parts.push(
+        `${activeCount} actif${activeCount > 1 ? "s" : ""} à suivre en priorité`
+      );
+    }
+
+    if (pausedCount > 0) {
+      parts.push(
+        `${pausedCount} en pause à réévaluer`
+      );
+    }
+
+    if (doneCount > 0) {
+      parts.push(
+        `${doneCount} terminé${doneCount > 1 ? "s" : ""}`
+      );
+    }
+
+    if (budgets.length > 0) {
+      parts.push(
+        `budget moyen de ${formatCurrencyFromCents(averageBudgetCents)}`
+      );
+    }
+
+    if (topBudgetProject?.name) {
+      parts.push(
+        `chantier le plus engagé : ${topBudgetProject.name} (${formatCurrencyFromCents(
+          topBudgetProject.budget_cents
+        )})`
+      );
+    }
+
+    return `${parts.join(" • ")}.`;
+  }, [projects]);
+
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6 animate-in fade-in duration-700">
       <AIInsightCard
-        title="Rentabilité des chantiers"
-        insight="Vérifiez la marge de vos chantiers actifs. Un suivi régulier des dépenses permet d'améliorer la rentabilité globale."
+        title="Synthèse des chantiers"
+        insight={projectsInsight}
       />
 
       <div>

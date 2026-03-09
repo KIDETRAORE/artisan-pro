@@ -122,8 +122,10 @@ function getHealthLabel(status: ProjectAnalytics["health_status"]) {
 }
 
 function getAlertClasses(level: ProjectAlert["level"]) {
-  if (level === "info") return "border-[var(--theme-border)] bg-[var(--theme-bg)] text-[var(--theme-text)]";
-  if (level === "warning") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (level === "info")
+    return "border-[var(--theme-border)] bg-[var(--theme-bg)] text-[var(--theme-text)]";
+  if (level === "warning")
+    return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-red-200 bg-red-50 text-red-700";
 }
 
@@ -207,6 +209,24 @@ export default function ProjectDetail() {
     ? formatPercent(analytics.budget_consumed_rate)
     : "—";
 
+  const actionItems = useMemo(() => {
+    const items: string[] = [];
+
+    if (insight?.actions?.length) {
+      items.push(...insight.actions);
+    }
+
+    if (analytics?.remaining_budget_cents != null && analytics.remaining_budget_cents < 0) {
+      items.push("Le budget est dépassé : sécuriser immédiatement les prochaines dépenses.");
+    }
+
+    if (analytics?.profit_cents != null && analytics.profit_cents < 0) {
+      items.push("La marge est négative : revoir le chiffrage et les postes les plus coûteux.");
+    }
+
+    return Array.from(new Set(items));
+  }, [analytics, insight]);
+
   return (
     <div className="mx-auto max-w-7xl space-y-8 animate-in fade-in duration-700 text-[var(--theme-text)]">
       <div className="flex items-start justify-between gap-4">
@@ -223,7 +243,9 @@ export default function ProjectDetail() {
           </h2>
 
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-[var(--theme-muted)]">
-            {project?.client_name ? <span>Client : {project.client_name}</span> : null}
+            {project?.client_name ? (
+              <span>Client : {project.client_name}</span>
+            ) : null}
             {project?.status ? <span>Statut : {project.status}</span> : null}
             {project?.address ? <span>{project.address}</span> : null}
           </div>
@@ -247,73 +269,98 @@ export default function ProjectDetail() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          title="CA chantier"
-          value={analytics ? formatEurFromCents(analytics.revenue_cents) : "—"}
-          icon={<CircleDollarSign size={18} />}
-          subtitle="Factures rattachées"
-        />
-        <MetricCard
-          title="Dépenses"
-          value={analytics ? formatEurFromCents(analytics.expenses_cents) : "—"}
-          icon={<Receipt size={18} />}
-          subtitle="Charges chantier"
-        />
-        <MetricCard
-          title="Marge"
-          value={analytics ? formatEurFromCents(analytics.profit_cents) : "—"}
-          icon={
-            analytics && analytics.profit_cents >= 0 ? (
-              <TrendingUp size={18} />
-            ) : (
-              <TrendingDown size={18} />
-            )
-          }
-          subtitle={
-            analytics ? `${formatPercent(analytics.profitability_rate)}` : "—"
-          }
-        />
-        <MetricCard
-          title="Budget restant"
-          value={
-            analytics ? formatEurFromCents(analytics.remaining_budget_cents) : "—"
-          }
-          icon={<Wallet size={18} />}
-          subtitle={`Consommé : ${budgetUsedDisplay}`}
-        />
+      <div className="space-y-3">
+        <h3 className="text-lg font-bold text-[var(--theme-text)]">KPI</h3>
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard
+            title="CA chantier"
+            value={analytics ? formatEurFromCents(analytics.revenue_cents) : "—"}
+            icon={<CircleDollarSign size={18} />}
+            subtitle="Factures rattachées"
+          />
+          <MetricCard
+            title="Dépenses"
+            value={analytics ? formatEurFromCents(analytics.expenses_cents) : "—"}
+            icon={<Receipt size={18} />}
+            subtitle="Charges chantier"
+          />
+          <MetricCard
+            title="Marge"
+            value={analytics ? formatEurFromCents(analytics.profit_cents) : "—"}
+            icon={
+              analytics && analytics.profit_cents >= 0 ? (
+                <TrendingUp size={18} />
+              ) : (
+                <TrendingDown size={18} />
+              )
+            }
+            subtitle={
+              analytics ? `${formatPercent(analytics.profitability_rate)}` : "—"
+            }
+          />
+          <MetricCard
+            title="Budget restant"
+            value={
+              analytics ? formatEurFromCents(analytics.remaining_budget_cents) : "—"
+            }
+            icon={<Wallet size={18} />}
+            subtitle={`Consommé : ${budgetUsedDisplay}`}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card
-            title="Rentabilité chantier"
-            description="Vue synthétique budget, dépenses et marge."
+            title="Insight IA"
+            description="Synthèse textuelle basée sur les chiffres du chantier."
           >
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <InfoRow
-                label="Budget chantier"
-                value={
-                  analytics ? formatEurFromCents(analytics.budget_cents) : "—"
-                }
-              />
-              <InfoRow
-                label="Budget consommé"
-                value={analytics ? budgetUsedDisplay : "—"}
-              />
-              <InfoRow
-                label="Montant payé"
-                value={analytics ? formatEurFromCents(analytics.paid_cents) : "—"}
-              />
-              <InfoRow
-                label="Marge %"
-                value={analytics ? formatPercent(analytics.profitability_rate) : "—"}
-              />
-            </div>
+            {insight ? (
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-4">
+                  <div className="flex items-center gap-2 font-bold text-indigo-700">
+                    <Sparkles size={16} />
+                    {insight.title}
+                  </div>
+                  <div className="mt-3 text-sm text-[var(--theme-text)]">
+                    {insight.recommendation}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <InfoRow
+                    label="Budget chantier"
+                    value={
+                      analytics ? formatEurFromCents(analytics.budget_cents) : "—"
+                    }
+                  />
+                  <InfoRow
+                    label="Budget consommé"
+                    value={analytics ? budgetUsedDisplay : "—"}
+                  />
+                  <InfoRow
+                    label="Montant payé"
+                    value={
+                      analytics ? formatEurFromCents(analytics.paid_cents) : "—"
+                    }
+                  />
+                  <InfoRow
+                    label="Marge %"
+                    value={
+                      analytics ? formatPercent(analytics.profitability_rate) : "—"
+                    }
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-[var(--theme-muted)]">
+                Analyse IA indisponible pour ce chantier.
+              </div>
+            )}
           </Card>
 
           <Card
-            title="Alertes chantier"
+            title="Alertes"
             description="Détection métier simple avant l’analyse IA."
           >
             {analytics?.alerts?.length ? (
@@ -337,21 +384,11 @@ export default function ProjectDetail() {
           </Card>
 
           <Card
-            title="Analyse IA chantier"
-            description="Synthèse textuelle basée sur les chiffres du chantier."
+            title="Recommandations"
+            description="Points d’attention issus de l’analyse du chantier."
           >
             {insight ? (
               <div className="space-y-5">
-                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-4">
-                  <div className="flex items-center gap-2 font-bold text-indigo-700">
-                    <Sparkles size={16} />
-                    {insight.title}
-                  </div>
-                  <div className="mt-3 text-sm text-[var(--theme-text)]">
-                    {insight.recommendation}
-                  </div>
-                </div>
-
                 <div>
                   <div className="mb-2 text-sm font-bold text-[var(--theme-text)]">
                     Points d’attention
@@ -368,21 +405,27 @@ export default function ProjectDetail() {
                     </div>
                   )}
                 </div>
-
-                <div>
-                  <div className="mb-2 text-sm font-bold text-[var(--theme-text)]">
-                    Actions recommandées
-                  </div>
-                  <div className="space-y-2">
-                    {insight.actions.map((item) => (
-                      <Bullet key={item}>{item}</Bullet>
-                    ))}
-                  </div>
-                </div>
               </div>
             ) : (
               <div className="text-sm text-[var(--theme-muted)]">
-                Analyse IA indisponible pour ce chantier.
+                Aucune recommandation disponible.
+              </div>
+            )}
+          </Card>
+
+          <Card
+            title="Actions"
+            description="Actions concrètes à suivre pour améliorer le chantier."
+          >
+            {actionItems.length > 0 ? (
+              <div className="space-y-2">
+                {actionItems.map((item) => (
+                  <Bullet key={item}>{item}</Bullet>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-[var(--theme-muted)]">
+                Aucune action recommandée pour le moment.
               </div>
             )}
           </Card>

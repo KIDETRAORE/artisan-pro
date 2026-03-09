@@ -91,6 +91,34 @@ export default function ProjectDashboard() {
 
   const previewExpenses = useMemo(() => expenses.slice(0, 3), [expenses]);
 
+  const keyActions = useMemo(() => {
+    if (!analytics) return [];
+
+    const actions: string[] = [];
+
+    if (analytics.health_status === "critical") {
+      actions.push("Prioriser un point budget et marge sur ce chantier.");
+    }
+
+    if (analytics.remaining_budget_cents < 0) {
+      actions.push("Le budget est dépassé : sécuriser les prochaines dépenses.");
+    }
+
+    if (analytics.profit_cents < 0) {
+      actions.push("La marge est négative : revoir le chiffrage et les postes les plus coûteux.");
+    }
+
+    if (analytics.dominant_expense_category) {
+      actions.push(
+        `Contrôler le poste ${categoryLabel(
+          analytics.dominant_expense_category
+        ).toLowerCase()} qui concentre la plus grande part des dépenses.`
+      );
+    }
+
+    return actions;
+  }, [analytics]);
+
   const refreshAll = useCallback(async () => {
     if (!id) return;
 
@@ -224,47 +252,82 @@ export default function ProjectDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
-          <div className="text-sm text-[var(--theme-muted)]">Facturé</div>
-          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
-            {formatEurosFromCents(revenue)}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-[var(--theme-text)]">KPI</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+          <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+            <div className="text-sm text-[var(--theme-muted)]">Facturé</div>
+            <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
+              {formatEurosFromCents(revenue)}
+            </div>
           </div>
+
+          <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+            <div className="text-sm text-[var(--theme-muted)]">Dépenses</div>
+            <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
+              {formatEurosFromCents(expensesTotal)}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+            <div className="text-sm text-[var(--theme-muted)]">Marge</div>
+            <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
+              {formatEurosFromCents(profit)}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+            <div className="text-sm text-[var(--theme-muted)]">Rentabilité</div>
+            <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
+              {profitabilityLabel}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+            <div className="text-sm text-[var(--theme-muted)]">Budget restant</div>
+            <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
+              {formatEurosFromCents(remainingBudget)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-[var(--theme-text)]">
+            Insight IA
+          </h2>
+
+          {insight ? (
+            <div
+              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest ${riskBadgeClass(
+                insight.risk_level
+              )}`}
+            >
+              Risque : {insight.risk_level}
+            </div>
+          ) : null}
         </div>
 
-        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
-          <div className="text-sm text-[var(--theme-muted)]">Dépenses</div>
-          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
-            {formatEurosFromCents(expensesTotal)}
+        {!insight ? (
+          <div className="text-sm text-[var(--theme-muted)]">
+            Aucune analyse disponible.
           </div>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
-          <div className="text-sm text-[var(--theme-muted)]">Marge</div>
-          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
-            {formatEurosFromCents(profit)}
+        ) : cleanedRecommendation ? (
+          <div className="text-sm text-[var(--theme-text)]">
+            {cleanedRecommendation}
           </div>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
-          <div className="text-sm text-[var(--theme-muted)]">Rentabilité</div>
-          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
-            {profitabilityLabel}
+        ) : (
+          <div className="text-sm text-[var(--theme-muted)]">
+            Aucune synthèse IA disponible.
           </div>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
-          <div className="text-sm text-[var(--theme-muted)]">Budget restant</div>
-          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
-            {formatEurosFromCents(remainingBudget)}
-          </div>
-        </div>
+        )}
       </div>
 
       {analytics.alerts.length > 0 ? (
         <div className="space-y-3 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
           <h2 className="text-lg font-semibold text-[var(--theme-text)]">
-            Alertes chantier
+            Alertes
           </h2>
           <div className="space-y-2">
             {analytics.alerts.map((alert) => (
@@ -285,11 +348,60 @@ export default function ProjectDashboard() {
         </div>
       ) : null}
 
-      {categoryBreakdown.length > 0 ? (
+      {(insight?.actions?.length ?? 0) > 0 || keyActions.length > 0 ? (
+        <div className="space-y-4 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+          <h2 className="text-lg font-semibold text-[var(--theme-text)]">
+            Recommandations
+          </h2>
+
+          <div className="space-y-4">
+            {insight?.findings?.length ? (
+              <div>
+                <div className="text-sm font-semibold text-[var(--theme-text)]">
+                  Diagnostic IA
+                </div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
+                  {insight.findings.map((x, idx) => (
+                    <li key={idx}>{x}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {insight?.issues?.length ? (
+              <div>
+                <div className="text-sm font-semibold text-[var(--theme-text)]">
+                  Points d’attention
+                </div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
+                  {insight.issues.map((x, idx) => (
+                    <li key={idx}>{x}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {insight?.actions?.length ? (
+              <div>
+                <div className="text-sm font-semibold text-[var(--theme-text)]">
+                  Actions recommandées
+                </div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
+                  {insight.actions.map((x, idx) => (
+                    <li key={idx}>{x}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {categoryBreakdown.length > 0 || keyActions.length > 0 ? (
         <div className="space-y-4 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-[var(--theme-text)]">
-              Répartition des dépenses
+              Actions
             </h2>
 
             {analytics.dominant_expense_category ? (
@@ -302,30 +414,40 @@ export default function ProjectDashboard() {
             ) : null}
           </div>
 
-          <div className="space-y-3">
-            {categoryBreakdown.map((item) => (
-              <div key={item.category} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-[var(--theme-text)]">
-                    {item.label}
-                  </span>
-                  <span className="text-[var(--theme-muted)]">
-                    {formatEurosFromCents(item.amount)} •{" "}
-                    {item.share.toFixed(1).replace(".", ",")} %
-                  </span>
+          {keyActions.length > 0 ? (
+            <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
+              {keyActions.map((action, idx) => (
+                <li key={idx}>{action}</li>
+              ))}
+            </ul>
+          ) : null}
+
+          {categoryBreakdown.length > 0 ? (
+            <div className="space-y-3">
+              {categoryBreakdown.map((item) => (
+                <div key={item.category} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-[var(--theme-text)]">
+                      {item.label}
+                    </span>
+                    <span className="text-[var(--theme-muted)]">
+                      {formatEurosFromCents(item.amount)} •{" "}
+                      {item.share.toFixed(1).replace(".", ",")} %
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[var(--theme-border)]">
+                    <div
+                      className="h-2 rounded-full"
+                      style={{
+                        width: `${Math.min(100, item.share)}%`,
+                        backgroundColor: "var(--theme-primary)",
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 rounded-full bg-[var(--theme-border)]">
-                  <div
-                    className="h-2 rounded-full"
-                    style={{
-                      width: `${Math.min(100, item.share)}%`,
-                      backgroundColor: "var(--theme-primary)",
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -349,77 +471,6 @@ export default function ProjectDashboard() {
           onRefresh={refreshAll}
           showCreateForm={false}
         />
-      </div>
-
-      <div className="space-y-4 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-[var(--theme-text)]">
-            Analyse IA
-          </h2>
-
-          {insight ? (
-            <div
-              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest ${riskBadgeClass(
-                insight.risk_level
-              )}`}
-            >
-              Risque : {insight.risk_level}
-            </div>
-          ) : null}
-        </div>
-
-        {!insight ? (
-          <div className="text-sm text-[var(--theme-muted)]">
-            Aucune analyse disponible.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {cleanedRecommendation ? (
-              <div className="text-sm text-[var(--theme-text)]">
-                {cleanedRecommendation}
-              </div>
-            ) : null}
-
-            {insight.findings?.length > 0 ? (
-              <div>
-                <div className="text-sm font-semibold text-[var(--theme-text)]">
-                  Diagnostic IA
-                </div>
-                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
-                  {insight.findings.map((x, idx) => (
-                    <li key={idx}>{x}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {insight.issues?.length > 0 ? (
-              <div>
-                <div className="text-sm font-semibold text-[var(--theme-text)]">
-                  Points d’attention
-                </div>
-                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
-                  {insight.issues.map((x, idx) => (
-                    <li key={idx}>{x}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {insight.actions?.length > 0 ? (
-              <div>
-                <div className="text-sm font-semibold text-[var(--theme-text)]">
-                  Actions recommandées
-                </div>
-                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-[var(--theme-text)]">
-                  {insight.actions.map((x, idx) => (
-                    <li key={idx}>{x}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        )}
       </div>
     </div>
   );

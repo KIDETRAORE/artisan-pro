@@ -115,21 +115,22 @@ router.use("/integrations", authMiddleware, integrationsRoutes);
  * ============================
  */
 
-// Guards SANS rate limit (status polling OK)
+// ✅ MODIF UNIQUE : /ai ne passe plus par quotaMiddleware
+// -> permet à /ai/compta/latest et /ai/status/:jobId de rester en lecture
+// -> /ai/run et /ai/chat gardent déjà leur pré-check quota dans ai.routes.ts
 const aiBaseGuards = [
   authMiddleware,
   requirePermission(PERMISSIONS.AI_USE),
-  quotaMiddleware,
 ] as const;
 
 // /ai/* : guards communs (le rate-limit spécifique /run est géré DANS ai.routes.ts)
 router.use("/ai", ...aiBaseGuards, aiRoutes);
 
 // Autres modules IA (inchangés, sans aiRateLimit global)
-router.use("/assistant", ...aiBaseGuards, assistantRoutes);
-router.use("/compta", ...aiBaseGuards, comptaRoutes);
-router.use("/vision", ...aiBaseGuards, visionRoutes);
-router.use("/vocal", ...aiBaseGuards, vocalRoutes);
+router.use("/assistant", authMiddleware, requirePermission(PERMISSIONS.AI_USE), quotaMiddleware, assistantRoutes);
+router.use("/compta", authMiddleware, requirePermission(PERMISSIONS.AI_USE), quotaMiddleware, comptaRoutes);
+router.use("/vision", authMiddleware, requirePermission(PERMISSIONS.AI_USE), quotaMiddleware, visionRoutes);
+router.use("/vocal", authMiddleware, requirePermission(PERMISSIONS.AI_USE), quotaMiddleware, vocalRoutes);
 
 /**
  * ✅ NOTE:

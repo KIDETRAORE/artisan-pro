@@ -10,6 +10,7 @@ import { logger } from "../utils/logger";
 import { integrationQueue } from "../queues/integration.queue";
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "canceled";
+export type InvoiceSourceType = "manual" | "quote" | "compta_import";
 
 export type InvoiceRow = {
   id: string;
@@ -28,6 +29,10 @@ export type InvoiceRow = {
 
   // ✅ AJOUT: numérotation facture
   invoice_number?: string | null;
+
+  // ✅ AJOUT: source anti-doublon
+  source_type?: InvoiceSourceType | string | null;
+  source_id?: string | null;
 
   // ✅ AJOUT: totaux en cents (si présents en DB)
   total_amount_cents?: number | null;
@@ -50,6 +55,14 @@ const CreateInvoiceSchema = z.object({
 
   project_id: z.string().uuid().optional().nullable(),
 
+  // ✅ AJOUT: architecture source / anti-doublon
+  invoice_number: z.string().min(1).optional().nullable(),
+  source_type: z
+    .enum(["manual", "quote", "compta_import"])
+    .optional()
+    .default("manual"),
+  source_id: z.string().optional().nullable(),
+
   status: z
     .enum(["draft", "sent", "paid", "overdue", "canceled"])
     .optional()
@@ -62,6 +75,12 @@ const UpdateInvoiceSchema = z.object({
   total_amount: z.number().finite().nonnegative().optional(),
   due_date: z.string().min(1).optional(),
   project_id: z.string().uuid().optional().nullable(),
+
+  // ✅ AJOUT: architecture source / anti-doublon
+  invoice_number: z.string().min(1).optional().nullable(),
+  source_type: z.enum(["manual", "quote", "compta_import"]).optional().nullable(),
+  source_id: z.string().optional().nullable(),
+
   status: z.enum(["draft", "sent", "paid", "overdue", "canceled"]).optional(),
 });
 
@@ -75,10 +94,12 @@ function normalizeStatus(s: unknown): string {
 
 function toCentsFallback(invoice: InvoiceRow): number {
   const cents = (invoice as any).total_amount_cents;
-  if (typeof cents === "number" && Number.isFinite(cents)) return Math.round(cents);
+  if (typeof cents === "number" && Number.isFinite(cents))
+    return Math.round(cents);
 
   const eur = invoice.total_amount;
-  if (typeof eur === "number" && Number.isFinite(eur)) return Math.round(eur * 100);
+  if (typeof eur === "number" && Number.isFinite(eur))
+    return Math.round(eur * 100);
 
   return 0;
 }
@@ -103,7 +124,10 @@ async function invoiceHasLines(invoiceId: string): Promise<boolean> {
 }
 
 // ✅ MODIF UNIQUE : ajout dedupe + retry + backoff BullMQ
-async function enqueuePennylanePush(params: { userId: string; invoiceId: string }) {
+async function enqueuePennylanePush(params: {
+  userId: string;
+  invoiceId: string;
+}) {
   try {
     await integrationQueue.add(
       "push_invoice",
@@ -150,6 +174,11 @@ export class InvoicesService {
         due_date: payload.due_date,
         project_id: payload.project_id ?? null,
         status: payload.status,
+
+        // ✅ AJOUT: architecture source / anti-doublon
+        invoice_number: payload.invoice_number ?? null,
+        source_type: payload.source_type ?? "manual",
+        source_id: payload.source_id ?? null,
       })
       .select("*")
       .single();

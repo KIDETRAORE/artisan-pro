@@ -1,5 +1,4 @@
 // apps/frontend/src/layout/Layout.tsx
-
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, Link, Outlet, useNavigate } from "react-router-dom";
 import { Home, X, Sparkles, Palette, UserRound } from "lucide-react";
@@ -7,6 +6,7 @@ import { Home, X, Sparkles, Palette, UserRound } from "lucide-react";
 import ExpertHubPanel, { type ExpertTab } from "../features/ai/ExpertHubPanel";
 import { useUser } from "../context/user.context";
 import { useAuth } from "../store/auth.store";
+import { useComptaReportStore } from "../store/comptaReport.store";
 import {
   useUIThemeStore,
   type UITheme,
@@ -41,6 +41,7 @@ export default function Layout() {
 
   const { userData } = useUser();
   const { accessToken } = useAuth();
+  const setComptaReport = useComptaReportStore((s) => s.setReport);
 
   const { theme, setTheme } = useUIThemeStore();
   const { mode, setMode } = useUIExperienceStore();
@@ -98,6 +99,34 @@ export default function Layout() {
       }
     })();
   }, [accessToken, quota]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+
+    const API_BASE = import.meta.env.VITE_API_URL
+      ? import.meta.env.VITE_API_URL.replace(/\/$/, "")
+      : "http://localhost:8080";
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/ai/compta/latest`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        const json = (await res.json()) as { report?: unknown };
+
+        if (!res.ok || !json?.report) {
+          return;
+        }
+
+        setComptaReport(json.report as any);
+      } catch {
+        // best effort
+      }
+    })();
+  }, [accessToken, setComptaReport]);
 
   const displayedUsed =
     dailyUsage?.used ?? (quota ? Number((quota as any).used ?? 0) : 0);
