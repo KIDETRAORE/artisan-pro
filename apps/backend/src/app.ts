@@ -28,9 +28,15 @@ import expertRouter from "./routes/expert.routes";
 // ✅ AJOUT: Scheduler relances (cron BullMQ)
 import { startInvoiceRemindersScheduler } from "./schedulers/reminders.scheduler";
 
+// ✅ AJOUT: Scheduler sync compta
+import { startAccountingSyncScheduler } from "./jobs/accountingSync.scheduler";
+
 // ✅ AJOUT: workers relances (side-effect imports)
 import "./workers/remindersScan.worker";
 import "./workers/invoiceReminder.worker";
+
+// ✅ AJOUT: worker sync compta (side-effect import)
+import "./jobs/accountingSync.job";
 
 const app = express();
 
@@ -45,6 +51,11 @@ startInvoiceRemindersScheduler().catch((e) => {
     message: e instanceof Error ? e.message : String(e),
   });
 });
+
+/**
+ * ✅ AJOUT: démarre le scheduler de synchronisation comptable
+ */
+startAccountingSyncScheduler();
 
 /**
  * ======================

@@ -160,8 +160,31 @@ export const ENV = {
    * =========================
    */
   PENNYLANE_API_KEY: optional("PENNYLANE_API_KEY"),
-  PENNYLANE_BASE_URL: optional("PENNYLANE_BASE_URL", "https://api.pennylane.com"),
+  PENNYLANE_BASE_URL: optional(
+    "PENNYLANE_BASE_URL",
+    "https://api.pennylane.com"
+  ),
   PENNYLANE_SYNC_ENABLED: optionalBoolean("PENNYLANE_SYNC_ENABLED", false),
+  PENNYLANE_WEBHOOK_SECRET: optional("PENNYLANE_WEBHOOK_SECRET"),
+
+  /**
+   * =========================
+   * ODOO (Integrations)
+   * =========================
+   */
+  ODOO_API_KEY: optional("ODOO_API_KEY"),
+  ODOO_BASE_URL: optional("ODOO_BASE_URL"),
+  ODOO_DATABASE: optional("ODOO_DATABASE"),
+  ODOO_LOGIN: optional("ODOO_LOGIN"),
+  ODOO_SYNC_ENABLED: optionalBoolean("ODOO_SYNC_ENABLED", false),
+  ODOO_WEBHOOK_SECRET: optional("ODOO_WEBHOOK_SECRET"),
+
+  /**
+   * =========================
+   * ERP WEBHOOKS (generic)
+   * =========================
+   */
+  ERP_WEBHOOK_SECRET: optional("ERP_WEBHOOK_SECRET"),
 
   /**
    * =========================
@@ -208,12 +231,10 @@ if (ENV.NODE_ENV === "production") {
     throw new Error("❌ FRONTEND_URL must use HTTPS in production");
   }
 
-  // 🔐 NOUVEAU : clé Gemini obligatoire en production
   if (!ENV.GEMINI_API_KEY) {
     throw new Error("❌ GEMINI_API_KEY missing in production");
   }
 
-  // Si l'envoi d'emails est requis en prod, force la clé.
   if (!ENV.RESEND_API_KEY) {
     throw new Error("❌ RESEND_API_KEY missing in production");
   }
@@ -237,8 +258,16 @@ if (ENV.NODE_ENV === "development") {
     ENABLE_SCHEDULER: ENV.ENABLE_SCHEDULER,
     SCHEDULER_ENABLED: ENV.SCHEDULER_ENABLED,
     REMINDER_CRON: ENV.REMINDER_CRON,
-    // ✅ Pennylane flags (safe)
     PENNYLANE_SYNC_ENABLED: ENV.PENNYLANE_SYNC_ENABLED,
     PENNYLANE_BASE_URL: ENV.PENNYLANE_BASE_URL,
+    ODOO_SYNC_ENABLED: ENV.ODOO_SYNC_ENABLED,
+    ODOO_BASE_URL: ENV.ODOO_BASE_URL,
+    ODOO_DATABASE: ENV.ODOO_DATABASE,
+    ODOO_LOGIN: ENV.ODOO_LOGIN,
+    ERP_WEBHOOK_SECRET_CONFIGURED: Boolean(ENV.ERP_WEBHOOK_SECRET),
+    PENNYLANE_WEBHOOK_SECRET_CONFIGURED: Boolean(
+      ENV.PENNYLANE_WEBHOOK_SECRET
+    ),
+    ODOO_WEBHOOK_SECRET_CONFIGURED: Boolean(ENV.ODOO_WEBHOOK_SECRET),
   });
 }

@@ -98,3 +98,5 @@ export const closeRedis = async (): Promise<void> => {
     });
   }
 };
+
+export default redisConnection;

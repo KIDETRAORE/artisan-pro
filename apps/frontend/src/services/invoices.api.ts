@@ -3,7 +3,7 @@ import { fetchWithAuth } from "../auth/fetchWithAuth";
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "canceled";
 
-export type InvoiceSourceType = "manual" | "quote" | "compta_import";
+export type InvoiceOriginType = "manual" | "quote" | "compta_import";
 
 export type Invoice = {
   id: string;
@@ -18,8 +18,9 @@ export type Invoice = {
   created_at?: string;
 
   invoice_number?: string | null;
-  source_type?: InvoiceSourceType | string | null;
-  source_id?: string | null;
+  origin_type?: InvoiceOriginType | string | null;
+  source_system?: string | null;
+  source_external_id?: string | null;
 
   reminder_count?: number | null;
   last_reminder_at?: string | null;
@@ -124,8 +125,9 @@ export async function createInvoiceDraft(params: {
   due_date: string;
   project_id?: string | null;
   invoice_number?: string | null;
-  source_type?: InvoiceSourceType;
-  source_id?: string | null;
+  origin_type?: InvoiceOriginType;
+  source_system?: string | null;
+  source_external_id?: string | null;
 }): Promise<Invoice> {
   return await fetchWithAuth<Invoice>(API.invoices, {
     method: "POST",
@@ -139,8 +141,9 @@ export async function createInvoiceDraft(params: {
       total_amount: 0,
       total_amount_cents: 0,
       invoice_number: params.invoice_number ?? null,
-      source_type: params.source_type ?? "manual",
-      source_id: params.source_id ?? null,
+      origin_type: params.origin_type ?? "manual",
+      source_system: params.source_system ?? "artisanpro",
+      source_external_id: params.source_external_id ?? null,
     }),
   });
 }
@@ -156,8 +159,9 @@ export async function patchInvoice(
       | "status"
       | "project_id"
       | "invoice_number"
-      | "source_type"
-      | "source_id"
+      | "origin_type"
+      | "source_system"
+      | "source_external_id"
     >
   > & {
     total_amount?: number;

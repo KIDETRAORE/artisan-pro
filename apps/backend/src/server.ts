@@ -4,6 +4,7 @@ import { ENV } from "./config/env";
 import { logger } from "./utils/logger";
 import { startScheduler } from "./automation/scheduler";
 import "./workers/ai.worker";
+import "./jobs/accountingSync.job";
 
 // ✅ AJOUT: scheduler relances + workers relances
 import { startInvoiceRemindersScheduler } from "./schedulers/reminders.scheduler";

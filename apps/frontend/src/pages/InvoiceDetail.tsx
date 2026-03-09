@@ -61,8 +61,9 @@ export default function InvoiceDetail() {
       total_amount: 0,
       total_amount_cents: 0,
       invoice_number: null,
-      source_type: "manual",
-      source_id: null,
+      origin_type: "manual",
+      source_system: "artisanpro",
+      source_external_id: null,
       reminder_count: 0,
       last_reminder_at: null,
       paid_at: null,
@@ -218,8 +219,9 @@ export default function InvoiceDetail() {
           client_email: patch.client_email,
           due_date: patch.due_date,
           project_id: patch.project_id,
-          source_type: "manual",
-          source_id: null,
+          origin_type: "manual",
+          source_system: "artisanpro",
+          source_external_id: null,
         });
 
         setInvoice(created);

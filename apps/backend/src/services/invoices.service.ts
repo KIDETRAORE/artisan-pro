@@ -7,9 +7,14 @@ import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
 import { integrationQueue } from "../queues/integration.queue";
 import { reminderQueue } from "../queues/reminder.queue";
+import {
+  AccountingMatchingService,
+  type AccountingSource,
+} from "./accountingMatching.service";
+import { ExternalIdMapService } from "./externalIdMap.service";
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "canceled";
-export type InvoiceSourceType = "manual" | "quote" | "compta_import";
+export type InvoiceOriginType = "manual" | "quote" | "compta_import";
 
 export type InvoiceRow = {
   id: string;
@@ -24,8 +29,9 @@ export type InvoiceRow = {
   created_at: string;
   project_id: string | null;
   invoice_number?: string | null;
-  source_type?: InvoiceSourceType | string | null;
-  source_id?: string | null;
+  origin_type?: InvoiceOriginType | string | null;
+  source_system?: string | null;
+  source_external_id?: string | null;
   total_amount_cents?: number | null;
   subtotal_cents?: number | null;
   tax_amount_cents?: number | null;
@@ -41,11 +47,12 @@ const CreateInvoiceSchema = z.object({
   due_date: z.string().min(1),
   project_id: z.string().uuid().optional().nullable(),
   invoice_number: z.string().min(1).optional().nullable(),
-  source_type: z
+  origin_type: z
     .enum(["manual", "quote", "compta_import"])
     .optional()
     .default("manual"),
-  source_id: z.string().optional().nullable(),
+  source_system: z.string().min(1).optional().nullable(),
+  source_external_id: z.string().optional().nullable(),
   status: z
     .enum(["draft", "sent", "paid", "overdue", "canceled"])
     .optional()
@@ -59,11 +66,12 @@ const UpdateInvoiceSchema = z.object({
   due_date: z.string().min(1).optional(),
   project_id: z.string().uuid().optional().nullable(),
   invoice_number: z.string().min(1).optional().nullable(),
-  source_type: z
+  origin_type: z
     .enum(["manual", "quote", "compta_import"])
     .optional()
     .nullable(),
-  source_id: z.string().optional().nullable(),
+  source_system: z.string().min(1).optional().nullable(),
+  source_external_id: z.string().optional().nullable(),
   status: z.enum(["draft", "sent", "paid", "overdue", "canceled"]).optional(),
 });
 
@@ -83,6 +91,76 @@ function toCentsFallback(invoice: InvoiceRow): number {
     return Math.round(eur * 100);
 
   return 0;
+}
+
+function toAccountingSource(params: {
+  originType: InvoiceOriginType | string | null | undefined;
+  sourceSystem: string | null | undefined;
+}): AccountingSource {
+  const sourceSystem = String(params.sourceSystem ?? "").trim().toLowerCase();
+
+  if (sourceSystem === "pennylane") {
+    return "pennylane";
+  }
+
+  if (sourceSystem === "odoo") {
+    return "odoo";
+  }
+
+  if (sourceSystem === "file_import" || params.originType === "compta_import") {
+    return "file_import";
+  }
+
+  if (sourceSystem === "artisanpro") {
+    return "artisanpro";
+  }
+
+  return "manual";
+}
+
+function resolveSourceSystem(params: {
+  originType: InvoiceOriginType | string | null | undefined;
+  sourceSystem: string | null | undefined;
+}): string {
+  const sourceSystem = String(params.sourceSystem ?? "").trim().toLowerCase();
+
+  if (sourceSystem.length > 0) {
+    return sourceSystem;
+  }
+
+  if (params.originType === "compta_import") {
+    return "file_import";
+  }
+
+  return "artisanpro";
+}
+
+async function syncInvoiceExternalMapping(params: {
+  userId: string;
+  sourceSystem: string;
+  sourceExternalId: string | null | undefined;
+  invoiceId: string;
+  matchConfidence?: "exact" | "high" | "probable" | "manual";
+}): Promise<void> {
+  const sourceSystem = String(params.sourceSystem ?? "").trim();
+  const sourceExternalId = String(params.sourceExternalId ?? "").trim();
+
+  if (!sourceSystem || !sourceExternalId) {
+    return;
+  }
+
+  await ExternalIdMapService.upsertExternalMapping({
+    userId: params.userId,
+    sourceSystem: toAccountingSource({
+      originType: null,
+      sourceSystem,
+    }),
+    externalEntityType: "invoice",
+    externalId: sourceExternalId,
+    internalEntityType: "invoice",
+    internalId: params.invoiceId,
+    matchConfidence: params.matchConfidence ?? "manual",
+  });
 }
 
 function assertInvoiceUpdateAllowed(
@@ -165,6 +243,78 @@ export class InvoicesService {
     }
 
     const payload = parsed.data;
+    const normalizedSourceSystem = resolveSourceSystem({
+      originType: payload.origin_type,
+      sourceSystem: payload.source_system,
+    });
+
+    const match = await AccountingMatchingService.matchInvoiceCandidate(userId, {
+      sourceSystem: toAccountingSource({
+        originType: payload.origin_type,
+        sourceSystem: normalizedSourceSystem,
+      }),
+      sourceExternalId: payload.source_external_id ?? null,
+      invoiceNumber: payload.invoice_number ?? null,
+      clientName: payload.client_name ?? null,
+      issueDate: null,
+      dueDate: payload.due_date ?? null,
+      totalAmountCents: Math.round(payload.total_amount * 100),
+    });
+
+    if (
+      (match.decision === "link_existing" ||
+        match.decision === "ignore_lower_priority") &&
+      match.matchedInvoiceId
+    ) {
+      await syncInvoiceExternalMapping({
+        userId,
+        sourceSystem: normalizedSourceSystem,
+        sourceExternalId: payload.source_external_id,
+        invoiceId: match.matchedInvoiceId,
+        matchConfidence:
+          match.confidence === "manual_required" ? "manual" : match.confidence,
+      });
+
+      return await InvoicesService.getInvoice(userId, match.matchedInvoiceId);
+    }
+
+    if (match.decision === "flag_conflict") {
+      throw new HttpError(409, match.reason);
+    }
+
+    if (match.decision === "upgrade_source" && match.matchedInvoiceId) {
+      const { data, error } = await supabaseAdmin
+        .from("invoices")
+        .update({
+          origin_type: payload.origin_type ?? "manual",
+          source_system: normalizedSourceSystem,
+          source_external_id: payload.source_external_id ?? null,
+        })
+        .eq("id", match.matchedInvoiceId)
+        .eq("user_id", userId)
+        .select("*")
+        .single();
+
+      if (error) {
+        logger.error("InvoicesService.createInvoice upgrade_source failed", {
+          userId,
+          invoiceId: match.matchedInvoiceId,
+          message: error.message,
+        });
+        throw new HttpError(500, "Failed to upgrade invoice source");
+      }
+
+      await syncInvoiceExternalMapping({
+        userId,
+        sourceSystem: normalizedSourceSystem,
+        sourceExternalId: payload.source_external_id,
+        invoiceId: data.id,
+        matchConfidence:
+          match.confidence === "manual_required" ? "manual" : match.confidence,
+      });
+
+      return data as InvoiceRow;
+    }
 
     const { data, error } = await supabaseAdmin
       .from("invoices")
@@ -177,8 +327,9 @@ export class InvoicesService {
         project_id: payload.project_id ?? null,
         status: payload.status,
         invoice_number: payload.invoice_number ?? null,
-        source_type: payload.source_type ?? "manual",
-        source_id: payload.source_id ?? null,
+        origin_type: payload.origin_type ?? "manual",
+        source_system: normalizedSourceSystem,
+        source_external_id: payload.source_external_id ?? null,
       })
       .select("*")
       .single();
@@ -190,6 +341,15 @@ export class InvoicesService {
       });
       throw new HttpError(500, "Failed to create invoice");
     }
+
+    await syncInvoiceExternalMapping({
+      userId,
+      sourceSystem: normalizedSourceSystem,
+      sourceExternalId: payload.source_external_id,
+      invoiceId: data.id,
+      matchConfidence:
+        match.confidence === "manual_required" ? "manual" : match.confidence,
+    });
 
     return data as InvoiceRow;
   }

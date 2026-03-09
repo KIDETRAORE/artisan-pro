@@ -34,6 +34,9 @@ import projectExpensesRoutes from "./projectExpenses.routes";
 // ✅ AJOUT: INTEGRATIONS
 import integrationsRoutes from "./integrations.routes";
 
+// ✅ AJOUT: ERP WEBHOOKS
+import erpWebhookRoutes from "./erp.webhook.routes";
+
 // ✅ AJOUT: PROJECT ACCOUNTING IMPORT
 import projectAccountingRoutes from "./projectAccounting.routes";
 
@@ -55,6 +58,9 @@ const router = Router();
  * ============================
  */
 router.use("/health", healthRoutes);
+
+// ✅ AJOUT: ERP WEBHOOKS (PUBLIC)
+router.use("/erp/webhooks", erpWebhookRoutes);
 
 /**
  * ============================
@@ -127,10 +133,34 @@ const aiBaseGuards = [
 router.use("/ai", ...aiBaseGuards, aiRoutes);
 
 // Autres modules IA (inchangés, sans aiRateLimit global)
-router.use("/assistant", authMiddleware, requirePermission(PERMISSIONS.AI_USE), quotaMiddleware, assistantRoutes);
-router.use("/compta", authMiddleware, requirePermission(PERMISSIONS.AI_USE), quotaMiddleware, comptaRoutes);
-router.use("/vision", authMiddleware, requirePermission(PERMISSIONS.AI_USE), quotaMiddleware, visionRoutes);
-router.use("/vocal", authMiddleware, requirePermission(PERMISSIONS.AI_USE), quotaMiddleware, vocalRoutes);
+router.use(
+  "/assistant",
+  authMiddleware,
+  requirePermission(PERMISSIONS.AI_USE),
+  quotaMiddleware,
+  assistantRoutes
+);
+router.use(
+  "/compta",
+  authMiddleware,
+  requirePermission(PERMISSIONS.AI_USE),
+  quotaMiddleware,
+  comptaRoutes
+);
+router.use(
+  "/vision",
+  authMiddleware,
+  requirePermission(PERMISSIONS.AI_USE),
+  quotaMiddleware,
+  visionRoutes
+);
+router.use(
+  "/vocal",
+  authMiddleware,
+  requirePermission(PERMISSIONS.AI_USE),
+  quotaMiddleware,
+  vocalRoutes
+);
 
 /**
  * ✅ NOTE:
