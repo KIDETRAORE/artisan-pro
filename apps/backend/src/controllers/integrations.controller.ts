@@ -218,10 +218,16 @@ export class IntegrationsController {
       apiKey: parsed.data.apiKey,
     });
 
+    await enqueueAccountingSyncJob({
+      userId: user.id,
+      provider: "odoo",
+    });
+
     return res.status(200).json({
       success: true,
       provider: "odoo",
       connection,
+      message: "Odoo connected and sync job enqueued",
     });
   }
 

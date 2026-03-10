@@ -188,9 +188,7 @@ export class AccountingSyncService {
               sourceSystem: provider,
               externalEntityType: "invoice",
               externalId: external.externalId,
-              internalEntityType: "invoice",
               internalId: createdInvoice.id,
-              matchConfidence: "exact",
             });
 
             stats.created++;
@@ -203,12 +201,7 @@ export class AccountingSyncService {
               sourceSystem: provider,
               externalEntityType: "invoice",
               externalId: external.externalId,
-              internalEntityType: "invoice",
               internalId: match.matchedInvoiceId,
-              matchConfidence:
-                match.confidence === "manual_required"
-                  ? "manual"
-                  : match.confidence,
             });
 
             stats.linked++;
@@ -235,12 +228,7 @@ export class AccountingSyncService {
               sourceSystem: provider,
               externalEntityType: "invoice",
               externalId: external.externalId,
-              internalEntityType: "invoice",
               internalId: match.matchedInvoiceId,
-              matchConfidence:
-                match.confidence === "manual_required"
-                  ? "manual"
-                  : match.confidence,
             });
 
             stats.upgraded++;

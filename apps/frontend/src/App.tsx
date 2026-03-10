@@ -34,8 +34,8 @@ const DashboardRevenue = lazy(() => import("./pages/DashboardRevenue"));
 const DashboardUnpaid = lazy(() => import("./pages/DashboardUnpaid"));
 const DashboardQuotes = lazy(() => import("./pages/DashboardQuotes"));
 
-// ✅ MODIF: utilisation de Facture au lieu de Invoices
-const Facture = lazy(() => import("./pages/Facture"));
+// ✅ MODIF: renommage Facture -> Invoices
+const Invoices = lazy(() => import("./pages/Invoices"));
 const InvoiceDetail = lazy(() => import("./pages/InvoiceDetail"));
 
 // ✅ AJOUT: page publique paiement OK
@@ -158,8 +158,8 @@ export default function App() {
           <Route path="/assistant" element={<Assistant />} />
           <Route path="/actions" element={<Navigate to="/assistant" replace />} />
 
-          {/* ✅ MODIF: utilisation de Facture */}
-          <Route path="/invoices" element={<Facture />} />
+          {/* ✅ MODIF: utilisation de Invoices */}
+          <Route path="/invoices" element={<Invoices />} />
           <Route path="/invoices/new" element={<InvoiceDetail />} />
           <Route path="/invoices/:id" element={<InvoiceDetail />} />
           <Route path="/factures" element={<Navigate to="/invoices" replace />} />
