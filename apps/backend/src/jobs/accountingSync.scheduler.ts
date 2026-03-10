@@ -1,4 +1,5 @@
 // apps/backend/src/jobs/accountingSync.scheduler.ts
+import { ENV } from "../config/env";
 import { logger } from "../utils/logger";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { enqueueAccountingSyncJob } from "../queues/accountingSync.queue";
@@ -75,6 +76,14 @@ async function runAccountingSyncSchedulerTick(): Promise<void> {
 export function startAccountingSyncScheduler(
   intervalMs: number = DEFAULT_INTERVAL_MS
 ): void {
+  if (!ENV.ENABLE_SCHEDULER || !ENV.SCHEDULER_ENABLED) {
+    logger.info("AccountingSyncScheduler disabled", {
+      ENABLE_SCHEDULER: ENV.ENABLE_SCHEDULER,
+      SCHEDULER_ENABLED: ENV.SCHEDULER_ENABLED,
+    });
+    return;
+  }
+
   if (accountingSyncSchedulerStarted) {
     return;
   }

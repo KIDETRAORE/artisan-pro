@@ -132,12 +132,9 @@ async function findByExternalIdMap(
   const { data, error } = await supabaseAdmin
     .from("external_id_map")
     .select("internal_id")
-    .eq("user_id", userId)
-    .eq("source_system", candidate.sourceSystem)
-    .eq("external_entity_type", "invoice")
+    .eq("provider", candidate.sourceSystem)
+    .eq("object_type", "invoice")
     .eq("external_id", candidate.sourceExternalId)
-    .eq("internal_entity_type", "invoice")
-    .eq("is_active", true)
     .maybeSingle();
 
   if (error || !data?.internal_id) {

@@ -98,23 +98,4 @@ router.get(
   asyncHandler(IntegrationsController.getOdooInvoiceSyncEvents)
 );
 
-/* -------------------------------------------------------------------------- */
-/*                                WEBHOOKS ERP                                */
-/* -------------------------------------------------------------------------- */
-/**
- * ⚠️ Pas de permissions
- * ⚠️ Pas d'auth middleware
- * Vérification via header secret dans le controller
- */
-
-router.post(
-  "/webhooks/pennylane",
-  asyncHandler(IntegrationsController.pennylaneWebhook)
-);
-
-router.post(
-  "/webhooks/odoo",
-  asyncHandler(IntegrationsController.odooWebhook)
-);
-
 export default router;

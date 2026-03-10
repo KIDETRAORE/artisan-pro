@@ -2,6 +2,7 @@
 import { Queue } from "bullmq";
 import { redisOptions } from "../config/redis";
 import { HttpError } from "../utils/httpError";
+import { logger } from "../utils/logger";
 import type { AccountingSource } from "../services/accountingMatching.service";
 
 export type AccountingSyncQueueJobData = {
@@ -49,14 +50,23 @@ export async function enqueueAccountingSyncJob(params: {
     );
   }
 
-  return accountingSyncQueue.add(
+  const job = await accountingSyncQueue.add(
     "sync-accounting-provider",
     {
       userId,
       provider,
     },
     {
-      jobId: `accounting-sync:${provider}:${userId}`,
+      jobId: `accounting-sync_${provider}_${userId}_${Date.now()}`,
     }
   );
+
+  logger.info("AccountingSyncQueue job enqueued", {
+    jobId: job.id,
+    jobName: job.name,
+    userId,
+    provider,
+  });
+
+  return job;
 }

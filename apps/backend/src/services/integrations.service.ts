@@ -3,6 +3,7 @@ import { ENV } from "../config/env";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
+import { AccountingConnectorFactory } from "./accountingConnector.factory";
 
 const PENNYLANE_PROVIDER = "pennylane" as const;
 const ODOO_PROVIDER = "odoo" as const;
@@ -100,6 +101,33 @@ function getWorkspaceOdooConfig(): OdooCredential | null {
     database,
     login,
   };
+}
+
+async function testOdooCredential(
+  credential: OdooCredential
+): Promise<boolean> {
+  try {
+    const connector = AccountingConnectorFactory.create({
+      provider: "odoo",
+      config: {
+        baseUrl: credential.baseUrl,
+        database: credential.database,
+        login: credential.login,
+        apiKey: credential.apiKey,
+      },
+    });
+
+    await connector.listInvoices(undefined);
+    return true;
+  } catch (error) {
+    logger.warn("IntegrationsService.testOdooCredential failed", {
+      baseUrl: credential.baseUrl,
+      database: credential.database,
+      login: credential.login,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
 }
 
 async function getIntegrationRow(userId: string, provider: SupportedProvider) {
@@ -226,7 +254,7 @@ async function getIntegrationId(userId: string, provider: SupportedProvider) {
 async function getIntegrationSyncState(integrationId: string) {
   const { data, error } = await supabaseAdmin
     .from("integration_sync_state")
-    .select("error_count, last_cursor")
+    .select("error_count, cursor")
     .eq("integration_id", integrationId)
     .maybeSingle();
 
@@ -252,9 +280,8 @@ async function getLastCursor(
     return null;
   }
 
-  const { data: syncState, error: syncStateError } = await getIntegrationSyncState(
-    integration.id
-  );
+  const { data: syncState, error: syncStateError } =
+    await getIntegrationSyncState(integration.id);
 
   if (syncStateError) {
     logger.warn("IntegrationsService.getLastCursor sync state lookup failed", {
@@ -267,8 +294,8 @@ async function getLastCursor(
   }
 
   const lastCursor =
-    typeof (syncState as any)?.last_cursor === "string"
-      ? (syncState as any).last_cursor.trim()
+    typeof (syncState as any)?.cursor === "string"
+      ? (syncState as any).cursor.trim()
       : "";
 
   return lastCursor.length > 0 ? lastCursor : null;
@@ -309,7 +336,7 @@ async function markSyncSuccessInternal(params: {
   };
 
   if (cursor.length > 0) {
-    payload.last_cursor = cursor;
+    payload.cursor = cursor;
   }
 
   const { error: upsertError } = await supabaseAdmin
@@ -648,10 +675,19 @@ export class IntegrationsService {
     const usesWorkspaceKey = hasWorkspaceOdooConfig();
 
     if (!integration) {
+      const workspaceCredential = getWorkspaceOdooConfig();
+      const workspaceConnected = workspaceCredential
+        ? await testOdooCredential(workspaceCredential)
+        : false;
+
       return {
         provider: ODOO_PROVIDER,
-        connected: usesWorkspaceKey,
-        status: usesWorkspaceKey ? "workspace" : "disconnected",
+        connected: workspaceConnected,
+        status: usesWorkspaceKey
+          ? workspaceConnected
+            ? "workspace"
+            : "invalid_workspace"
+          : "disconnected",
         connectedAt: null,
         hasCredential: usesWorkspaceKey,
         usesWorkspaceKey,
@@ -671,31 +707,52 @@ export class IntegrationsService {
       throw new HttpError(500, "Failed to load Odoo credential");
     }
 
-    let hasCredential = false;
+    let storedCredential: OdooCredential | null = null;
 
     if (typeof token?.access_token === "string") {
       try {
         const parsed = JSON.parse(token.access_token) as Partial<OdooCredential>;
-        hasCredential =
-          typeof parsed.apiKey === "string" &&
-          parsed.apiKey.trim().length > 0 &&
-          typeof parsed.baseUrl === "string" &&
-          parsed.baseUrl.trim().length > 0 &&
-          typeof parsed.database === "string" &&
-          parsed.database.trim().length > 0 &&
-          typeof parsed.login === "string" &&
-          parsed.login.trim().length > 0;
+        const baseUrl =
+          typeof parsed.baseUrl === "string" ? parsed.baseUrl.trim() : "";
+        const database =
+          typeof parsed.database === "string" ? parsed.database.trim() : "";
+        const login =
+          typeof parsed.login === "string" ? parsed.login.trim() : "";
+        const apiKey =
+          typeof parsed.apiKey === "string" ? parsed.apiKey.trim() : "";
+
+        if (baseUrl && database && login && apiKey) {
+          storedCredential = {
+            baseUrl,
+            database,
+            login,
+            apiKey,
+          };
+        }
       } catch {
-        hasCredential = false;
+        storedCredential = null;
       }
     }
 
+    const credentialToTest = storedCredential ?? getWorkspaceOdooConfig();
+    const hasCredential = Boolean(storedCredential || usesWorkspaceKey);
+    const connected = credentialToTest
+      ? await testOdooCredential(credentialToTest)
+      : false;
+
     return {
       provider: ODOO_PROVIDER,
-      connected: hasCredential || usesWorkspaceKey,
-      status: String(
-        integration.status ?? (hasCredential ? "connected" : "pending")
-      ),
+      connected,
+      status: connected
+        ? String(
+            integration.status ??
+              (storedCredential
+                ? "connected"
+                : usesWorkspaceKey
+                  ? "workspace"
+                  : "pending")
+          )
+        : "invalid_credentials",
       connectedAt: integration.created_at ?? null,
       hasCredential,
       usesWorkspaceKey,
@@ -730,6 +787,17 @@ export class IntegrationsService {
 
     if (!baseUrl || !database || !login || !apiKey) {
       throw new HttpError(400, "Odoo credentials are required");
+    }
+
+    const isValid = await testOdooCredential({
+      baseUrl,
+      database,
+      login,
+      apiKey,
+    });
+
+    if (!isValid) {
+      throw new HttpError(400, "Invalid Odoo credentials");
     }
 
     const { data: integration, error } = await upsertIntegration({

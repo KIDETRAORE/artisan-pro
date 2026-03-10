@@ -61,6 +61,34 @@ function getErrorMessage(error: unknown): string {
   return "Une erreur est survenue.";
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function pollPennylaneStatus(attempts = 4, delayMs = 1000) {
+  let latest = await getPennylaneStatus();
+
+  for (let i = 1; i < attempts; i += 1) {
+    await wait(delayMs);
+    latest = await getPennylaneStatus();
+  }
+
+  return latest;
+}
+
+async function pollOdooStatus(attempts = 4, delayMs = 1000) {
+  let latest = await getOdooStatus();
+
+  for (let i = 1; i < attempts; i += 1) {
+    await wait(delayMs);
+    latest = await getOdooStatus();
+  }
+
+  return latest;
+}
+
 export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
   pennylane: {
     connection: null,
@@ -198,7 +226,7 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
 
     try {
       await syncPennylane();
-      const refreshed = await getPennylaneStatus();
+      const refreshed = await pollPennylaneStatus();
 
       set((state) => ({
         pennylane: {
@@ -338,7 +366,7 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
 
     try {
       await syncOdoo();
-      const refreshed = await getOdooStatus();
+      const refreshed = await pollOdooStatus();
 
       set((state) => ({
         odoo: {

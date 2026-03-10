@@ -1,3 +1,4 @@
+// apps/backend/src/server.ts
 import http from "http";
 import app from "./app";
 import { ENV } from "./config/env";
@@ -10,6 +11,9 @@ import "./jobs/accountingSync.job";
 import { startInvoiceRemindersScheduler } from "./schedulers/reminders.scheduler";
 import "./workers/remindersScan.worker";
 import "./workers/invoiceReminder.worker";
+
+// ✅ AJOUT: scheduler sync compta
+import { startAccountingSyncScheduler } from "./jobs/accountingSync.scheduler";
 
 if (!ENV.PORT || Number.isNaN(ENV.PORT)) {
   logger.error("Invalid or missing ENV.PORT");
@@ -54,6 +58,19 @@ server.listen(PORT, () => {
     });
   } catch (err: unknown) {
     logger.error("Invoice reminders scheduler start failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // ✅ AJOUT: scheduler sync compta
+  try {
+    startAccountingSyncScheduler();
+    logger.info("Accounting sync scheduler start requested", {
+      ENABLE_SCHEDULER: ENV.ENABLE_SCHEDULER,
+      SCHEDULER_ENABLED: ENV.SCHEDULER_ENABLED,
+    });
+  } catch (err: unknown) {
+    logger.error("Accounting sync scheduler start failed", {
       message: err instanceof Error ? err.message : String(err),
     });
   }

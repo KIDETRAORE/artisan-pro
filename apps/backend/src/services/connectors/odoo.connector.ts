@@ -106,7 +106,8 @@ function mapOdooInvoice(record: OdooInvoiceRecord): ExternalInvoice {
     issueDate: toIsoDate(record.invoice_date ?? record.date),
     dueDate: toIsoDate(record.invoice_date_due),
     totalAmountCents:
-      typeof record.amount_total === "number" && Number.isFinite(record.amount_total)
+      typeof record.amount_total === "number" &&
+      Number.isFinite(record.amount_total)
         ? Math.round(record.amount_total * 100)
         : null,
     currency: extractCurrencyCode(record.currency_id) ?? "EUR",
@@ -223,12 +224,8 @@ export class OdooConnector implements AccountingConnector {
     });
   }
 
-  async listInvoices(since?: string): Promise<ExternalInvoice[]> {
+  async listInvoices(_since?: string): Promise<ExternalInvoice[]> {
     const domain: unknown[] = [["move_type", "=", "out_invoice"]];
-
-    if (since) {
-      domain.push(["write_date", ">=", since]);
-    }
 
     const records = await this.request<OdooInvoiceRecord[]>(
       "/json/2/account.move/search_read",
@@ -338,12 +335,8 @@ export class OdooConnector implements AccountingConnector {
     });
   }
 
-  async listPayments(since?: string): Promise<ExternalPayment[]> {
+  async listPayments(_since?: string): Promise<ExternalPayment[]> {
     const domain: unknown[] = [];
-
-    if (since) {
-      domain.push(["write_date", ">=", since]);
-    }
 
     const records = await this.request<OdooPaymentRecord[]>(
       "/json/2/account.payment/search_read",

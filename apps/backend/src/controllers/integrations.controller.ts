@@ -1,7 +1,6 @@
 // apps/backend/src/controllers/integrations.controller.ts
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { ENV } from "../config/env";
 import { requireUser } from "../utils/requireUser";
 import { HttpError } from "../utils/httpError";
 import { IntegrationsService } from "../services/integrations.service";
@@ -27,26 +26,6 @@ const SyncEventsQuerySchema = z.object({
 const InvoiceParamsSchema = z.object({
   invoiceId: z.string().uuid(),
 });
-
-function assertWebhookSecret(
-  req: Request,
-  expectedSecret: string | undefined,
-  provider: "pennylane" | "odoo"
-): void {
-  const configuredSecret = String(expectedSecret ?? "").trim();
-
-  if (!configuredSecret) {
-    return;
-  }
-
-  const receivedSecret = String(
-    req.headers["x-artisanpro-webhook-secret"] ?? ""
-  ).trim();
-
-  if (!receivedSecret || receivedSecret !== configuredSecret) {
-    throw new HttpError(401, `Invalid ${provider} webhook secret`);
-  }
-}
 
 export class IntegrationsController {
   static async pennylaneStatus(req: Request, res: Response) {
@@ -114,26 +93,6 @@ export class IntegrationsController {
       success: true,
       provider: "pennylane",
       message: "Sync job enqueued",
-    });
-  }
-
-  static async pennylaneWebhook(req: Request, res: Response) {
-    assertWebhookSecret(req, ENV.PENNYLANE_WEBHOOK_SECRET, "pennylane");
-
-    const userId = String(req.body?.userId ?? "").trim();
-    if (!userId) {
-      throw new HttpError(400, "Missing userId in Pennylane webhook payload");
-    }
-
-    await enqueueAccountingSyncJob({
-      userId,
-      provider: "pennylane",
-    });
-
-    return res.status(202).json({
-      success: true,
-      provider: "pennylane",
-      message: "Webhook sync job enqueued",
     });
   }
 
@@ -289,26 +248,6 @@ export class IntegrationsController {
       success: true,
       provider: "odoo",
       message: "Sync job enqueued",
-    });
-  }
-
-  static async odooWebhook(req: Request, res: Response) {
-    assertWebhookSecret(req, ENV.ODOO_WEBHOOK_SECRET, "odoo");
-
-    const userId = String(req.body?.userId ?? "").trim();
-    if (!userId) {
-      throw new HttpError(400, "Missing userId in Odoo webhook payload");
-    }
-
-    await enqueueAccountingSyncJob({
-      userId,
-      provider: "odoo",
-    });
-
-    return res.status(202).json({
-      success: true,
-      provider: "odoo",
-      message: "Webhook sync job enqueued",
     });
   }
 
