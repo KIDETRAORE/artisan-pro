@@ -8,6 +8,7 @@ import {
 import { InvoicesService } from "./invoices.service";
 import { IntegrationsService } from "./integrations.service";
 import { ExternalIdMapService } from "./externalIdMap.service";
+import { ContactsService } from "./contacts.service";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
@@ -157,8 +158,28 @@ export class AccountingSyncService {
         lastCursor ?? undefined
       );
 
+      logger.info("AccountingSync fetched external invoices", {
+        userId,
+        provider,
+        lastCursor,
+        count: externalInvoices.length,
+        externalIds: externalInvoices.map((invoice) => invoice.externalId),
+      });
+
       for (const external of externalInvoices) {
         try {
+          logger.info("AccountingSync processing external invoice", {
+            userId,
+            provider,
+            externalId: external.externalId,
+            invoiceNumber: external.invoiceNumber,
+            clientName: external.clientName,
+            issueDate: external.issueDate,
+            dueDate: external.dueDate,
+            totalAmountCents: external.totalAmountCents,
+            status: external.status ?? null,
+          });
+
           const match =
             await AccountingMatchingService.matchInvoiceCandidate(userId, {
               sourceSystem: provider,
@@ -170,10 +191,41 @@ export class AccountingSyncService {
               totalAmountCents: external.totalAmountCents,
             });
 
+          logger.info("AccountingSync invoice match result", {
+            userId,
+            provider,
+            externalId: external.externalId,
+            decision: match.decision,
+            confidence: match.confidence,
+            matchedInvoiceId: match.matchedInvoiceId,
+            matchedBy: match.matchedBy,
+            reason: match.reason,
+          });
+
           if (match.decision === "create_new") {
+            logger.info("AccountingSync creating invoice from external invoice", {
+              userId,
+              provider,
+              externalId: external.externalId,
+              invoiceNumber: external.invoiceNumber,
+            });
+
+            const contact = await ContactsService.findOrCreateContact({
+              userId,
+              sourceSystem: provider,
+              input: {
+                name: external.clientName ?? "Client",
+                contact_type: "client",
+                email: null,
+                source_system: provider,
+                source_external_id: null,
+              },
+            });
+
             const createdInvoice = await InvoicesService.createInvoice(userId, {
               client_name: external.clientName ?? "Client",
               client_email: null,
+              contact_id: contact.id,
               total_amount: (external.totalAmountCents ?? 0) / 100,
               due_date: external.dueDate ?? new Date().toISOString(),
               status: "sent",
@@ -181,6 +233,13 @@ export class AccountingSyncService {
               source_system: provider,
               source_external_id: external.externalId,
               invoice_number: external.invoiceNumber,
+            });
+
+            logger.info("AccountingSync created invoice from external invoice", {
+              userId,
+              provider,
+              externalId: external.externalId,
+              invoiceId: createdInvoice.id,
             });
 
             await ExternalIdMapService.upsertExternalMapping({
@@ -191,17 +250,81 @@ export class AccountingSyncService {
               internalId: createdInvoice.id,
             });
 
+            logger.info("AccountingSync external mapping upserted", {
+              userId,
+              provider,
+              externalId: external.externalId,
+              internalId: createdInvoice.id,
+            });
+
             stats.created++;
             continue;
           }
 
           if (match.decision === "link_existing" && match.matchedInvoiceId) {
+            const linkedInvoicePatch: Record<string, unknown> = {
+              source_system: provider,
+              source_external_id: external.externalId,
+            };
+
+            const contact = await ContactsService.findOrCreateContact({
+              userId,
+              sourceSystem: provider,
+              input: {
+                name: external.clientName ?? "Client",
+                contact_type: "client",
+                email: null,
+                source_system: provider,
+                source_external_id: null,
+              },
+            });
+
+            linkedInvoicePatch.contact_id = contact.id;
+
+            if (
+              typeof external.clientName === "string" &&
+              external.clientName.trim().length > 0
+            ) {
+              linkedInvoicePatch.client_name = external.clientName.trim();
+            }
+
+            if (
+              typeof external.invoiceNumber === "string" &&
+              external.invoiceNumber.trim().length > 0
+            ) {
+              linkedInvoicePatch.invoice_number = external.invoiceNumber.trim();
+            }
+
+            if (
+              typeof external.dueDate === "string" &&
+              external.dueDate.trim().length > 0
+            ) {
+              linkedInvoicePatch.due_date = external.dueDate.trim();
+            }
+
+            const { error: linkUpdateError } = await supabaseAdmin
+              .from("invoices")
+              .update(linkedInvoicePatch)
+              .eq("id", match.matchedInvoiceId)
+              .eq("user_id", userId);
+
+            if (linkUpdateError) {
+              throw new HttpError(500, "Failed to refresh linked invoice");
+            }
+
             await ExternalIdMapService.upsertExternalMapping({
               userId,
               sourceSystem: provider,
               externalEntityType: "invoice",
               externalId: external.externalId,
               internalId: match.matchedInvoiceId,
+            });
+
+            logger.info("AccountingSync linked existing invoice", {
+              userId,
+              provider,
+              externalId: external.externalId,
+              matchedInvoiceId: match.matchedInvoiceId,
             });
 
             stats.linked++;
@@ -231,11 +354,25 @@ export class AccountingSyncService {
               internalId: match.matchedInvoiceId,
             });
 
+            logger.info("AccountingSync upgraded invoice source", {
+              userId,
+              provider,
+              externalId: external.externalId,
+              matchedInvoiceId: match.matchedInvoiceId,
+            });
+
             stats.upgraded++;
             continue;
           }
 
           if (match.decision === "ignore_lower_priority") {
+            logger.info("AccountingSync ignored lower priority invoice", {
+              userId,
+              provider,
+              externalId: external.externalId,
+              reason: match.reason,
+            });
+
             stats.ignored++;
             continue;
           }
@@ -261,6 +398,16 @@ export class AccountingSyncService {
           });
         }
       }
+
+      logger.info("AccountingSync finished processing invoices", {
+        userId,
+        provider,
+        created: stats.created,
+        linked: stats.linked,
+        upgraded: stats.upgraded,
+        ignored: stats.ignored,
+        conflicts: stats.conflicts,
+      });
 
       await markSyncSuccess(userId, provider, syncStartedAt);
 

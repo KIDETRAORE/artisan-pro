@@ -5,7 +5,11 @@ import { logger } from "../utils/logger";
 import { HttpError } from "../utils/httpError";
 import type { AccountingSource } from "./accountingMatching.service";
 
-type ExternalEntityType = "invoice" | "payment";
+export type ExternalEntityType =
+  | "invoice"
+  | "payment"
+  | "customer"
+  | "supplier";
 
 export type UpsertExternalMappingParams = {
   userId: string;

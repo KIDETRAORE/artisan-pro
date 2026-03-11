@@ -1,6 +1,6 @@
-// apps/frontend/src/pages/Facture.tsx
+// apps/frontend/src/pages/Invoices.tsx
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Search,
   FileCheck,
@@ -15,6 +15,8 @@ import {
   ListChecks,
   Plus,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   deleteInvoice,
@@ -522,8 +524,11 @@ function dedupeFactures(params: {
   return [...realFactures, ...filteredCompta];
 }
 
-export default function Facture() {
+const FULL_LIST_PAGE_SIZE = 50;
+
+export default function Invoices() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const report = useComptaReportStore((s) => s.report);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -533,6 +538,9 @@ export default function Facture() {
   );
   const [realInvoices, setRealInvoices] = useState<Invoice[]>([]);
   const [hiddenComptaIds, setHiddenComptaIds] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const isFullListView = searchParams.get("view") === "all";
 
   const loadInvoices = useCallback(async () => {
     try {
@@ -566,6 +574,10 @@ export default function Facture() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [loadInvoices]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, isFullListView]);
 
   const comptaFactures = useMemo(() => {
     return buildComptaFactures(report).filter(
@@ -615,6 +627,41 @@ export default function Facture() {
         item.id.toLowerCase().includes(needle)
     );
   }, [mergedFactures, searchTerm]);
+
+  const totalPages = useMemo(() => {
+    if (!isFullListView) return 1;
+    return Math.max(1, Math.ceil(filteredFactures.length / FULL_LIST_PAGE_SIZE));
+  }, [filteredFactures.length, isFullListView]);
+
+  useEffect(() => {
+    setCurrentPage((prev) => Math.min(prev, totalPages));
+  }, [totalPages]);
+
+  const displayedFactures = useMemo(() => {
+    if (!isFullListView) {
+      return filteredFactures.slice(0, 5);
+    }
+
+    const startIndex = (currentPage - 1) * FULL_LIST_PAGE_SIZE;
+    return filteredFactures.slice(
+      startIndex,
+      startIndex + FULL_LIST_PAGE_SIZE
+    );
+  }, [filteredFactures, isFullListView, currentPage]);
+
+  const currentRangeLabel = useMemo(() => {
+    if (!isFullListView || filteredFactures.length === 0) {
+      return null;
+    }
+
+    const start = (currentPage - 1) * FULL_LIST_PAGE_SIZE + 1;
+    const end = Math.min(
+      currentPage * FULL_LIST_PAGE_SIZE,
+      filteredFactures.length
+    );
+
+    return `${start}-${end} / ${filteredFactures.length}`;
+  }, [currentPage, filteredFactures.length, isFullListView]);
 
   const invoiceInsight = useMemo(() => {
     if (report?.summary?.resume) {
@@ -681,6 +728,18 @@ export default function Facture() {
 
   const onOpenInvoice = (invoiceId: string) => {
     navigate(`/invoices/${invoiceId}`);
+  };
+
+  const onOpenInvoicesList = () => {
+    navigate("/invoices?view=all");
+  };
+
+  const onPreviousPage = () => {
+    setCurrentPage((prev) => Math.max(1, prev - 1));
+  };
+
+  const onNextPage = () => {
+    setCurrentPage((prev) => Math.min(totalPages, prev + 1));
   };
 
   const onDeleteInvoice = async (invoiceId: string) => {
@@ -858,6 +917,30 @@ export default function Facture() {
       </div>
 
       <div className="bg-[var(--theme-card)] rounded-[2rem] shadow-xl shadow-slate-200/40 border border-[var(--theme-border)] overflow-hidden">
+        {isFullListView ? (
+          <div className="flex items-center justify-end gap-3 border-b border-[var(--theme-border)] px-6 py-4">
+            <span className="text-xs font-bold text-[var(--theme-muted)]">
+              {currentRangeLabel ?? `0 / ${filteredFactures.length}`}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onPreviousPage}
+                disabled={currentPage <= 1}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-text)] transition-colors hover:bg-[var(--theme-bg)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                onClick={onNextPage}
+                disabled={currentPage >= totalPages}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-text)] transition-colors hover:bg-[var(--theme-bg)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -881,7 +964,7 @@ export default function Facture() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredFactures.map((fac) => {
+              {displayedFactures.map((fac) => {
                 const invoiceId = fac.invoiceId;
                 const isReminding = remindingInvoiceId === invoiceId;
                 const canOpenInvoice =
@@ -969,6 +1052,17 @@ export default function Facture() {
           </table>
         </div>
       </div>
+
+      {!isFullListView && filteredFactures.length > 5 ? (
+        <div className="flex justify-center">
+          <button
+            onClick={onOpenInvoicesList}
+            className="inline-flex items-center justify-center rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-5 py-3 text-sm font-bold text-[var(--theme-text)] shadow-sm transition-colors hover:bg-[var(--theme-bg)]"
+          >
+            Voir la liste complète des factures
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

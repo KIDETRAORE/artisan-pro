@@ -1,5 +1,6 @@
 // apps/backend/src/services/connectors/odoo.connector.ts
 import { HttpError } from "../../utils/httpError";
+import { logger } from "../../utils/logger";
 import {
   type AccountingConnector,
   type CanonicalInvoiceInput,
@@ -99,10 +100,26 @@ function mapOdooInvoice(record: OdooInvoiceRecord): ExternalInvoice {
     String(record.state ?? "").trim() ||
     null;
 
+  const clientName = extractDisplayName(record.partner_id);
+  const invoiceNumber =
+    typeof record.name === "string" && record.name.trim().length > 0
+      ? record.name.trim()
+      : typeof record.ref === "string" && record.ref.trim().length > 0
+        ? record.ref.trim()
+        : `ODOO-${record.id}`;
+
+  logger.info("OdooConnector.mapOdooInvoice partner mapping", {
+    externalId: String(record.id ?? "").trim(),
+    invoiceNumber,
+    partner_id: record.partner_id ?? null,
+    extractedClientName: clientName,
+    moveType: record.move_type ?? null,
+  });
+
   return {
     externalId: String(record.id ?? "").trim(),
-    invoiceNumber: record.name ?? record.ref ?? null,
-    clientName: extractDisplayName(record.partner_id),
+    invoiceNumber,
+    clientName,
     issueDate: toIsoDate(record.invoice_date ?? record.date),
     dueDate: toIsoDate(record.invoice_date_due),
     totalAmountCents:
@@ -218,14 +235,14 @@ export class OdooConnector implements AccountingConnector {
 
   async testConnection(): Promise<void> {
     await this.request<unknown[]>("/json/2/account.move/search_read", {
-      domain: [["move_type", "=", "out_invoice"]],
+      domain: [["move_type", "in", ["out_invoice", "in_invoice"]]],
       fields: ["id"],
       limit: 1,
     });
   }
 
   async listInvoices(_since?: string): Promise<ExternalInvoice[]> {
-    const domain: unknown[] = [["move_type", "=", "out_invoice"]];
+    const domain: unknown[] = [["move_type", "in", ["out_invoice", "in_invoice"]]];
 
     const records = await this.request<OdooInvoiceRecord[]>(
       "/json/2/account.move/search_read",

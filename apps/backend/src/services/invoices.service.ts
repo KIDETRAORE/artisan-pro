@@ -21,6 +21,7 @@ export type InvoiceRow = {
   user_id: string;
   client_name: string;
   client_email: string | null;
+  contact_id?: string | null;
   total_amount: number;
   status: string;
   due_date: string;
@@ -43,6 +44,7 @@ export type InvoiceRow = {
 const CreateInvoiceSchema = z.object({
   client_name: z.string().min(1),
   client_email: z.string().email().optional().nullable(),
+  contact_id: z.string().uuid().optional().nullable(),
   total_amount: z.number().finite().nonnegative(),
   due_date: z.string().min(1),
   project_id: z.string().uuid().optional().nullable(),
@@ -62,6 +64,7 @@ const CreateInvoiceSchema = z.object({
 const UpdateInvoiceSchema = z.object({
   client_name: z.string().min(1).optional(),
   client_email: z.string().email().optional().nullable(),
+  contact_id: z.string().uuid().optional().nullable(),
   total_amount: z.number().finite().nonnegative().optional(),
   due_date: z.string().min(1).optional(),
   project_id: z.string().uuid().optional().nullable(),
@@ -157,9 +160,7 @@ async function syncInvoiceExternalMapping(params: {
     }),
     externalEntityType: "invoice",
     externalId: sourceExternalId,
-    internalEntityType: "invoice",
     internalId: params.invoiceId,
-    matchConfidence: params.matchConfidence ?? "manual",
   });
 }
 
@@ -172,14 +173,19 @@ function assertInvoiceUpdateAllowed(
   }
 
   if (beforeStatus === "sent" || beforeStatus === "overdue") {
-    const allowedFields = new Set(["client_email", "due_date", "project_id"]);
+    const allowedFields = new Set([
+      "client_email",
+      "contact_id",
+      "due_date",
+      "project_id",
+    ]);
     const patchKeys = Object.keys(patch);
 
     const hasForbiddenField = patchKeys.some((key) => !allowedFields.has(key));
     if (hasForbiddenField) {
       throw new HttpError(
         409,
-        "Only client_email, due_date and project_id can be edited once invoice is sent"
+        "Only client_email, contact_id, due_date and project_id can be edited once invoice is sent"
       );
     }
   }
@@ -322,6 +328,7 @@ export class InvoicesService {
         user_id: userId,
         client_name: payload.client_name,
         client_email: payload.client_email ?? null,
+        contact_id: payload.contact_id ?? null,
         total_amount: payload.total_amount,
         due_date: payload.due_date,
         project_id: payload.project_id ?? null,

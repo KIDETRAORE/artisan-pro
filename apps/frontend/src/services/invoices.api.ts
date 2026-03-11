@@ -1,4 +1,3 @@
-// apps/frontend/src/services/invoices.api.ts
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "canceled";
@@ -41,6 +40,11 @@ export type InvoiceLine = {
 export type PayInvoiceResponse = {
   checkoutUrl: string;
   sessionId?: string;
+};
+
+type ListInvoicesResponse = {
+  success: boolean;
+  invoices: Invoice[];
 };
 
 type ListInvoiceLinesResponse = {
@@ -109,8 +113,19 @@ export function moneyCentsFromInvoice(inv: Invoice): number {
 }
 
 export async function listInvoices(): Promise<Invoice[]> {
-  const data = await fetchWithAuth<unknown>(API.invoices, { method: "GET" });
-  return (Array.isArray(data) ? (data as Invoice[]) : []) ?? [];
+  const data = await fetchWithAuth<any>(API.invoices, { method: "GET" });
+
+  // Si le backend renvoie l'enveloppe { success, invoices }
+  if (data && typeof data === 'object' && 'invoices' in data && Array.isArray(data.invoices)) {
+    return data.invoices;
+  }
+
+  // Si le backend renvoie directement le tableau (ancien comportement)
+  if (Array.isArray(data)) {
+    return data as Invoice[];
+  }
+
+  return [];
 }
 
 export async function getInvoice(id: string): Promise<Invoice> {

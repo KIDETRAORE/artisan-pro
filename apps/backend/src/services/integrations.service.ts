@@ -1,9 +1,9 @@
-// apps/backend/src/services/integrations.service.ts
 import { ENV } from "../config/env";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
 import { AccountingConnectorFactory } from "./accountingConnector.factory";
+import { AccountingSyncService } from "./accountingSync.service";
 
 const PENNYLANE_PROVIDER = "pennylane" as const;
 const ODOO_PROVIDER = "odoo" as const;
@@ -845,6 +845,13 @@ export class IntegrationsService {
         message: syncStateError.message,
       });
     }
+
+    // --- MODIFICATION CORRIGÉE ---
+    // Déclenchement de la synchronisation asynchrone après connexion réussie
+    AccountingSyncService.syncInvoices(userId, ODOO_PROVIDER).catch(err => 
+      logger.error("Erreur synchro auto Odoo lors de la connexion", { userId, error: err })
+    );
+    // ----------------------------
 
     return await this.getOdooStatus(userId);
   }
