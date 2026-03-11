@@ -187,10 +187,12 @@ export default function Payments(): React.ReactElement {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Paiements</h1>
-        <p className="mt-1 text-sm text-gray-600">
+        <h1 className="text-2xl font-semibold text-[var(--theme-text)]">
+          Paiements
+        </h1>
+        <p className="mt-1 text-sm text-[var(--theme-muted)]">
           Gère les encaissements et décaissements sur la couche canonique
-          <code className="ml-1 rounded bg-gray-100 px-1 py-0.5 text-xs">
+          <code className="ml-1 rounded bg-[var(--theme-bg)] px-1 py-0.5 text-xs text-[var(--theme-text)]">
             payments
           </code>
           .
@@ -203,15 +205,19 @@ export default function Payments(): React.ReactElement {
         </div>
       ) : null}
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-medium">Nouveau paiement</h2>
+      <section className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+        <h2 className="text-lg font-medium text-[var(--theme-text)]">
+          Nouveau paiement
+        </h2>
 
         <form className="mt-4 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
           <label className="space-y-1">
-            <span className="text-sm font-medium">Montant (centimes)</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Montant (centimes)
+            </span>
             <input
               type="number"
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.amount_cents}
               onChange={(e) => updateForm("amount_cents", e.target.value)}
               placeholder="120000"
@@ -219,9 +225,11 @@ export default function Payments(): React.ReactElement {
           </label>
 
           <label className="space-y-1">
-            <span className="text-sm font-medium">Devise</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Devise
+            </span>
             <input
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.currency}
               onChange={(e) => updateForm("currency", e.target.value)}
               placeholder="EUR"
@@ -229,19 +237,23 @@ export default function Payments(): React.ReactElement {
           </label>
 
           <label className="space-y-1">
-            <span className="text-sm font-medium">Date de paiement</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Date de paiement
+            </span>
             <input
               type="date"
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.payment_date}
               onChange={(e) => updateForm("payment_date", e.target.value)}
             />
           </label>
 
           <label className="space-y-1">
-            <span className="text-sm font-medium">Statut</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Statut
+            </span>
             <select
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.status}
               onChange={(e) =>
                 updateForm("status", e.target.value as PaymentStatus)
@@ -257,9 +269,11 @@ export default function Payments(): React.ReactElement {
           </label>
 
           <label className="space-y-1">
-            <span className="text-sm font-medium">Sens</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Sens
+            </span>
             <select
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.direction}
               onChange={(e) =>
                 updateForm("direction", e.target.value as PaymentDirection)
@@ -271,9 +285,11 @@ export default function Payments(): React.ReactElement {
           </label>
 
           <label className="space-y-1">
-            <span className="text-sm font-medium">Référence</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Référence
+            </span>
             <input
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.reference}
               onChange={(e) => updateForm("reference", e.target.value)}
               placeholder="VIR-2026-001"
@@ -281,9 +297,11 @@ export default function Payments(): React.ReactElement {
           </label>
 
           <label className="space-y-1">
-            <span className="text-sm font-medium">Contact ID</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Contact ID
+            </span>
             <input
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.contact_id}
               onChange={(e) => updateForm("contact_id", e.target.value)}
               placeholder="UUID contact"
@@ -291,9 +309,11 @@ export default function Payments(): React.ReactElement {
           </label>
 
           <label className="space-y-1">
-            <span className="text-sm font-medium">Projet / chantier ID</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Projet / chantier ID
+            </span>
             <input
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.project_id}
               onChange={(e) => updateForm("project_id", e.target.value)}
               placeholder="UUID projet"
@@ -301,9 +321,11 @@ export default function Payments(): React.ReactElement {
           </label>
 
           <label className="space-y-1">
-            <span className="text-sm font-medium">Sales invoice ID</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Sales invoice ID
+            </span>
             <input
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.sales_invoice_id}
               onChange={(e) => updateForm("sales_invoice_id", e.target.value)}
               placeholder="UUID facture client"
@@ -311,9 +333,11 @@ export default function Payments(): React.ReactElement {
           </label>
 
           <label className="space-y-1">
-            <span className="text-sm font-medium">Purchase bill ID</span>
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              Purchase bill ID
+            </span>
             <input
-              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.purchase_bill_id}
               onChange={(e) => updateForm("purchase_bill_id", e.target.value)}
               placeholder="UUID facture fournisseur"
@@ -324,7 +348,7 @@ export default function Payments(): React.ReactElement {
             <button
               type="submit"
               disabled={submitting}
-              className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-xl bg-[var(--theme-primary)] px-4 py-2 text-sm font-medium text-[var(--theme-primary-contrast)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? "Création..." : "Créer le paiement"}
             </button>
@@ -332,48 +356,68 @@ export default function Payments(): React.ReactElement {
         </form>
       </section>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-medium">Liste des paiements</h2>
+          <h2 className="text-lg font-medium text-[var(--theme-text)]">
+            Liste des paiements
+          </h2>
           <button
             type="button"
             onClick={() => setRefreshKey((prev) => prev + 1)}
-            className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
+            className="rounded-xl border border-[var(--theme-border)] px-3 py-2 text-sm text-[var(--theme-text)]"
           >
             Rafraîchir
           </button>
         </div>
 
         {loading ? (
-          <div className="mt-4 text-sm text-gray-500">Chargement...</div>
+          <div className="mt-4 text-sm text-[var(--theme-muted)]">
+            Chargement...
+          </div>
         ) : sortedItems.length === 0 ? (
-          <div className="mt-4 text-sm text-gray-500">
+          <div className="mt-4 text-sm text-[var(--theme-muted)]">
             Aucun paiement trouvé.
           </div>
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="min-w-full border-collapse text-sm">
               <thead>
-                <tr className="border-b border-gray-200 text-left">
-                  <th className="px-3 py-2 font-medium">Date</th>
-                  <th className="px-3 py-2 font-medium">Montant</th>
-                  <th className="px-3 py-2 font-medium">Sens</th>
-                  <th className="px-3 py-2 font-medium">Statut</th>
-                  <th className="px-3 py-2 font-medium">Référence</th>
-                  <th className="px-3 py-2 font-medium">Source</th>
-                  <th className="px-3 py-2 font-medium">Actions</th>
+                <tr className="border-b border-[var(--theme-border)] text-left">
+                  <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
+                    Date
+                  </th>
+                  <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
+                    Montant
+                  </th>
+                  <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
+                    Sens
+                  </th>
+                  <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
+                    Statut
+                  </th>
+                  <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
+                    Référence
+                  </th>
+                  <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
+                    Source
+                  </th>
+                  <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {sortedItems.map((item) => (
-                  <tr key={item.id} className="border-b border-gray-100">
-                    <td className="px-3 py-2">{formatDate(item.payment_date)}</td>
-                    <td className="px-3 py-2">
+                  <tr key={item.id} className="border-b border-[var(--theme-border)]">
+                    <td className="px-3 py-2 text-[var(--theme-text)]">
+                      {formatDate(item.payment_date)}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--theme-text)]">
                       {formatAmount(item.amount_cents)}
                     </td>
                     <td className="px-3 py-2">
                       <select
-                        className="rounded-lg border border-gray-300 px-2 py-1"
+                        className="rounded-lg border border-[var(--theme-border)] bg-[var(--theme-card)] px-2 py-1 text-[var(--theme-text)]"
                         value={
                           (item.direction as PaymentDirection | null) ?? "inbound"
                         }
@@ -390,7 +434,7 @@ export default function Payments(): React.ReactElement {
                     </td>
                     <td className="px-3 py-2">
                       <select
-                        className="rounded-lg border border-gray-300 px-2 py-1"
+                        className="rounded-lg border border-[var(--theme-border)] bg-[var(--theme-card)] px-2 py-1 text-[var(--theme-text)]"
                         value={(item.status as PaymentStatus | null) ?? "pending"}
                         onChange={(e) =>
                           void handleStatusChange(
@@ -407,9 +451,13 @@ export default function Payments(): React.ReactElement {
                         <option value="refunded">Remboursé</option>
                       </select>
                     </td>
-                    <td className="px-3 py-2">{item.reference || "—"}</td>
-                    <td className="px-3 py-2">{item.source_system || "—"}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500">
+                    <td className="px-3 py-2 text-[var(--theme-text)]">
+                      {item.reference || "—"}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--theme-text)]">
+                      {item.source_system || "—"}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-[var(--theme-muted)]">
                       {item.id}
                     </td>
                   </tr>
