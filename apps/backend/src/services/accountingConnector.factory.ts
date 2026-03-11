@@ -4,7 +4,6 @@ import type {
   AccountingConnector,
   AccountingProvider,
 } from "./connectors/accountingConnector.types";
-import { PennylaneConnector } from "../integrations/providers/pennylane/pennylane.connector";
 import {
   OdooConnector,
   type OdooConnectorConfig,
@@ -28,7 +27,10 @@ export class AccountingConnectorFactory {
   ): AccountingConnector {
     switch (input.provider) {
       case "pennylane":
-        return new PennylaneConnector() as unknown as AccountingConnector;
+        throw new HttpError(
+          400,
+          "Pennylane accounting sync connector is not implemented yet"
+        );
 
       case "odoo":
         return new OdooConnector(input.config);

@@ -30,6 +30,7 @@ export type MatchDecision =
   | "flag_conflict";
 
 export type InvoiceMatchCandidate = {
+  type: "sale" | "purchase";
   sourceSystem: AccountingSource;
   sourceExternalId: string | null;
   invoiceNumber: string | null;
@@ -52,14 +53,30 @@ export type InvoiceMatchResult = {
   reason: string;
 };
 
-type InvoiceLookupRow = {
+type CanonicalInvoiceLookupRow = {
   id: string;
-  invoice_number: string | null;
-  client_name: string | null;
+  number: string | null;
+  contact_id: string | null;
   issue_date: string | null;
   due_date: string | null;
   total_amount_cents: number | null;
   source_system: string | null;
+};
+
+type ContactLookupRow = {
+  id: string;
+  name: string | null;
+};
+
+type CanonicalInvoiceDbRow = {
+  id?: unknown;
+  invoice_number?: unknown;
+  bill_number?: unknown;
+  contact_id?: unknown;
+  issue_date?: unknown;
+  due_date?: unknown;
+  total_amount_cents?: unknown;
+  source_system?: unknown;
 };
 
 function normalizeText(value: string | null | undefined): string {
@@ -123,6 +140,105 @@ function comparePriority(
   return "link_existing";
 }
 
+function getCanonicalTable(
+  candidate: InvoiceMatchCandidate
+): "sales_invoices" | "purchase_bills" {
+  return candidate.type === "purchase" ? "purchase_bills" : "sales_invoices";
+}
+
+function getNumberColumn(
+  candidate: InvoiceMatchCandidate
+): "invoice_number" | "bill_number" {
+  return candidate.type === "purchase" ? "bill_number" : "invoice_number";
+}
+
+function toNullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+async function getCanonicalInvoiceById(
+  userId: string,
+  candidate: InvoiceMatchCandidate,
+  id: string
+): Promise<{ id: string; source_system: string | null } | null> {
+  const table = getCanonicalTable(candidate);
+
+  const { data, error } = await supabaseAdmin
+    .from(table)
+    .select("id, source_system")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error || !data?.id) {
+    return null;
+  }
+
+  return {
+    id: String(data.id),
+    source_system: toNullableString(data.source_system),
+  };
+}
+
+async function listCanonicalInvoices(
+  userId: string,
+  candidate: InvoiceMatchCandidate
+): Promise<CanonicalInvoiceLookupRow[]> {
+  const table = getCanonicalTable(candidate);
+  const numberColumn = getNumberColumn(candidate);
+
+  const { data, error } = await supabaseAdmin
+    .from(table)
+    .select(
+      `id, ${numberColumn}, contact_id, issue_date, due_date, total_amount_cents, source_system`
+    )
+    .eq("user_id", userId);
+
+  if (error || !Array.isArray(data)) {
+    return [];
+  }
+
+  return (data as CanonicalInvoiceDbRow[]).map((row) => ({
+    id: String(row.id ?? ""),
+    number:
+      numberColumn === "bill_number"
+        ? toNullableString(row.bill_number)
+        : toNullableString(row.invoice_number),
+    contact_id: toNullableString(row.contact_id),
+    issue_date: toNullableString(row.issue_date),
+    due_date: toNullableString(row.due_date),
+    total_amount_cents: toNullableNumber(row.total_amount_cents),
+    source_system: toNullableString(row.source_system),
+  }));
+}
+
+async function getContactsNameMap(contactIds: string[]): Promise<Map<string, string>> {
+  const uniqueIds = Array.from(new Set(contactIds.filter(Boolean)));
+
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("contacts")
+    .select("id, name")
+    .in("id", uniqueIds);
+
+  if (error || !Array.isArray(data)) {
+    return new Map();
+  }
+
+  return new Map(
+    (data as ContactLookupRow[])
+      .filter((row) => typeof row.id === "string")
+      .map((row) => [row.id, row.name ?? ""])
+  );
+}
+
 async function findByExternalIdMap(
   userId: string,
   candidate: InvoiceMatchCandidate
@@ -141,12 +257,7 @@ async function findByExternalIdMap(
     return null;
   }
 
-  const { data: invoice } = await supabaseAdmin
-    .from("invoices")
-    .select("id, source_system")
-    .eq("id", data.internal_id)
-    .eq("user_id", userId)
-    .maybeSingle();
+  const invoice = await getCanonicalInvoiceById(userId, candidate, data.internal_id);
 
   if (!invoice?.id) {
     return null;
@@ -167,8 +278,10 @@ async function findBySourceExternalId(
 ): Promise<InvoiceMatchResult | null> {
   if (!candidate.sourceExternalId) return null;
 
+  const table = getCanonicalTable(candidate);
+
   const { data, error } = await supabaseAdmin
-    .from("invoices")
+    .from(table)
     .select("id, source_system")
     .eq("user_id", userId)
     .eq("source_system", candidate.sourceSystem)
@@ -180,9 +293,12 @@ async function findBySourceExternalId(
   }
 
   return {
-    decision: comparePriority(data.source_system, candidate.sourceSystem),
+    decision: comparePriority(
+      toNullableString(data.source_system),
+      candidate.sourceSystem
+    ),
     confidence: "exact",
-    matchedInvoiceId: data.id,
+    matchedInvoiceId: String(data.id),
     matchedBy: "source_external_id",
     reason: "source_system + source_external_id match",
   };
@@ -195,18 +311,10 @@ async function findByInvoiceNumber(
   const normalizedRef = normalizeReference(candidate.invoiceNumber);
   if (!normalizedRef) return null;
 
-  const { data, error } = await supabaseAdmin
-    .from("invoices")
-    .select("id, invoice_number, source_system")
-    .eq("user_id", userId)
-    .not("invoice_number", "is", null);
+  const rows = await listCanonicalInvoices(userId, candidate);
 
-  if (error || !Array.isArray(data)) {
-    return null;
-  }
-
-  const matches = data.filter(
-    (row) => normalizeReference(row.invoice_number) === normalizedRef
+  const matches = rows.filter(
+    (row) => normalizeReference(row.number) === normalizedRef
   );
 
   if (matches.length !== 1) {
@@ -231,7 +339,8 @@ async function findByInvoiceNumber(
     confidence: "high",
     matchedInvoiceId: match.id,
     matchedBy: "invoice_number",
-    reason: "invoice_number match",
+    reason:
+      candidate.type === "purchase" ? "bill_number match" : "invoice_number match",
   };
 }
 
@@ -248,24 +357,30 @@ async function findByClientDateAmount(
     return null;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from("invoices")
-    .select(
-      "id, client_name, issue_date, due_date, total_amount_cents, source_system"
-    )
-    .eq("user_id", userId)
-    .eq("total_amount_cents", amount);
+  const rows = await listCanonicalInvoices(userId, candidate);
+  const rowsWithAmount = rows.filter((row) => row.total_amount_cents === amount);
 
-  if (error || !Array.isArray(data)) {
+  if (rowsWithAmount.length === 0) {
     return null;
   }
 
-  const matches = (data as InvoiceLookupRow[]).filter((row) => {
-    const rowClient = normalizeText(row.client_name);
+  const contactsNameMap = await getContactsNameMap(
+    rowsWithAmount
+      .map((row) => row.contact_id)
+      .filter(
+        (value): value is string =>
+          typeof value === "string" && value.length > 0
+      )
+  );
+
+  const matches = rowsWithAmount.filter((row) => {
+    const rowContactName = normalizeText(
+      row.contact_id ? contactsNameMap.get(row.contact_id) ?? null : null
+    );
     const rowDate =
       normalizeIsoDate(row.issue_date) ?? normalizeIsoDate(row.due_date);
 
-    return rowClient === normalizedClient && rowDate === normalizedDate;
+    return rowContactName === normalizedClient && rowDate === normalizedDate;
   });
 
   if (matches.length !== 1) {

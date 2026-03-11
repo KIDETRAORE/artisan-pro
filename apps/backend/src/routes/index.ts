@@ -43,6 +43,15 @@ import projectAccountingRoutes from "./projectAccounting.routes";
 // ✅ AJOUT: QUOTES
 import quotesRoutes from "./quotes.routes";
 
+// ✅ AJOUT: SALES INVOICES
+import salesInvoicesRoutes from "./salesInvoices.routes";
+
+// ✅ AJOUT: PURCHASE BILLS
+import purchaseBillsRoutes from "./purchaseBills.routes";
+
+// ✅ AJOUT: PAYMENTS
+import paymentsRoutes from "./payments.routes";
+
 import { authMiddleware } from "@middlewares/auth.middleware";
 import { requireRole } from "@middlewares/requireRole.middleware";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
@@ -88,6 +97,15 @@ router.use("/quotes", authMiddleware, quotesRoutes);
 
 // ✅ AJOUT: INVOICES (AUTH)
 router.use("/invoices", authMiddleware, invoicesRoutes);
+
+// ✅ AJOUT: SALES INVOICES (AUTH)
+router.use("/sales-invoices", authMiddleware, salesInvoicesRoutes);
+
+// ✅ AJOUT: PURCHASE BILLS (AUTH)
+router.use("/purchase-bills", authMiddleware, purchaseBillsRoutes);
+
+// ✅ AJOUT: PAYMENTS (AUTH)
+router.use("/payments", authMiddleware, paymentsRoutes);
 
 // ✅ AJOUT: INVOICE LINES (AUTH)
 // On monte le router à la racine pour éviter de doubler "/invoice-lines"

@@ -1,3 +1,4 @@
+// apps/backend/src/services/integrations.service.ts
 import { ENV } from "../config/env";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
@@ -846,12 +847,14 @@ export class IntegrationsService {
       });
     }
 
-    // --- MODIFICATION CORRIGÉE ---
-    // Déclenchement de la synchronisation asynchrone après connexion réussie
-    AccountingSyncService.syncInvoices(userId, ODOO_PROVIDER).catch(err => 
-      logger.error("Erreur synchro auto Odoo lors de la connexion", { userId, error: err })
-    );
-    // ----------------------------
+    try {
+      await AccountingSyncService.syncInvoices(userId, ODOO_PROVIDER);
+    } catch (error) {
+      logger.error("IntegrationsService.connectOdoo initial sync failed", {
+        userId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     return await this.getOdooStatus(userId);
   }

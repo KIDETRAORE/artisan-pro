@@ -4,8 +4,11 @@ export type AccountingProvider =
   | "pennylane"
   | "odoo";
 
+export type ExternalInvoiceType = "sale" | "purchase";
+
 export type ExternalInvoice = {
   externalId: string;
+  type: ExternalInvoiceType;
   invoiceNumber: string | null;
   clientName: string | null;
   issueDate: string | null;

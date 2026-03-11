@@ -94,6 +94,12 @@ function extractCurrencyCode(
   return null;
 }
 
+function mapOdooMoveTypeToExternalType(
+  moveType: string | null | undefined
+): "sale" | "purchase" {
+  return moveType === "in_invoice" ? "purchase" : "sale";
+}
+
 function mapOdooInvoice(record: OdooInvoiceRecord): ExternalInvoice {
   const status =
     String(record.payment_state ?? "").trim() ||
@@ -108,16 +114,20 @@ function mapOdooInvoice(record: OdooInvoiceRecord): ExternalInvoice {
         ? record.ref.trim()
         : `ODOO-${record.id}`;
 
+  const type = mapOdooMoveTypeToExternalType(record.move_type);
+
   logger.info("OdooConnector.mapOdooInvoice partner mapping", {
     externalId: String(record.id ?? "").trim(),
     invoiceNumber,
     partner_id: record.partner_id ?? null,
     extractedClientName: clientName,
     moveType: record.move_type ?? null,
+    type,
   });
 
   return {
     externalId: String(record.id ?? "").trim(),
+    type,
     invoiceNumber,
     clientName,
     issueDate: toIsoDate(record.invoice_date ?? record.date),

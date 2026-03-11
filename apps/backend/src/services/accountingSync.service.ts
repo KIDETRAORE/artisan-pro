@@ -5,13 +5,15 @@ import {
   AccountingMatchingService,
   type AccountingSource,
 } from "./accountingMatching.service";
-import { InvoicesService } from "./invoices.service";
 import { IntegrationsService } from "./integrations.service";
 import { ExternalIdMapService } from "./externalIdMap.service";
 import { ContactsService } from "./contacts.service";
+import { SalesInvoicesService } from "./salesInvoices.service";
+import { PurchaseBillsService } from "./purchaseBills.service";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
+import { type ExternalInvoice } from "./connectors/accountingConnector.types";
 
 type SupportedSyncProvider = Extract<AccountingSource, "pennylane" | "odoo">;
 
@@ -27,6 +29,23 @@ function isSupportedSyncProvider(
   provider: AccountingSource
 ): provider is SupportedSyncProvider {
   return provider === "pennylane" || provider === "odoo";
+}
+
+function getExternalContactType(
+  external: ExternalInvoice
+): "client" | "supplier" {
+  return external.type === "purchase" ? "supplier" : "client";
+}
+
+function getExternalDisplayName(external: ExternalInvoice): string {
+  if (
+    typeof external.clientName === "string" &&
+    external.clientName.trim().length > 0
+  ) {
+    return external.clientName.trim();
+  }
+
+  return external.type === "purchase" ? "Supplier" : "Client";
 }
 
 async function buildConnector(
@@ -129,6 +148,132 @@ async function insertSyncEvent(params: {
   }
 }
 
+async function createCanonicalInvoice(params: {
+  userId: string;
+  provider: SupportedSyncProvider;
+  external: ExternalInvoice;
+  contactId: string;
+}): Promise<{ id: string }> {
+  const { userId, provider, external, contactId } = params;
+
+  if (external.type === "purchase") {
+    const createdBill = await PurchaseBillsService.createPurchaseBill(userId, {
+      contact_id: contactId,
+      total_amount_cents: external.totalAmountCents ?? null,
+      issue_date: external.issueDate ?? null,
+      due_date: external.dueDate ?? null,
+      status: "received",
+      source_system: provider,
+      source_external_id: external.externalId,
+      origin_type: "compta_import",
+      bill_number: external.invoiceNumber,
+      currency: external.currency ?? "EUR",
+    });
+
+    return { id: createdBill.id };
+  }
+
+  const createdInvoice = await SalesInvoicesService.createSalesInvoice(userId, {
+    contact_id: contactId,
+    total_amount_cents: external.totalAmountCents ?? null,
+    issue_date: external.issueDate ?? null,
+    due_date: external.dueDate ?? null,
+    status: "sent",
+    source_system: provider,
+    source_external_id: external.externalId,
+    origin_type: "compta_import",
+    invoice_number: external.invoiceNumber,
+    currency: external.currency ?? "EUR",
+  });
+
+  return { id: createdInvoice.id };
+}
+
+async function updateCanonicalInvoiceLink(params: {
+  userId: string;
+  provider: SupportedSyncProvider;
+  external: ExternalInvoice;
+  internalId: string;
+  contactId: string;
+}): Promise<void> {
+  const { userId, provider, external, internalId, contactId } = params;
+
+  if (external.type === "purchase") {
+    await PurchaseBillsService.updatePurchaseBill(userId, internalId, {
+      contact_id: contactId,
+      source_system: provider,
+      source_external_id: external.externalId,
+      bill_number:
+        typeof external.invoiceNumber === "string" &&
+        external.invoiceNumber.trim().length > 0
+          ? external.invoiceNumber.trim()
+          : undefined,
+      due_date:
+        typeof external.dueDate === "string" &&
+        external.dueDate.trim().length > 0
+          ? external.dueDate.trim()
+          : undefined,
+      issue_date:
+        typeof external.issueDate === "string" &&
+        external.issueDate.trim().length > 0
+          ? external.issueDate.trim()
+          : undefined,
+      total_amount_cents: external.totalAmountCents ?? undefined,
+      currency: external.currency ?? undefined,
+    });
+
+    return;
+  }
+
+  await SalesInvoicesService.updateSalesInvoice(userId, internalId, {
+    contact_id: contactId,
+    source_system: provider,
+    source_external_id: external.externalId,
+    invoice_number:
+      typeof external.invoiceNumber === "string" &&
+      external.invoiceNumber.trim().length > 0
+        ? external.invoiceNumber.trim()
+        : undefined,
+    due_date:
+      typeof external.dueDate === "string" &&
+      external.dueDate.trim().length > 0
+        ? external.dueDate.trim()
+        : undefined,
+    issue_date:
+      typeof external.issueDate === "string" &&
+      external.issueDate.trim().length > 0
+        ? external.issueDate.trim()
+        : undefined,
+    total_amount_cents: external.totalAmountCents ?? undefined,
+    currency: external.currency ?? undefined,
+  });
+}
+
+async function upgradeCanonicalInvoiceSource(params: {
+  userId: string;
+  provider: SupportedSyncProvider;
+  external: ExternalInvoice;
+  internalId: string;
+}): Promise<void> {
+  const { userId, provider, external, internalId } = params;
+
+  if (external.type === "purchase") {
+    await PurchaseBillsService.updatePurchaseBill(userId, internalId, {
+      origin_type: "compta_import",
+      source_system: provider,
+      source_external_id: external.externalId,
+    });
+
+    return;
+  }
+
+  await SalesInvoicesService.updateSalesInvoice(userId, internalId, {
+    origin_type: "compta_import",
+    source_system: provider,
+    source_external_id: external.externalId,
+  });
+}
+
 export class AccountingSyncService {
   static async syncInvoices(
     userId: string,
@@ -168,10 +313,14 @@ export class AccountingSyncService {
 
       for (const external of externalInvoices) {
         try {
+          const contactType = getExternalContactType(external);
+          const displayName = getExternalDisplayName(external);
+
           logger.info("AccountingSync processing external invoice", {
             userId,
             provider,
             externalId: external.externalId,
+            invoiceType: external.type,
             invoiceNumber: external.invoiceNumber,
             clientName: external.clientName,
             issueDate: external.issueDate,
@@ -182,6 +331,7 @@ export class AccountingSyncService {
 
           const match =
             await AccountingMatchingService.matchInvoiceCandidate(userId, {
+              type: external.type,
               sourceSystem: provider,
               sourceExternalId: external.externalId,
               invoiceNumber: external.invoiceNumber,
@@ -195,6 +345,7 @@ export class AccountingSyncService {
             userId,
             provider,
             externalId: external.externalId,
+            invoiceType: external.type,
             decision: match.decision,
             confidence: match.confidence,
             matchedInvoiceId: match.matchedInvoiceId,
@@ -207,6 +358,7 @@ export class AccountingSyncService {
               userId,
               provider,
               externalId: external.externalId,
+              invoiceType: external.type,
               invoiceNumber: external.invoiceNumber,
             });
 
@@ -214,31 +366,26 @@ export class AccountingSyncService {
               userId,
               sourceSystem: provider,
               input: {
-                name: external.clientName ?? "Client",
-                contact_type: "client",
+                name: displayName,
+                contact_type: contactType,
                 email: null,
                 source_system: provider,
                 source_external_id: null,
               },
             });
 
-            const createdInvoice = await InvoicesService.createInvoice(userId, {
-              client_name: external.clientName ?? "Client",
-              client_email: null,
-              contact_id: contact.id,
-              total_amount: (external.totalAmountCents ?? 0) / 100,
-              due_date: external.dueDate ?? new Date().toISOString(),
-              status: "sent",
-              origin_type: "compta_import",
-              source_system: provider,
-              source_external_id: external.externalId,
-              invoice_number: external.invoiceNumber,
+            const createdInvoice = await createCanonicalInvoice({
+              userId,
+              provider,
+              external,
+              contactId: contact.id,
             });
 
             logger.info("AccountingSync created invoice from external invoice", {
               userId,
               provider,
               externalId: external.externalId,
+              invoiceType: external.type,
               invoiceId: createdInvoice.id,
             });
 
@@ -254,6 +401,7 @@ export class AccountingSyncService {
               userId,
               provider,
               externalId: external.externalId,
+              invoiceType: external.type,
               internalId: createdInvoice.id,
             });
 
@@ -262,55 +410,25 @@ export class AccountingSyncService {
           }
 
           if (match.decision === "link_existing" && match.matchedInvoiceId) {
-            const linkedInvoicePatch: Record<string, unknown> = {
-              source_system: provider,
-              source_external_id: external.externalId,
-            };
-
             const contact = await ContactsService.findOrCreateContact({
               userId,
               sourceSystem: provider,
               input: {
-                name: external.clientName ?? "Client",
-                contact_type: "client",
+                name: displayName,
+                contact_type: contactType,
                 email: null,
                 source_system: provider,
                 source_external_id: null,
               },
             });
 
-            linkedInvoicePatch.contact_id = contact.id;
-
-            if (
-              typeof external.clientName === "string" &&
-              external.clientName.trim().length > 0
-            ) {
-              linkedInvoicePatch.client_name = external.clientName.trim();
-            }
-
-            if (
-              typeof external.invoiceNumber === "string" &&
-              external.invoiceNumber.trim().length > 0
-            ) {
-              linkedInvoicePatch.invoice_number = external.invoiceNumber.trim();
-            }
-
-            if (
-              typeof external.dueDate === "string" &&
-              external.dueDate.trim().length > 0
-            ) {
-              linkedInvoicePatch.due_date = external.dueDate.trim();
-            }
-
-            const { error: linkUpdateError } = await supabaseAdmin
-              .from("invoices")
-              .update(linkedInvoicePatch)
-              .eq("id", match.matchedInvoiceId)
-              .eq("user_id", userId);
-
-            if (linkUpdateError) {
-              throw new HttpError(500, "Failed to refresh linked invoice");
-            }
+            await updateCanonicalInvoiceLink({
+              userId,
+              provider,
+              external,
+              internalId: match.matchedInvoiceId,
+              contactId: contact.id,
+            });
 
             await ExternalIdMapService.upsertExternalMapping({
               userId,
@@ -324,6 +442,7 @@ export class AccountingSyncService {
               userId,
               provider,
               externalId: external.externalId,
+              invoiceType: external.type,
               matchedInvoiceId: match.matchedInvoiceId,
             });
 
@@ -332,19 +451,12 @@ export class AccountingSyncService {
           }
 
           if (match.decision === "upgrade_source" && match.matchedInvoiceId) {
-            const { error } = await supabaseAdmin
-              .from("invoices")
-              .update({
-                origin_type: "compta_import",
-                source_system: provider,
-                source_external_id: external.externalId,
-              })
-              .eq("id", match.matchedInvoiceId)
-              .eq("user_id", userId);
-
-            if (error) {
-              throw new HttpError(500, "Failed to upgrade invoice source");
-            }
+            await upgradeCanonicalInvoiceSource({
+              userId,
+              provider,
+              external,
+              internalId: match.matchedInvoiceId,
+            });
 
             await ExternalIdMapService.upsertExternalMapping({
               userId,
@@ -358,6 +470,7 @@ export class AccountingSyncService {
               userId,
               provider,
               externalId: external.externalId,
+              invoiceType: external.type,
               matchedInvoiceId: match.matchedInvoiceId,
             });
 
@@ -370,6 +483,7 @@ export class AccountingSyncService {
               userId,
               provider,
               externalId: external.externalId,
+              invoiceType: external.type,
               reason: match.reason,
             });
 
@@ -384,6 +498,7 @@ export class AccountingSyncService {
               userId,
               provider,
               externalId: external.externalId,
+              invoiceType: external.type,
               reason: match.reason,
             });
 
@@ -394,6 +509,7 @@ export class AccountingSyncService {
             userId,
             provider,
             externalId: external.externalId,
+            invoiceType: external.type,
             error: err instanceof Error ? err.message : String(err),
           });
         }
