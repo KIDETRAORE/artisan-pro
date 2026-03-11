@@ -1,0 +1,424 @@
+// apps/frontend/src/pages/Payments.tsx
+
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  createPayment,
+  listPayments,
+  updatePayment,
+  type CreatePaymentInput,
+  type Payment,
+  type PaymentDirection,
+  type PaymentStatus,
+} from "../services/payments.api";
+
+type FormState = {
+  amount_cents: string;
+  currency: string;
+  payment_date: string;
+  status: PaymentStatus;
+  direction: PaymentDirection;
+  reference: string;
+  contact_id: string;
+  project_id: string;
+  sales_invoice_id: string;
+  purchase_bill_id: string;
+};
+
+const DEFAULT_FORM: FormState = {
+  amount_cents: "",
+  currency: "EUR",
+  payment_date: "",
+  status: "pending",
+  direction: "inbound",
+  reference: "",
+  contact_id: "",
+  project_id: "",
+  sales_invoice_id: "",
+  purchase_bill_id: "",
+};
+
+function formatAmount(amountCents: number | null): string {
+  if (typeof amountCents !== "number") {
+    return "—";
+  }
+
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+  }).format(amountCents / 100);
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("fr-FR").format(date);
+}
+
+function normalizeNullableString(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildCreatePayload(form: FormState): CreatePaymentInput {
+  const amount =
+    form.amount_cents.trim().length > 0 ? Number(form.amount_cents) : null;
+
+  return {
+    amount_cents:
+      typeof amount === "number" && Number.isFinite(amount)
+        ? Math.round(amount)
+        : null,
+    currency: normalizeNullableString(form.currency),
+    payment_date: normalizeNullableString(form.payment_date),
+    status: form.status,
+    direction: form.direction,
+    reference: normalizeNullableString(form.reference),
+    contact_id: normalizeNullableString(form.contact_id),
+    project_id: normalizeNullableString(form.project_id),
+    sales_invoice_id: normalizeNullableString(form.sales_invoice_id),
+    purchase_bill_id: normalizeNullableString(form.purchase_bill_id),
+  };
+}
+
+export default function Payments(): React.ReactElement {
+  const [items, setItems] = useState<Payment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => {
+      const aDate = new Date(a.created_at ?? 0).getTime();
+      const bDate = new Date(b.created_at ?? 0).getTime();
+      return bDate - aDate;
+    });
+  }, [items]);
+
+  async function loadData() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const data = await listPayments();
+      setItems(data);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Impossible de charger les paiements."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadData();
+  }, [refreshKey]);
+
+  function updateForm<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const payload = buildCreatePayload(form);
+      await createPayment(payload);
+      setForm(DEFAULT_FORM);
+      setRefreshKey((prev) => prev + 1);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Impossible de créer le paiement."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleStatusChange(paymentId: string, status: PaymentStatus) {
+    try {
+      await updatePayment(paymentId, { status });
+      setItems((prev) =>
+        prev.map((item) => (item.id === paymentId ? { ...item, status } : item))
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Impossible de mettre à jour le statut."
+      );
+    }
+  }
+
+  async function handleDirectionChange(
+    paymentId: string,
+    direction: PaymentDirection
+  ) {
+    try {
+      await updatePayment(paymentId, { direction });
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === paymentId ? { ...item, direction } : item
+        )
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Impossible de mettre à jour le sens du paiement."
+      );
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Paiements</h1>
+        <p className="mt-1 text-sm text-gray-600">
+          Gère les encaissements et décaissements sur la couche canonique
+          <code className="ml-1 rounded bg-gray-100 px-1 py-0.5 text-xs">
+            payments
+          </code>
+          .
+        </p>
+      </div>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-medium">Nouveau paiement</h2>
+
+        <form className="mt-4 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Montant (centimes)</span>
+            <input
+              type="number"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.amount_cents}
+              onChange={(e) => updateForm("amount_cents", e.target.value)}
+              placeholder="120000"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Devise</span>
+            <input
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.currency}
+              onChange={(e) => updateForm("currency", e.target.value)}
+              placeholder="EUR"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Date de paiement</span>
+            <input
+              type="date"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.payment_date}
+              onChange={(e) => updateForm("payment_date", e.target.value)}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Statut</span>
+            <select
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.status}
+              onChange={(e) =>
+                updateForm("status", e.target.value as PaymentStatus)
+              }
+            >
+              <option value="pending">En attente</option>
+              <option value="processing">En cours</option>
+              <option value="paid">Payé</option>
+              <option value="failed">Échoué</option>
+              <option value="cancelled">Annulé</option>
+              <option value="refunded">Remboursé</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Sens</span>
+            <select
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.direction}
+              onChange={(e) =>
+                updateForm("direction", e.target.value as PaymentDirection)
+              }
+            >
+              <option value="inbound">Entrant</option>
+              <option value="outbound">Sortant</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Référence</span>
+            <input
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.reference}
+              onChange={(e) => updateForm("reference", e.target.value)}
+              placeholder="VIR-2026-001"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Contact ID</span>
+            <input
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.contact_id}
+              onChange={(e) => updateForm("contact_id", e.target.value)}
+              placeholder="UUID contact"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Projet / chantier ID</span>
+            <input
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.project_id}
+              onChange={(e) => updateForm("project_id", e.target.value)}
+              placeholder="UUID projet"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Sales invoice ID</span>
+            <input
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.sales_invoice_id}
+              onChange={(e) => updateForm("sales_invoice_id", e.target.value)}
+              placeholder="UUID facture client"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Purchase bill ID</span>
+            <input
+              className="w-full rounded-xl border border-gray-300 px-3 py-2"
+              value={form.purchase_bill_id}
+              onChange={(e) => updateForm("purchase_bill_id", e.target.value)}
+              placeholder="UUID facture fournisseur"
+            />
+          </label>
+
+          <div className="md:col-span-2">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? "Création..." : "Créer le paiement"}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-medium">Liste des paiements</h2>
+          <button
+            type="button"
+            onClick={() => setRefreshKey((prev) => prev + 1)}
+            className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
+          >
+            Rafraîchir
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="mt-4 text-sm text-gray-500">Chargement...</div>
+        ) : sortedItems.length === 0 ? (
+          <div className="mt-4 text-sm text-gray-500">
+            Aucun paiement trouvé.
+          </div>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-left">
+                  <th className="px-3 py-2 font-medium">Date</th>
+                  <th className="px-3 py-2 font-medium">Montant</th>
+                  <th className="px-3 py-2 font-medium">Sens</th>
+                  <th className="px-3 py-2 font-medium">Statut</th>
+                  <th className="px-3 py-2 font-medium">Référence</th>
+                  <th className="px-3 py-2 font-medium">Source</th>
+                  <th className="px-3 py-2 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedItems.map((item) => (
+                  <tr key={item.id} className="border-b border-gray-100">
+                    <td className="px-3 py-2">{formatDate(item.payment_date)}</td>
+                    <td className="px-3 py-2">
+                      {formatAmount(item.amount_cents)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <select
+                        className="rounded-lg border border-gray-300 px-2 py-1"
+                        value={
+                          (item.direction as PaymentDirection | null) ?? "inbound"
+                        }
+                        onChange={(e) =>
+                          void handleDirectionChange(
+                            item.id,
+                            e.target.value as PaymentDirection
+                          )
+                        }
+                      >
+                        <option value="inbound">Entrant</option>
+                        <option value="outbound">Sortant</option>
+                      </select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <select
+                        className="rounded-lg border border-gray-300 px-2 py-1"
+                        value={(item.status as PaymentStatus | null) ?? "pending"}
+                        onChange={(e) =>
+                          void handleStatusChange(
+                            item.id,
+                            e.target.value as PaymentStatus
+                          )
+                        }
+                      >
+                        <option value="pending">En attente</option>
+                        <option value="processing">En cours</option>
+                        <option value="paid">Payé</option>
+                        <option value="failed">Échoué</option>
+                        <option value="cancelled">Annulé</option>
+                        <option value="refunded">Remboursé</option>
+                      </select>
+                    </td>
+                    <td className="px-3 py-2">{item.reference || "—"}</td>
+                    <td className="px-3 py-2">{item.source_system || "—"}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500">
+                      {item.id}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

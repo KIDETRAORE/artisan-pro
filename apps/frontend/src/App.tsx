@@ -46,6 +46,11 @@ const Projects = lazy(() => import("./pages/Projects"));
 const ProjectDashboard = lazy(() => import("./pages/ProjectDashboard"));
 const ProjectExpensesPage = lazy(() => import("./pages/ProjectExpensesPage"));
 
+// ✅ AJOUT: nouvelles pages canonique compta
+const SalesInvoices = lazy(() => import("./pages/SalesInvoices"));
+const PurchaseBills = lazy(() => import("./pages/PurchaseBills"));
+const Payments = lazy(() => import("./pages/Payments"));
+
 type DashboardResponse = {
   user?: { id: string; email?: string | null };
   subscription?: {
@@ -163,6 +168,11 @@ export default function App() {
           <Route path="/invoices/new" element={<InvoiceDetail />} />
           <Route path="/invoices/:id" element={<InvoiceDetail />} />
           <Route path="/factures" element={<Navigate to="/invoices" replace />} />
+
+          {/* ✅ AJOUT: routes canonique compta */}
+          <Route path="/sales-invoices" element={<SalesInvoices />} />
+          <Route path="/purchase-bills" element={<PurchaseBills />} />
+          <Route path="/payments" element={<Payments />} />
 
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:id" element={<ProjectDashboard />} />

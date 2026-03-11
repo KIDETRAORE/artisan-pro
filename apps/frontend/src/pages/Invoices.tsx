@@ -1,6 +1,6 @@
 // apps/frontend/src/pages/Invoices.tsx
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Search,
   FileCheck,
@@ -17,6 +17,10 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  ArrowRight,
+  Receipt,
+  Wallet,
+  Building2,
 } from "lucide-react";
 import {
   deleteInvoice,
@@ -526,6 +530,27 @@ function dedupeFactures(params: {
 
 const FULL_LIST_PAGE_SIZE = 50;
 
+const CANONICAL_ACTIONS = [
+  {
+    title: "Factures clients",
+    description: "Base canonique des ventes clients.",
+    to: "/sales-invoices",
+    icon: Receipt,
+  },
+  {
+    title: "Factures fournisseurs",
+    description: "Base canonique des achats fournisseurs.",
+    to: "/purchase-bills",
+    icon: Building2,
+  },
+  {
+    title: "Paiements",
+    description: "Encaissements et décaissements.",
+    to: "/payments",
+    icon: Wallet,
+  },
+];
+
 export default function Invoices() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -837,6 +862,35 @@ export default function Invoices() {
             <Plus size={16} /> Nouvelle facture
           </button>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {CANONICAL_ACTIONS.map((action) => {
+          const Icon = action.icon;
+
+          return (
+            <Link
+              key={action.title}
+              to={action.to}
+              className="group rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--theme-bg)] text-[var(--theme-primary)]">
+                <Icon size={22} />
+              </div>
+
+              <div className="text-sm font-black text-[var(--theme-text)]">
+                {action.title}
+              </div>
+              <p className="mt-2 min-h-[40px] text-xs leading-relaxed text-[var(--theme-muted)]">
+                {action.description}
+              </p>
+
+              <div className="mt-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[var(--theme-primary)]">
+                Ouvrir <ArrowRight size={14} />
+              </div>
+            </Link>
+          );
+        })}
       </div>
 
       <div className="space-y-3 rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">

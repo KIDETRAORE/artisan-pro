@@ -52,6 +52,28 @@ export type ProjectAnalytics = {
   dominant_expense_category: ProjectExpenseCategory | null;
 };
 
+type SalesInvoiceAmountRow = {
+  id: string;
+  total_amount_cents: number | null;
+  status: string | null;
+};
+
+type PurchaseBillAmountRow = {
+  id: string;
+  total_amount_cents: number | null;
+  status: string | null;
+};
+
+type PaymentAmountRow = {
+  id: string;
+  project_id: string | null;
+  sales_invoice_id: string | null;
+  purchase_bill_id: string | null;
+  amount_cents: number | null;
+  status: string | null;
+  direction: string | null;
+};
+
 const CreateProjectSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional().nullable(),
@@ -75,13 +97,37 @@ function toInt(v: unknown): number {
   return 0;
 }
 
-function toFloat(v: unknown): number {
-  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  }
-  return 0;
+function isIncludedSalesInvoiceStatus(status: string | null | undefined): boolean {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  return (
+    normalized === "sent" ||
+    normalized === "paid" ||
+    normalized === "partial" ||
+    normalized === "overdue"
+  );
+}
+
+function isIncludedPurchaseBillStatus(status: string | null | undefined): boolean {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  return (
+    normalized === "received" ||
+    normalized === "paid" ||
+    normalized === "partial" ||
+    normalized === "overdue"
+  );
+}
+
+function isPaidInboundPayment(payment: PaymentAmountRow): boolean {
+  return (
+    String(payment.direction ?? "").trim().toLowerCase() === "inbound" &&
+    String(payment.status ?? "").trim().toLowerCase() === "paid"
+  );
+}
+
+function sumAmountCents<T extends { total_amount_cents: number | null }>(
+  rows: T[]
+): number {
+  return rows.reduce((sum, row) => sum + toInt(row.total_amount_cents), 0);
 }
 
 export class ProjectsService {
@@ -217,27 +263,186 @@ export class ProjectsService {
   static async getAnalytics(userId: string, projectId: string): Promise<ProjectAnalytics> {
     const project = await ProjectsService.getProject(userId, projectId);
 
-    const { data, error } = await supabaseAdmin.rpc("get_project_analytics", {
-      p_user_id: userId,
-      p_project_id: projectId,
-    });
+    const { data: salesInvoiceRows, error: salesInvoicesError } = await supabaseAdmin
+      .from("sales_invoices")
+      .select("id, total_amount_cents, status")
+      .eq("user_id", userId)
+      .eq("project_id", projectId);
 
-    if (error) {
-      logger.error("ProjectsService.getAnalytics rpc failed", {
+    if (salesInvoicesError) {
+      logger.error("ProjectsService.getAnalytics sales invoices query failed", {
         userId,
         projectId,
-        message: error.message,
+        message: salesInvoicesError.message,
       });
-      throw new HttpError(500, "Failed to compute project analytics");
+      throw new HttpError(500, "Failed to load project sales invoices");
     }
 
-    const row = Array.isArray(data) ? data[0] : data;
+    const { data: purchaseBillRows, error: purchaseBillsError } = await supabaseAdmin
+      .from("purchase_bills")
+      .select("id, total_amount_cents, status")
+      .eq("user_id", userId)
+      .eq("project_id", projectId);
 
-    const revenueCents = toInt((row as any)?.revenue_cents);
-    const paidCents = toInt((row as any)?.paid_cents);
-    const expensesCents = toInt((row as any)?.expenses_cents);
-    const profitCents = toInt((row as any)?.profit_cents);
-    const profitabilityRate = toFloat((row as any)?.profitability_rate);
+    if (purchaseBillsError) {
+      logger.error("ProjectsService.getAnalytics purchase bills query failed", {
+        userId,
+        projectId,
+        message: purchaseBillsError.message,
+      });
+      throw new HttpError(500, "Failed to load project purchase bills");
+    }
+
+    const { data: projectExpenseRows, error: expenseRowsError } = await supabaseAdmin
+      .from("project_expenses")
+      .select("category, amount_cents")
+      .eq("user_id", userId)
+      .eq("project_id", projectId);
+
+    if (expenseRowsError) {
+      logger.error("ProjectsService.getAnalytics category query failed", {
+        userId,
+        projectId,
+        message: expenseRowsError.message,
+      });
+      throw new HttpError(500, "Failed to load project expenses by category");
+    }
+
+    const typedSalesInvoices = ((salesInvoiceRows ?? []) as SalesInvoiceAmountRow[]).filter(
+      (row) => isIncludedSalesInvoiceStatus(row.status)
+    );
+
+    const typedPurchaseBills = (
+      (purchaseBillRows ?? []) as PurchaseBillAmountRow[]
+    ).filter((row) => isIncludedPurchaseBillStatus(row.status));
+
+    const salesInvoiceIds = typedSalesInvoices.map((row) => row.id);
+    const purchaseBillIds = typedPurchaseBills.map((row) => row.id);
+
+    const paymentCandidates: PaymentAmountRow[] = [];
+
+    const { data: directProjectPayments, error: directPaymentsError } = await supabaseAdmin
+      .from("payments")
+      .select(
+        "id, project_id, sales_invoice_id, purchase_bill_id, amount_cents, status, direction"
+      )
+      .eq("user_id", userId)
+      .eq("project_id", projectId);
+
+    if (directPaymentsError) {
+      logger.error("ProjectsService.getAnalytics direct payments query failed", {
+        userId,
+        projectId,
+        message: directPaymentsError.message,
+      });
+      throw new HttpError(500, "Failed to load project payments");
+    }
+
+    paymentCandidates.push(...((directProjectPayments ?? []) as PaymentAmountRow[]));
+
+    if (salesInvoiceIds.length > 0) {
+      const { data: invoiceLinkedPayments, error: invoiceLinkedPaymentsError } =
+        await supabaseAdmin
+          .from("payments")
+          .select(
+            "id, project_id, sales_invoice_id, purchase_bill_id, amount_cents, status, direction"
+          )
+          .eq("user_id", userId)
+          .in("sales_invoice_id", salesInvoiceIds);
+
+      if (invoiceLinkedPaymentsError) {
+        logger.error(
+          "ProjectsService.getAnalytics sales invoice payments query failed",
+          {
+            userId,
+            projectId,
+            message: invoiceLinkedPaymentsError.message,
+          }
+        );
+        throw new HttpError(500, "Failed to load project invoice payments");
+      }
+
+      paymentCandidates.push(
+        ...((invoiceLinkedPayments ?? []) as PaymentAmountRow[])
+      );
+    }
+
+    if (purchaseBillIds.length > 0) {
+      const {
+        data: purchaseBillLinkedPayments,
+        error: purchaseBillLinkedPaymentsError,
+      } = await supabaseAdmin
+        .from("payments")
+        .select(
+          "id, project_id, sales_invoice_id, purchase_bill_id, amount_cents, status, direction"
+        )
+        .eq("user_id", userId)
+        .in("purchase_bill_id", purchaseBillIds);
+
+      if (purchaseBillLinkedPaymentsError) {
+        logger.error(
+          "ProjectsService.getAnalytics purchase bill payments query failed",
+          {
+            userId,
+            projectId,
+            message: purchaseBillLinkedPaymentsError.message,
+          }
+        );
+        throw new HttpError(500, "Failed to load project bill payments");
+      }
+
+      paymentCandidates.push(
+        ...((purchaseBillLinkedPayments ?? []) as PaymentAmountRow[])
+      );
+    }
+
+    const uniquePayments = Array.from(
+      new Map(paymentCandidates.map((payment) => [payment.id, payment])).values()
+    );
+
+    const revenueCents = sumAmountCents(typedSalesInvoices);
+    const purchaseBillsCents = sumAmountCents(typedPurchaseBills);
+
+    const expensesByCategory: ProjectExpensesByCategory = {
+      materials: 0,
+      labor: 0,
+      equipment: 0,
+      transport: 0,
+      other: 0,
+    };
+
+    let projectExpensesCents = 0;
+
+    for (const expenseRow of projectExpenseRows ?? []) {
+      const rawCategory = String(
+        (expenseRow as { category?: unknown }).category ?? "other"
+      );
+      const amount = toInt(
+        (expenseRow as { amount_cents?: unknown }).amount_cents
+      );
+
+      const category: ProjectExpenseCategory =
+        rawCategory === "materials" ||
+        rawCategory === "labor" ||
+        rawCategory === "equipment" ||
+        rawCategory === "transport" ||
+        rawCategory === "other"
+          ? rawCategory
+          : "other";
+
+      expensesByCategory[category] += amount;
+      projectExpensesCents += amount;
+    }
+
+    const expensesCents = purchaseBillsCents + projectExpensesCents;
+
+    const paidCents = uniquePayments
+      .filter(isPaidInboundPayment)
+      .reduce((sum, payment) => sum + toInt(payment.amount_cents), 0);
+
+    const profitCents = revenueCents - expensesCents;
+    const profitabilityRate =
+      revenueCents > 0 ? (profitCents / revenueCents) * 100 : 0;
 
     const budgetCents = toInt(project.budget_cents);
     const remainingBudgetCents =
@@ -297,49 +502,6 @@ export class ProjectsService {
       (revenueCents > 0 && profitabilityRate < 30)
     ) {
       healthStatus = "warning";
-    }
-
-    const { data: expenseRows, error: expenseRowsError } = await supabaseAdmin
-      .from("project_expenses")
-      .select("category, amount_cents")
-      .eq("user_id", userId)
-      .eq("project_id", projectId);
-
-    if (expenseRowsError) {
-      logger.error("ProjectsService.getAnalytics category query failed", {
-        userId,
-        projectId,
-        message: expenseRowsError.message,
-      });
-      throw new HttpError(500, "Failed to load project expenses by category");
-    }
-
-    const expensesByCategory: ProjectExpensesByCategory = {
-      materials: 0,
-      labor: 0,
-      equipment: 0,
-      transport: 0,
-      other: 0,
-    };
-
-    for (const expenseRow of expenseRows ?? []) {
-      const rawCategory = String(
-        (expenseRow as { category?: unknown }).category ?? "other"
-      );
-      const amount = toInt(
-        (expenseRow as { amount_cents?: unknown }).amount_cents
-      );
-
-      const category: ProjectExpenseCategory =
-        rawCategory === "materials" ||
-        rawCategory === "labor" ||
-        rawCategory === "equipment" ||
-        rawCategory === "transport" ||
-        rawCategory === "other"
-          ? rawCategory
-          : "other";
-
-      expensesByCategory[category] += amount;
     }
 
     let dominantExpenseCategory: ProjectExpenseCategory | null = null;

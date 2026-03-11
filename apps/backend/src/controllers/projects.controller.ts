@@ -17,16 +17,13 @@ function formatEuros(cents: number): string {
   return `${(Math.round(cents) / 100).toFixed(2).replace(".", ",")} €`;
 }
 
-function getInvoiceAmountCents(invoice: {
+function getSalesInvoiceAmountCents(invoice: {
   total_amount_cents?: unknown;
-  total_amount?: unknown;
 }): number {
   const totalAmountCents =
     typeof invoice.total_amount_cents === "number"
       ? invoice.total_amount_cents
-      : typeof invoice.total_amount === "number"
-        ? Math.round(invoice.total_amount * 100)
-        : 0;
+      : 0;
 
   return Number.isFinite(totalAmountCents) ? totalAmountCents : 0;
 }
@@ -151,7 +148,7 @@ export class ProjectsController {
 
   /**
    * GET /projects/:id/insights
-   * IA chantier "best effort" à partir des analytics + factures + dépenses.
+   * IA chantier "best effort" à partir des analytics + ventes + achats + dépenses.
    */
   static async insights(req: Request, res: Response) {
     const user = requireUser(req);
@@ -164,20 +161,36 @@ export class ProjectsController {
     const project = await ProjectsService.getProject(user.id, projectId.data);
     const analytics = await ProjectsService.getAnalytics(user.id, projectId.data);
 
-    const { data: invoices, error: invoicesError } = await supabaseAdmin
-      .from("invoices")
-      .select("id, status, due_date, created_at, total_amount_cents, total_amount")
+    const { data: salesInvoices, error: salesInvoicesError } = await supabaseAdmin
+      .from("sales_invoices")
+      .select("id, status, due_date, created_at, total_amount_cents")
       .eq("user_id", user.id)
       .eq("project_id", projectId.data)
       .order("created_at", { ascending: false });
 
-    if (invoicesError) {
-      logger.error("ProjectsController.insights invoices query failed", {
+    if (salesInvoicesError) {
+      logger.error("ProjectsController.insights sales invoices query failed", {
         userId: user.id,
         projectId: projectId.data,
-        message: invoicesError.message,
+        message: salesInvoicesError.message,
       });
-      throw new HttpError(500, "Failed to load project invoices");
+      throw new HttpError(500, "Failed to load project sales invoices");
+    }
+
+    const { data: purchaseBills, error: purchaseBillsError } = await supabaseAdmin
+      .from("purchase_bills")
+      .select("id, status, due_date, created_at, total_amount_cents")
+      .eq("user_id", user.id)
+      .eq("project_id", projectId.data)
+      .order("created_at", { ascending: false });
+
+    if (purchaseBillsError) {
+      logger.error("ProjectsController.insights purchase bills query failed", {
+        userId: user.id,
+        projectId: projectId.data,
+        message: purchaseBillsError.message,
+      });
+      throw new HttpError(500, "Failed to load project purchase bills");
     }
 
     const { data: expenses, error: expensesError } = await supabaseAdmin
@@ -197,6 +210,7 @@ export class ProjectsController {
     }
 
     const revenue = analytics.revenue_cents;
+    const paid = analytics.paid_cents;
     const expensesCents = analytics.expenses_cents;
     const profit = analytics.profit_cents;
     const rate = analytics.profitability_rate;
@@ -209,13 +223,20 @@ export class ProjectsController {
     const findings: string[] = [];
 
     const now = Date.now();
-    const invoiceRows = (invoices ?? []) as Array<{
+    const salesInvoiceRows = (salesInvoices ?? []) as Array<{
       id: string;
       status: string | null;
       due_date: string | null;
       created_at: string | null;
       total_amount_cents?: number | null;
-      total_amount?: number | null;
+    }>;
+
+    const purchaseBillRows = (purchaseBills ?? []) as Array<{
+      id: string;
+      status: string | null;
+      due_date: string | null;
+      created_at: string | null;
+      total_amount_cents?: number | null;
     }>;
 
     const expenseRows = (expenses ?? []) as Array<{
@@ -226,11 +247,11 @@ export class ProjectsController {
       created_at: string | null;
     }>;
 
-    const draftInvoices = invoiceRows.filter(
+    const draftSalesInvoices = salesInvoiceRows.filter(
       (invoice) => String(invoice.status ?? "").toLowerCase() === "draft"
     );
 
-    const overdueInvoices = invoiceRows.filter((invoice) => {
+    const overdueSalesInvoices = salesInvoiceRows.filter((invoice) => {
       const status = String(invoice.status ?? "").toLowerCase();
       if (status === "overdue") return true;
       if (!invoice.due_date) return false;
@@ -241,10 +262,23 @@ export class ProjectsController {
       );
     });
 
-    const totalDraftAmountCents = draftInvoices.reduce(
-      (sum, invoice) => sum + getInvoiceAmountCents(invoice),
+    const overduePurchaseBills = purchaseBillRows.filter((bill) => {
+      const status = String(bill.status ?? "").toLowerCase();
+      if (status === "overdue") return true;
+      if (!bill.due_date) return false;
+      return (
+        status !== "paid" &&
+        Number.isFinite(Date.parse(bill.due_date)) &&
+        Date.parse(bill.due_date) < now
+      );
+    });
+
+    const totalDraftAmountCents = draftSalesInvoices.reduce(
+      (sum, invoice) => sum + getSalesInvoiceAmountCents(invoice),
       0
     );
+
+    const outstandingRevenueCents = Math.max(0, revenue - paid);
 
     if (revenue > 0 && profit < 0) {
       findings.push(
@@ -273,29 +307,52 @@ export class ProjectsController {
       );
       issues.push("La facturation semble en retard.");
       actions.push(
-        "Créer ou finaliser rapidement une première facture pour sécuriser la trésorerie du chantier."
+        "Créer ou finaliser rapidement une première facture client pour sécuriser la trésorerie du chantier."
       );
-    } else if (draftInvoices.length > 0 && totalDraftAmountCents > 0) {
+    } else if (draftSalesInvoices.length > 0 && totalDraftAmountCents > 0) {
       findings.push(
-        `${draftInvoices.length} facture(s) brouillon restent à finaliser pour ${formatEuros(
+        `${draftSalesInvoices.length} facture(s) client brouillon restent à finaliser pour ${formatEuros(
           totalDraftAmountCents
         )}.`
       );
-      issues.push("Une partie de la facturation n’est pas encore finalisée.");
+      issues.push("Une partie de la facturation client n’est pas encore finalisée.");
       actions.push(
-        "Finaliser les factures brouillon liées au chantier pour accélérer l’encaissement."
+        "Finaliser les factures client brouillon liées au chantier pour accélérer l’encaissement."
       );
     }
 
-    if (overdueInvoices.length > 0) {
+    if (overdueSalesInvoices.length > 0) {
       findings.push(
-        `${overdueInvoices.length} facture(s) du chantier sont en retard de paiement.`
+        `${overdueSalesInvoices.length} facture(s) client du chantier sont en retard de paiement.`
       );
       issues.push(
         "Le chantier présente un risque de trésorerie lié aux retards d’encaissement."
       );
       actions.push(
         "Lancer une relance client et vérifier les échéances de paiement du chantier."
+      );
+    }
+
+    if (outstandingRevenueCents > 0) {
+      findings.push(
+        `${formatEuros(
+          outstandingRevenueCents
+        )} restent à encaisser sur ce chantier.`
+      );
+      actions.push(
+        "Suivre le reste à encaisser pour réduire la tension de trésorerie court terme."
+      );
+    }
+
+    if (overduePurchaseBills.length > 0) {
+      findings.push(
+        `${overduePurchaseBills.length} facture(s) fournisseur du chantier sont à échéance dépassée.`
+      );
+      issues.push(
+        "Le chantier présente aussi une pression côté décaissements fournisseurs."
+      );
+      actions.push(
+        "Arbitrer les règlements fournisseurs prioritaires et sécuriser le cash disponible."
       );
     }
 
@@ -361,7 +418,9 @@ export class ProjectsController {
       );
 
       if (dominantCategory === "materials" && dominantShare >= 50) {
-        issues.push("Les matériaux pèsent fortement dans le coût total du chantier.");
+        issues.push(
+          "Les matériaux pèsent fortement dans le coût total du chantier."
+        );
         actions.push(
           "Vérifier les achats matériaux, les pertes, et comparer avec le devis initial."
         );
@@ -377,7 +436,9 @@ export class ProjectsController {
       }
 
       if (dominantCategory === "equipment" && dominantShare >= 30) {
-        issues.push("L’équipement / la location matériel pèse lourd dans le budget chantier.");
+        issues.push(
+          "L’équipement / la location matériel pèse lourd dans le budget chantier."
+        );
         actions.push(
           "Vérifier si la location matériel reste rentable par rapport à l’avancement réel du chantier."
         );
@@ -468,7 +529,7 @@ export class ProjectsController {
         "Le chantier ne présente pas de signal de risque majeur à ce stade."
       );
       actions.push(
-        "Continuer le suivi hebdomadaire du budget, des dépenses et des factures."
+        "Continuer le suivi hebdomadaire du budget, des dépenses, des ventes et des paiements."
       );
     }
 
@@ -476,14 +537,15 @@ export class ProjectsController {
 
     if (
       profit < 0 ||
-      overdueInvoices.length > 0 ||
+      overdueSalesInvoices.length > 0 ||
+      overduePurchaseBills.length > 0 ||
       (budgetCents > 0 && remainingBudgetCents < 0)
     ) {
       risk_level = "high";
     } else if (
       rate < 30 ||
       (expensesCents > 0 && revenue === 0) ||
-      draftInvoices.length > 0 ||
+      draftSalesInvoices.length > 0 ||
       budgetConsumedRate >= 85
     ) {
       risk_level = "medium";
@@ -491,10 +553,10 @@ export class ProjectsController {
 
     const recommendation =
       risk_level === "high"
-        ? "Conseil IA : ce chantier doit être traité en priorité. Réduis les dépenses non essentielles, finalise les factures en attente et sécurise l’encaissement client."
+        ? "Conseil IA : ce chantier doit être traité en priorité. Réduis les dépenses non essentielles, finalise les factures client en attente, sécurise l’encaissement et arbitre les paiements fournisseurs urgents."
         : risk_level === "medium"
-          ? "Conseil IA : le chantier reste maîtrisable, mais il faut accélérer la facturation et surveiller étroitement les dépenses."
-          : "Conseil IA : le chantier semble sain. Maintiens un suivi régulier des dépenses et facture sans délai les prestations terminées.";
+          ? "Conseil IA : le chantier reste maîtrisable, mais il faut accélérer la facturation client, surveiller étroitement les dépenses et anticiper les échéances à venir."
+          : "Conseil IA : le chantier semble sain. Maintiens un suivi régulier des dépenses, des encaissements et facture sans délai les prestations terminées.";
 
     const insight = {
       title: `Analyse chantier — ${project.name}`,

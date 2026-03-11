@@ -243,7 +243,10 @@ export default function Layout() {
         pathname.startsWith("/vision") ||
         pathname.startsWith("/invoices") ||
         pathname.startsWith("/invoice") ||
-        pathname.startsWith("/facture"),
+        pathname.startsWith("/facture") ||
+        pathname.startsWith("/sales-invoices") ||
+        pathname.startsWith("/purchase-bills") ||
+        pathname.startsWith("/payments"),
     },
     {
       name: "COMPTE",
@@ -280,7 +283,9 @@ export default function Layout() {
     const byId = document.getElementById(hash);
     if (byId) return byId;
 
-    const byData = document.querySelector<HTMLElement>(`[data-section="${hash}"]`);
+    const byData = document.querySelector<HTMLElement>(
+      `[data-section="${hash}"]`
+    );
     if (byData) return byData;
 
     return null;
@@ -632,12 +637,16 @@ export default function Layout() {
               >
                 <div
                   className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg ${
-                    isActive ? "bg-[var(--theme-primary)]" : "bg-[var(--theme-bg)]"
+                    isActive
+                      ? "bg-[var(--theme-primary)]"
+                      : "bg-[var(--theme-bg)]"
                   }`}
                 >
                   <Icon
                     size={18}
-                    className={isActive ? "text-white" : "text-[var(--theme-muted)]"}
+                    className={
+                      isActive ? "text-white" : "text-[var(--theme-muted)]"
+                    }
                   />
                 </div>
                 <span className="text-[9px] font-black uppercase tracking-widest text-[var(--theme-text)]">

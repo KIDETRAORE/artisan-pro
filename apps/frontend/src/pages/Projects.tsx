@@ -1,6 +1,7 @@
 // apps/frontend/src/pages/Projects.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Receipt, Wallet, Building2 } from "lucide-react";
 import CreateProjectForm from "../components/projects/CreateProjectForm";
 import { listProjects, type Project } from "../api/projects.api";
 import AIInsightCard from "../components/ai/AIInsightCard";
@@ -48,6 +49,28 @@ function getStatusClass(status: string): string {
   }
 }
 
+const PROJECT_CANONICAL_ACTIONS = [
+  {
+    title: "Ventes chantier",
+    description: "Consulter les factures clients liées au pilotage chantier.",
+    to: "/sales-invoices",
+    icon: Receipt,
+  },
+  {
+    title: "Achats chantier",
+    description:
+      "Consulter les factures fournisseurs liées aux coûts chantier.",
+    to: "/purchase-bills",
+    icon: Building2,
+  },
+  {
+    title: "Paiements chantier",
+    description: "Suivre les encaissements et décaissements associés.",
+    to: "/payments",
+    icon: Wallet,
+  },
+];
+
 export default function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,13 +103,22 @@ export default function Projects() {
       return "Aucun chantier n'est encore enregistré. Créez votre premier chantier pour suivre vos budgets, vos statuts et identifier rapidement les priorités.";
     }
 
-    const activeCount = projects.filter((project) => project.status === "active").length;
-    const pausedCount = projects.filter((project) => project.status === "paused").length;
-    const doneCount = projects.filter((project) => project.status === "done").length;
+    const activeCount = projects.filter(
+      (project) => project.status === "active"
+    ).length;
+    const pausedCount = projects.filter(
+      (project) => project.status === "paused"
+    ).length;
+    const doneCount = projects.filter(
+      (project) => project.status === "done"
+    ).length;
 
     const budgets = projects
       .map((project) => project.budget_cents)
-      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+      .filter(
+        (value): value is number =>
+          typeof value === "number" && Number.isFinite(value)
+      );
 
     const totalBudgetCents = budgets.reduce((sum, value) => sum + value, 0);
     const averageBudgetCents =
@@ -99,7 +131,8 @@ export default function Projects() {
             typeof project.budget_cents === "number" &&
             Number.isFinite(project.budget_cents)
         )
-        .sort((a, b) => (b.budget_cents ?? 0) - (a.budget_cents ?? 0))[0] ?? null;
+        .sort((a, b) => (b.budget_cents ?? 0) - (a.budget_cents ?? 0))[0] ??
+      null;
 
     const parts: string[] = [];
 
@@ -116,15 +149,11 @@ export default function Projects() {
     }
 
     if (pausedCount > 0) {
-      parts.push(
-        `${pausedCount} en pause à réévaluer`
-      );
+      parts.push(`${pausedCount} en pause à réévaluer`);
     }
 
     if (doneCount > 0) {
-      parts.push(
-        `${doneCount} terminé${doneCount > 1 ? "s" : ""}`
-      );
+      parts.push(`${doneCount} terminé${doneCount > 1 ? "s" : ""}`);
     }
 
     if (budgets.length > 0) {
@@ -140,6 +169,10 @@ export default function Projects() {
         )})`
       );
     }
+
+    parts.push(
+      "chaque fiche chantier permet maintenant de piloter budget, marge, reste à encaisser et alertes métier"
+    );
 
     return `${parts.join(" • ")}.`;
   }, [projects]);
@@ -159,8 +192,34 @@ export default function Projects() {
           Tous les chantiers
         </h1>
         <p className="mt-1 text-sm text-[var(--theme-muted)]">
-          Vue détaillée des chantiers, budgets, statuts et accès aux analyses.
+          Vue détaillée des chantiers, budgets, statuts et accès au pilotage
+          ventes / achats / paiements.
         </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {PROJECT_CANONICAL_ACTIONS.map((action) => {
+          const Icon = action.icon;
+
+          return (
+            <Link
+              key={action.title}
+              to={action.to}
+              className="group rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--theme-bg)] text-[var(--theme-primary)]">
+                <Icon size={22} />
+              </div>
+
+              <div className="text-sm font-black text-[var(--theme-text)]">
+                {action.title}
+              </div>
+              <p className="mt-2 min-h-[40px] text-xs leading-relaxed text-[var(--theme-muted)]">
+                {action.description}
+              </p>
+            </Link>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -172,7 +231,7 @@ export default function Projects() {
           <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
             <div className="flex items-center justify-between gap-4">
               <h3 className="text-lg font-semibold text-[var(--theme-text)]">
-                Vue détaillée
+                Liste des chantiers
               </h3>
 
               <button

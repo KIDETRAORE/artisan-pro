@@ -1,6 +1,7 @@
 // apps/frontend/src/pages/ProjectDashboard.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Receipt, Wallet, Building2 } from "lucide-react";
 import {
   getProject,
   getProjectAnalytics,
@@ -50,6 +51,27 @@ function categoryLabel(
   return "Autres";
 }
 
+const PROJECT_CANONICAL_LINKS = [
+  {
+    title: "Ventes chantier",
+    description: "Accéder aux factures clients liées au pilotage du chantier.",
+    to: "/sales-invoices",
+    icon: Receipt,
+  },
+  {
+    title: "Achats chantier",
+    description: "Accéder aux factures fournisseurs et suivre les coûts.",
+    to: "/purchase-bills",
+    icon: Building2,
+  },
+  {
+    title: "Paiements chantier",
+    description: "Suivre les encaissements et décaissements associés.",
+    to: "/payments",
+    icon: Wallet,
+  },
+];
+
 export default function ProjectDashboard() {
   const { id } = useParams<{ id: string }>();
 
@@ -91,6 +113,11 @@ export default function ProjectDashboard() {
 
   const previewExpenses = useMemo(() => expenses.slice(0, 3), [expenses]);
 
+  const amountToCollectCents = useMemo(() => {
+    if (!analytics) return 0;
+    return Math.max(0, analytics.revenue_cents - analytics.paid_cents);
+  }, [analytics]);
+
   const keyActions = useMemo(() => {
     if (!analytics) return [];
 
@@ -101,11 +128,21 @@ export default function ProjectDashboard() {
     }
 
     if (analytics.remaining_budget_cents < 0) {
-      actions.push("Le budget est dépassé : sécuriser les prochaines dépenses.");
+      actions.push(
+        "Le budget est dépassé : sécuriser les prochaines dépenses."
+      );
     }
 
     if (analytics.profit_cents < 0) {
-      actions.push("La marge est négative : revoir le chiffrage et les postes les plus coûteux.");
+      actions.push(
+        "La marge est négative : revoir le chiffrage et les postes les plus coûteux."
+      );
+    }
+
+    if (amountToCollectCents > 0) {
+      actions.push(
+        "Suivre le reste à encaisser pour limiter la tension de trésorerie du chantier."
+      );
     }
 
     if (analytics.dominant_expense_category) {
@@ -117,7 +154,7 @@ export default function ProjectDashboard() {
     }
 
     return actions;
-  }, [analytics]);
+  }, [analytics, amountToCollectCents]);
 
   const refreshAll = useCallback(async () => {
     if (!id) return;
@@ -195,6 +232,7 @@ export default function ProjectDashboard() {
   }
 
   const revenue = analytics.revenue_cents;
+  const paid = analytics.paid_cents;
   const expensesTotal = analytics.expenses_cents;
   const profit = analytics.profit_cents;
   const remainingBudget = analytics.remaining_budget_cents;
@@ -252,13 +290,52 @@ export default function ProjectDashboard() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {PROJECT_CANONICAL_LINKS.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <Link
+              key={item.title}
+              to={item.to}
+              className="group rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--theme-bg)] text-[var(--theme-primary)]">
+                <Icon size={22} />
+              </div>
+
+              <div className="text-sm font-black text-[var(--theme-text)]">
+                {item.title}
+              </div>
+              <p className="mt-2 min-h-[40px] text-xs leading-relaxed text-[var(--theme-muted)]">
+                {item.description}
+              </p>
+            </Link>
+          );
+        })}
+      </div>
+
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-[var(--theme-text)]">KPI</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
           <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
             <div className="text-sm text-[var(--theme-muted)]">Facturé</div>
             <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
               {formatEurosFromCents(revenue)}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+            <div className="text-sm text-[var(--theme-muted)]">Encaissé</div>
+            <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
+              {formatEurosFromCents(paid)}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+            <div className="text-sm text-[var(--theme-muted)]">À encaisser</div>
+            <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
+              {formatEurosFromCents(amountToCollectCents)}
             </div>
           </div>
 
@@ -282,12 +359,27 @@ export default function ProjectDashboard() {
               {profitabilityLabel}
             </div>
           </div>
+        </div>
+      </div>
 
-          <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
-            <div className="text-sm text-[var(--theme-muted)]">Budget restant</div>
-            <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
-              {formatEurosFromCents(remainingBudget)}
-            </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Budget restant</div>
+          <div className="mt-1 text-xl font-semibold text-[var(--theme-text)]">
+            {formatEurosFromCents(remainingBudget)}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-4 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">
+            Lecture trésorerie chantier
+          </div>
+          <div className="mt-2 text-sm text-[var(--theme-text)]">
+            {amountToCollectCents > 0
+              ? `Le chantier a encore ${formatEurosFromCents(
+                  amountToCollectCents
+                )} à encaisser.`
+              : "Aucun reste à encaisser détecté à ce stade."}
           </div>
         </div>
       </div>

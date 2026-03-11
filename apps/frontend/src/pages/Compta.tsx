@@ -1,6 +1,6 @@
 // apps/frontend/src/pages/Compta.tsx
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   FileBarChart,
   CloudUpload,
@@ -14,6 +14,9 @@ import {
   Table2,
   Download,
   ListChecks,
+  Receipt,
+  Wallet,
+  Building2,
 } from "lucide-react";
 import { useAuth } from "../store/auth.store";
 import { useComptaReportStore } from "../store/comptaReport.store";
@@ -152,6 +155,27 @@ export type ComptaReport = z.infer<typeof ComptaReportSchema>;
 const API_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/ai`
   : "http://localhost:8080/ai";
+
+const CANONICAL_COMPTA_ACTIONS = [
+  {
+    title: "Factures clients",
+    description: "Base canonique des ventes et suivi clients.",
+    to: "/sales-invoices",
+    icon: Receipt,
+  },
+  {
+    title: "Factures fournisseurs",
+    description: "Base canonique des achats et échéances fournisseurs.",
+    to: "/purchase-bills",
+    icon: Building2,
+  },
+  {
+    title: "Paiements",
+    description: "Encaissements, décaissements et trésorerie court terme.",
+    to: "/payments",
+    icon: Wallet,
+  },
+];
 
 function formatMoney(value: number | undefined): string {
   return `${Number(value ?? 0).toFixed(2)} €`;
@@ -510,6 +534,31 @@ export default function Compta() {
             Analyse XLSX/CSV → Rapport structuré + preview + exports
           </p>
         </div>
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+        {CANONICAL_COMPTA_ACTIONS.map((action) => {
+          const Icon = action.icon;
+
+          return (
+            <Link
+              key={action.title}
+              to={action.to}
+              className="group rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--theme-bg)] text-[var(--theme-primary)]">
+                <Icon size={22} />
+              </div>
+
+              <div className="text-sm font-black text-[var(--theme-text)]">
+                {action.title}
+              </div>
+              <p className="mt-2 min-h-[40px] text-xs leading-relaxed text-[var(--theme-muted)]">
+                {action.description}
+              </p>
+            </Link>
+          );
+        })}
       </div>
 
       <div className="mb-6 space-y-3 rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">

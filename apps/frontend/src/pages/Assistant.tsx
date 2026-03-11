@@ -63,20 +63,32 @@ const QUICK_ACTIONS = [
   },
   {
     title: "Suivi compta",
-    description: "Ouvrir les analyses et le pilotage comptable.",
+    description: "Relances, échéances, trésorerie et anomalies comptables.",
     to: "/compta",
     icon: PieChart,
   },
   {
     title: "Chantiers",
-    description: "Voir les chantiers et leur avancement.",
+    description: "Suivre les projets, marges, achats et ventes chantier.",
     to: "/projects",
     icon: Briefcase,
   },
   {
-    title: "Factures",
-    description: "Créer, consulter et relancer les factures.",
-    to: "/invoices",
+    title: "Factures clients",
+    description: "Consulter et gérer la nouvelle base canonique client.",
+    to: "/sales-invoices",
+    icon: Receipt,
+  },
+  {
+    title: "Factures fournisseurs",
+    description: "Consulter et gérer la nouvelle base canonique fournisseur.",
+    to: "/purchase-bills",
+    icon: Receipt,
+  },
+  {
+    title: "Paiements",
+    description: "Suivre les encaissements et décaissements.",
+    to: "/payments",
     icon: Receipt,
   },
 ];
@@ -289,7 +301,7 @@ export default function Assistant() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {QUICK_ACTIONS.map((action) => {
           const Icon = action.icon;
 
