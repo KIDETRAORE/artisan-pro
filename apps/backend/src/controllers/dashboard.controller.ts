@@ -11,7 +11,6 @@ type AuthedRequest = Request & {
   user?: { id: string; email?: string };
 };
 
-// ✅ AJOUT UNIQUE: type snapshot (optionnel, n'impacte pas l'existant)
 type CopilotSnapshot = {
   title: string;
   alerts: Array<{ severity: "critical" | "warn" | "info"; label: string }>;
@@ -45,7 +44,6 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
-// ✅ helper: parse cents from rpc (number | string | null)
 function toCentsFromUnknown(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? Math.round(v) : 0;
   if (typeof v === "string") {
@@ -56,10 +54,6 @@ function toCentsFromUnknown(v: unknown): number {
 }
 
 export class DashboardController {
-  /**
-   * GET /dashboard
-   * ➜ endpoint protégé (authMiddleware requis)
-   */
   static async getDashboard(req: Request, res: Response) {
     const r = req as AuthedRequest;
     const user = r.user;
@@ -68,9 +62,6 @@ export class DashboardController {
       throw new HttpError(401, "Unauthorized");
     }
 
-    // ===============================
-    // ✅ Source de vérité PLAN/STATUS : subscriptions
-    // ===============================
     const { data: sub, error: subErr } = await supabaseAdmin
       .from("subscriptions")
       .select("plan,status,current_period_end")
@@ -96,9 +87,6 @@ export class DashboardController {
       currentPeriodEnd: sub?.current_period_end ?? null,
     };
 
-    // ===============================
-    // ✅ Source de vérité QUOTA : ai_quota
-    // ===============================
     const quota = await quotaService.getUserQuota(user.id);
 
     const used = quota?.used ?? 0;
@@ -108,9 +96,6 @@ export class DashboardController {
     const percent =
       limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
 
-    // ===============================
-    // Features (si tu veux les baser sur plan+status)
-    // ===============================
     const isProActive =
       isPro(plan) && (statusRaw === "active" || statusRaw === "trialing");
 
@@ -120,88 +105,131 @@ export class DashboardController {
       history: isProActive,
     };
 
-    // ===============================
-    // ✅ KPI FACTURES via RPC (perf)
-    // ===============================
-    const { data: kpis, error: kpisErr } = await supabaseAdmin.rpc(
-      "get_dashboard_kpis",
-      { p_user_id: user.id }
-    );
+    const { data: salesInvoicesRows, error: salesInvoicesErr } =
+      await supabaseAdmin
+        .from("sales_invoices")
+        .select("id, total_amount_cents, due_date, status, contact_id")
+        .eq("user_id", user.id);
 
-    if (kpisErr) {
-      logger.error("Dashboard: erreur RPC get_dashboard_kpis", {
+    if (salesInvoicesErr) {
+      logger.error("Dashboard: erreur récupération sales_invoices", {
         userId: user.id,
-        message: kpisErr.message,
+        message: salesInvoicesErr.message,
       });
       throw new HttpError(500, "Erreur lors du chargement du dashboard");
     }
 
-    const kpisData: any = kpis ?? {};
+    const salesInvoices = (salesInvoicesRows ?? []) as Array<{
+      id: string;
+      total_amount_cents: unknown;
+      due_date: string | null;
+      status: string | null;
+      contact_id: string | null;
+    }>;
 
-    const paidAllTimeCents = toCentsFromUnknown(kpisData.paid_all_time_cents);
-    const paidMonthCents = toCentsFromUnknown(kpisData.paid_month_cents);
-    const unpaidTotalCents = toCentsFromUnknown(kpisData.unpaid_total_cents);
+    const contactIds = Array.from(
+      new Set(
+        salesInvoices
+          .map((row) => row.contact_id)
+          .filter(
+            (value): value is string =>
+              typeof value === "string" && value.trim().length > 0
+          )
+      )
+    );
 
-    // ===============================
-    // ✅ Preview relances (best effort, léger)
-    // (On ne fait plus de reduce global; on charge uniquement impayés)
-    // ===============================
-    const nowIso = new Date().toISOString();
+    const contactNameMap = new Map<string, string>();
 
-    const { data: unpaidRows, error: unpaidErr } = await supabaseAdmin
-      .from("invoices")
-      .select("id, client_name, total_amount_cents, due_date, status")
-      .eq("user_id", user.id)
-      .in("status", ["sent", "overdue"]);
+    if (contactIds.length > 0) {
+      const { data: contactsRows, error: contactsErr } = await supabaseAdmin
+        .from("contacts")
+        .select("id, name")
+        .in("id", contactIds);
 
-    if (unpaidErr) {
-      logger.warn("Dashboard: erreur récupération preview unpaid invoices", {
-        userId: user.id,
-        message: unpaidErr.message,
-      });
+      if (contactsErr) {
+        logger.warn("Dashboard: erreur récupération contacts", {
+          userId: user.id,
+          message: contactsErr.message,
+        });
+      } else {
+        for (const row of (contactsRows ?? []) as Array<{
+          id: string;
+          name: string | null;
+        }>) {
+          contactNameMap.set(row.id, row.name?.trim() || "Client");
+        }
+      }
     }
 
-    const unpaid = ((unpaidRows ?? []) as Array<{
-      id: string;
-      client_name: string;
-      total_amount_cents: unknown;
-      due_date: string;
-      status: string;
-    }>).map((it) => ({
-      id: it.id,
-      client_name: it.client_name,
-      total_amount_cents: it.total_amount_cents,
-      due_date: it.due_date,
-      status: it.status,
-    }));
+    const nowIso = new Date().toISOString();
 
-    const overdue = unpaid.filter((it) => {
-      const dueIso = new Date(it.due_date).toISOString();
+    const paidStatuses = new Set(["paid"]);
+    const unpaidStatuses = new Set(["sent", "overdue", "partial"]);
+
+    const paidInvoices = salesInvoices.filter((row) =>
+      paidStatuses.has(String(row.status ?? "").toLowerCase())
+    );
+
+    const unpaidInvoices = salesInvoices.filter((row) =>
+      unpaidStatuses.has(String(row.status ?? "").toLowerCase())
+    );
+
+    const overdueInvoices = unpaidInvoices.filter((row) => {
+      const dueDate = typeof row.due_date === "string" ? row.due_date.trim() : "";
+      if (!dueDate) {
+        return false;
+      }
+
+      const dueIso = new Date(dueDate).toISOString();
       return dueIso < nowIso;
     });
 
-    const overdueTotalCents = overdue.reduce(
-      (acc, it) => acc + toCentsFromUnknown(it.total_amount_cents),
+    const paidAllTimeCents = paidInvoices.reduce(
+      (acc, row) => acc + toCentsFromUnknown(row.total_amount_cents),
       0
     );
 
-    const preview: InvoicePreview[] = unpaid
-      .map((it) => {
-        const dueIso = new Date(it.due_date).toISOString();
-        const late = dueIso < nowIso ? daysBetween(dueIso, nowIso) : 0;
+    const currentMonthPrefix = new Date().toISOString().slice(0, 7);
+
+    const paidMonthCents = paidInvoices.reduce((acc, row) => {
+      const dueDate = typeof row.due_date === "string" ? row.due_date.trim() : "";
+      if (dueDate.startsWith(currentMonthPrefix)) {
+        return acc + toCentsFromUnknown(row.total_amount_cents);
+      }
+      return acc;
+    }, 0);
+
+    const unpaidTotalCents = unpaidInvoices.reduce(
+      (acc, row) => acc + toCentsFromUnknown(row.total_amount_cents),
+      0
+    );
+
+    const overdueTotalCents = overdueInvoices.reduce(
+      (acc, row) => acc + toCentsFromUnknown(row.total_amount_cents),
+      0
+    );
+
+    const preview: InvoicePreview[] = unpaidInvoices
+      .map((row) => {
+        const dueIso = row.due_date
+          ? new Date(row.due_date).toISOString()
+          : new Date(0).toISOString();
+        const late = row.due_date && dueIso < nowIso ? daysBetween(dueIso, nowIso) : 0;
+
         return {
-          id: it.id,
-          client: it.client_name,
-          totalAmountCents: toCentsFromUnknown(it.total_amount_cents),
+          id: row.id,
+          client: row.contact_id ? contactNameMap.get(row.contact_id) ?? "Client" : "Client",
+          totalAmountCents: toCentsFromUnknown(row.total_amount_cents),
           dueDate: dueIso,
-          status: String(it.status),
+          status: String(row.status ?? ""),
           daysLate: late,
         };
       })
       .sort((a, b) => {
         if (b.daysLate !== a.daysLate) return b.daysLate - a.daysLate;
-        if (b.totalAmountCents !== a.totalAmountCents)
+        if (b.totalAmountCents !== a.totalAmountCents) {
           return b.totalAmountCents - a.totalAmountCents;
+        }
         return a.dueDate.localeCompare(b.dueDate);
       })
       .slice(0, 3);
@@ -226,9 +254,9 @@ export class DashboardController {
         paidMonthCents,
       },
       invoices: {
-        unpaidCount: unpaid.length,
+        unpaidCount: unpaidInvoices.length,
         unpaidTotalCents,
-        overdueCount: overdue.length,
+        overdueCount: overdueInvoices.length,
         overdueTotalCents,
         preview,
       },
@@ -237,9 +265,6 @@ export class DashboardController {
       },
     };
 
-    // ===============================
-    // ✅ AJOUT UNIQUE: dernier snapshot copilote (best effort)
-    // ===============================
     let copilotSnapshot: CopilotSnapshot | null = null;
     let copilotAnalysisId: string | null = null;
 
@@ -255,11 +280,18 @@ export class DashboardController {
         .maybeSingle();
 
       if (!lastErr && lastCompta?.response_json) {
-        const rj: any = lastCompta.response_json as any;
+        const rj = lastCompta.response_json as
+          | {
+              copilot?: CopilotSnapshot | null;
+              snapshot?: CopilotSnapshot | null;
+              copilotSnapshot?: CopilotSnapshot | null;
+            }
+          | null;
+
         const maybe = rj?.copilot ?? rj?.snapshot ?? rj?.copilotSnapshot ?? null;
 
         if (maybe && typeof maybe === "object") {
-          copilotSnapshot = maybe as CopilotSnapshot;
+          copilotSnapshot = maybe;
           copilotAnalysisId = String(lastCompta.id);
         }
       }
@@ -282,11 +314,7 @@ export class DashboardController {
         percent,
         resetAt,
       },
-
-      // ✅ KPI via RPC (Postgres calcule)
       kpis: kpisPayload,
-
-      // ✅ optionnel, compat backward
       copilotSnapshot,
       copilotAnalysisId,
     });

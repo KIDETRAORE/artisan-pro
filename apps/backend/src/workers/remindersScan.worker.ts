@@ -5,13 +5,10 @@ import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
 import { reminderQueue } from "../queues/reminder.queue";
 
-const REMINDABLE_STATUSES = ["sent", "overdue"] as const;
-const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
+const REMINDABLE_STATUSES = ["sent", "overdue", "partial"] as const;
+const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MAX_REMINDERS = 10;
 
-/**
- * Scan DB et enqueue les jobs invoice_reminder (1 par facture)
- */
 async function enqueueInvoiceRemindersNow(): Promise<{
   scanned: number;
   enqueued: number;
@@ -22,27 +19,26 @@ async function enqueueInvoiceRemindersNow(): Promise<{
   const nowIso = now.toISOString();
 
   const { data, error } = await supabaseAdmin
-    .from("invoices")
+    .from("sales_invoices")
     .select("id, user_id, status, due_date, reminder_count, last_reminder_at")
     .in("status", [...REMINDABLE_STATUSES])
     .lt("due_date", nowIso);
 
   if (error) {
-    logger.error("RemindersScanWorker: failed to load overdue invoices", {
+    logger.error("RemindersScanWorker: failed to load overdue sales invoices", {
       message: error.message,
     });
     return { scanned: 0, enqueued: 0, skippedCooldown: 0, skippedMax: 0 };
   }
 
-  const invoices =
-    (data ?? []) as Array<{
-      id: string;
-      user_id: string;
-      status: string;
-      due_date: string;
-      reminder_count: number | null;
-      last_reminder_at: string | null;
-    }>;
+  const invoices = (data ?? []) as Array<{
+    id: string;
+    user_id: string;
+    status: string;
+    due_date: string;
+    reminder_count: number | null;
+    last_reminder_at: string | null;
+  }>;
 
   let enqueued = 0;
   let skippedCooldown = 0;
@@ -80,10 +76,13 @@ async function enqueueInvoiceRemindersNow(): Promise<{
       );
       enqueued += 1;
     } catch {
-      logger.warn("RemindersScanWorker: failed to enqueue invoice_reminder", {
-        invoiceId: inv.id,
-        userId: inv.user_id,
-      });
+      logger.warn(
+        "RemindersScanWorker: failed to enqueue sales invoice reminder",
+        {
+          invoiceId: inv.id,
+          userId: inv.user_id,
+        }
+      );
     }
   }
 

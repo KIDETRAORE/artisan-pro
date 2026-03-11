@@ -107,7 +107,7 @@ export class IntegrationsController {
     const { invoiceId } = parsed.data;
 
     const { data: invoice, error: invoiceError } = await supabaseAdmin
-      .from("invoices")
+      .from("sales_invoices")
       .select("id, user_id")
       .eq("id", invoiceId)
       .eq("user_id", user.id)
@@ -147,7 +147,7 @@ export class IntegrationsController {
     const { invoiceId } = parsed.data;
 
     const { data: invoice, error: invoiceError } = await supabaseAdmin
-      .from("invoices")
+      .from("sales_invoices")
       .select("id, user_id")
       .eq("id", invoiceId)
       .eq("user_id", user.id)
@@ -268,7 +268,7 @@ export class IntegrationsController {
     const { invoiceId } = parsed.data;
 
     const { data: invoice, error: invoiceError } = await supabaseAdmin
-      .from("invoices")
+      .from("sales_invoices")
       .select("id, user_id")
       .eq("id", invoiceId)
       .eq("user_id", user.id)
@@ -306,7 +306,7 @@ export class IntegrationsController {
     const { invoiceId } = parsed.data;
 
     const { data: invoice, error: invoiceError } = await supabaseAdmin
-      .from("invoices")
+      .from("sales_invoices")
       .select("id, user_id")
       .eq("id", invoiceId)
       .eq("user_id", user.id)

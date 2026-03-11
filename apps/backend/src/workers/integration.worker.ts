@@ -3,7 +3,7 @@ import { Worker, type Job } from "bullmq";
 import { z } from "zod";
 import { redisOptions } from "../config/redis";
 import { logger } from "../utils/logger";
-import { InvoicesService } from "../services/invoices.service";
+import { SalesInvoicesService } from "../services/salesInvoices.service";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import {
   PennylaneConnector,
@@ -11,11 +11,6 @@ import {
 } from "../integrations/providers/pennylane/pennylane.connector";
 import { IntegrationsService } from "../services/integrations.service";
 import type { IntegrationJobPayload } from "../queues/integration.queue";
-
-/**
- * Worker d'intégration (Pennylane/Sage/EBP/etc.)
- * MVP Phase 1 : push invoice (ArtisanPro -> Pennylane)
- */
 
 const ProviderSchema = z
   .string()
@@ -41,12 +36,6 @@ function parseJobData(data: unknown): PushInvoiceJob {
   }
   return parsed.data;
 }
-
-/**
- * ============================
- * CIRCUIT BREAKER (Pennylane)
- * ============================
- */
 
 const providerCircuitState: Record<
   string,
@@ -92,23 +81,26 @@ function recordSuccess(provider: string) {
   providerCircuitState[provider] = { failures: 0, openedAt: null };
 }
 
+function toPennylaneInvoiceStatus(status: string | null | undefined): string {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  return normalized.length > 0 ? normalized : "draft";
+}
+
 async function upsertExternalIdMap(params: {
   provider: string;
   objectType: "invoice";
   externalId: string;
   internalId: string;
 }) {
-  const { error } = await supabaseAdmin
-    .from("external_id_map")
-    .upsert(
-      {
-        provider: params.provider,
-        object_type: params.objectType,
-        external_id: params.externalId,
-        internal_id: params.internalId,
-      },
-      { onConflict: "provider,object_type,internal_id" }
-    );
+  const { error } = await supabaseAdmin.from("external_id_map").upsert(
+    {
+      provider: params.provider,
+      object_type: params.objectType,
+      external_id: params.externalId,
+      internal_id: params.internalId,
+    },
+    { onConflict: "provider,object_type,internal_id" }
+  );
 
   if (error) {
     logger.warn("⚠️ [WORKER-INTEGRATION] external_id_map upsert failed", {
@@ -156,15 +148,15 @@ async function loadInvoiceLines(
   invoiceId: string
 ): Promise<ArtisanProInvoiceLine[]> {
   const { data, error } = await supabaseAdmin
-    .from("invoice_lines")
+    .from("sales_invoice_lines")
     .select(
       "id, description, quantity, unit_price_cents, tax_rate, line_total_cents"
     )
-    .eq("invoice_id", invoiceId)
+    .eq("sales_invoice_id", invoiceId)
     .order("created_at", { ascending: true });
 
   if (error) {
-    logger.warn("⚠️ [WORKER-INTEGRATION] invoice_lines load failed", {
+    logger.warn("⚠️ [WORKER-INTEGRATION] sales_invoice_lines load failed", {
       invoiceId,
       message: error.message,
     });
@@ -174,8 +166,49 @@ async function loadInvoiceLines(
   return (data ?? []) as ArtisanProInvoiceLine[];
 }
 
+async function loadInvoiceContact(params: {
+  userId: string;
+  contactId: string | null;
+}): Promise<{ name: string; email: string | null }> {
+  if (!params.contactId) {
+    return { name: "Client", email: null };
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("contacts")
+    .select("id, name, email")
+    .eq("id", params.contactId)
+    .eq("user_id", params.userId)
+    .maybeSingle();
+
+  if (error) {
+    logger.warn("⚠️ [WORKER-INTEGRATION] contact lookup failed", {
+      userId: params.userId,
+      contactId: params.contactId,
+      message: error.message,
+    });
+    return { name: "Client", email: null };
+  }
+
+  return {
+    name:
+      typeof data?.name === "string" && data.name.trim().length > 0
+        ? data.name.trim()
+        : "Client",
+    email:
+      typeof data?.email === "string" && data.email.trim().length > 0
+        ? data.email.trim()
+        : null,
+  };
+}
+
 function isSentStatus(status: unknown): boolean {
-  return String(status ?? "").toLowerCase().trim() === "sent";
+  const normalized = String(status ?? "").toLowerCase().trim();
+  return (
+    normalized === "sent" ||
+    normalized === "overdue" ||
+    normalized === "partial"
+  );
 }
 
 function isStubExternalId(externalId: string): boolean {
@@ -222,17 +255,17 @@ export const integrationWorker = new Worker<IntegrationJobPayload>(
     });
 
     if (payload.type === "push_invoice") {
-      const invoice = await InvoicesService.getInvoice(
+      const invoice = await SalesInvoicesService.getSalesInvoice(
         payload.userId,
         payload.invoiceId
       );
 
-      logger.info("📦 [WORKER-INTEGRATION] Invoice loaded", {
+      logger.info("📦 [WORKER-INTEGRATION] Sales invoice loaded", {
         jobId: job.id,
         provider: payload.provider,
         invoiceId: invoice.id,
         status: invoice.status,
-        total_amount: invoice.total_amount,
+        total_amount_cents: invoice.total_amount_cents,
         due_date: invoice.due_date,
       });
 
@@ -266,12 +299,6 @@ export const integrationWorker = new Worker<IntegrationJobPayload>(
           };
         }
 
-        const totalAmount =
-          typeof invoice.total_amount === "number"
-            ? invoice.total_amount
-            : ((invoice as { total_amount_cents?: number }).total_amount_cents ??
-                0) / 100;
-
         const lines = await loadInvoiceLines(invoice.id);
 
         if (lines.length === 0) {
@@ -297,6 +324,18 @@ export const integrationWorker = new Worker<IntegrationJobPayload>(
           throw new Error("invoice_without_lines");
         }
 
+        const contact = await loadInvoiceContact({
+          userId: payload.userId,
+          contactId: invoice.contact_id,
+        });
+
+        const totalAmount =
+          typeof invoice.total_amount_cents === "number"
+            ? invoice.total_amount_cents / 100
+            : 0;
+
+        const normalizedStatus = toPennylaneInvoiceStatus(invoice.status);
+
         try {
           const existingExternalId = await findExistingExternalId({
             provider: "pennylane",
@@ -309,11 +348,11 @@ export const integrationWorker = new Worker<IntegrationJobPayload>(
               existingExternalId,
               {
                 id: invoice.id,
-                client_name: invoice.client_name,
-                client_email: invoice.client_email,
+                client_name: contact.name,
+                client_email: contact.email,
                 total_amount: totalAmount,
-                due_date: invoice.due_date,
-                status: invoice.status,
+                due_date: invoice.due_date ?? "",
+                status: normalizedStatus,
                 lines,
               }
             );
@@ -359,11 +398,11 @@ export const integrationWorker = new Worker<IntegrationJobPayload>(
 
           const result = await PennylaneConnector.pushInvoice({
             id: invoice.id,
-            client_name: invoice.client_name,
-            client_email: invoice.client_email,
+            client_name: contact.name,
+            client_email: contact.email,
             total_amount: totalAmount,
-            due_date: invoice.due_date,
-            status: invoice.status,
+            due_date: invoice.due_date ?? "",
+            status: normalizedStatus,
             lines,
           });
 

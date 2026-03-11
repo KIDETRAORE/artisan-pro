@@ -39,7 +39,13 @@ router.post("/", async (req: Request, res: Response) => {
 
   if (!Buffer.isBuffer(req.body)) {
     logger.error("Stripe webhook requires raw body (Buffer)");
-    return sendError(req, res, 400, "raw_body_required", "Webhook raw body required");
+    return sendError(
+      req,
+      res,
+      400,
+      "raw_body_required",
+      "Webhook raw body required"
+    );
   }
 
   let event: Stripe.Event;
@@ -74,7 +80,10 @@ router.post("/", async (req: Request, res: Response) => {
     });
 
     if (lock === "already_processed") {
-      logger.info("Stripe event already processed (skip)", { eventId, eventType });
+      logger.info("Stripe event already processed (skip)", {
+        eventId,
+        eventType,
+      });
       return res.status(200).json({
         received: true,
         status: "already_processed",
@@ -97,7 +106,13 @@ router.post("/", async (req: Request, res: Response) => {
       eventType,
       message: err instanceof Error ? err.message : String(err),
     });
-    return sendError(req, res, 500, "idempotency_storage_error", "Internal Server Error");
+    return sendError(
+      req,
+      res,
+      500,
+      "idempotency_storage_error",
+      "Internal Server Error"
+    );
   }
 
   logger.info("Stripe event received", { eventType, eventId });
@@ -112,24 +127,26 @@ router.post("/", async (req: Request, res: Response) => {
             ? session.subscription
             : session.subscription?.id;
 
-        // ✅ AJOUT: si pas d’abonnement => paiement facture (mode payment)
         if (!subscriptionId) {
-          const { error: invErr } = await supabaseAdmin
-            .from("invoices")
+          const { error: invoiceErr } = await supabaseAdmin
+            .from("sales_invoices")
             .update({
               status: "paid",
               paid_at: new Date().toISOString(),
             })
             .eq("stripe_checkout_id", session.id);
 
-          if (invErr) {
-            logger.error("Failed to mark invoice paid from checkout session", {
-              eventId,
-              sessionId: session.id,
-              message: invErr.message,
-            });
+          if (invoiceErr) {
+            logger.error(
+              "Failed to mark sales invoice paid from checkout session",
+              {
+                eventId,
+                sessionId: session.id,
+                message: invoiceErr.message,
+              }
+            );
           } else {
-            logger.info("Invoice marked paid from checkout session", {
+            logger.info("Sales invoice marked paid from checkout session", {
               eventId,
               sessionId: session.id,
             });
@@ -293,7 +310,9 @@ async function syncSubscriptionTruth(
         status,
         stripe_customer_id: customerId ?? null,
         stripe_subscription_id: subscription.id,
-        current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
+        current_period_end: periodEnd
+          ? new Date(periodEnd * 1000).toISOString()
+          : null,
       },
       { onConflict: "user_id" }
     );

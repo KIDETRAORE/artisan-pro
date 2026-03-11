@@ -92,54 +92,79 @@ export const invoiceReminderWorker = new Worker(
     });
 
     const { data: invoice, error: invoiceErr } = await supabaseAdmin
-      .from("invoices")
+      .from("sales_invoices")
       .select(
-        "id, user_id, client_email, client_name, invoice_number, due_date, status, total_amount_cents, reminder_count, last_reminder_at"
+        "id, user_id, contact_id, invoice_number, due_date, status, total_amount_cents, reminder_count, last_reminder_at"
       )
       .eq("id", payload.invoiceId)
       .eq("user_id", payload.userId)
       .maybeSingle();
 
     if (invoiceErr) {
-      logger.error("InvoiceReminderWorker: failed to load invoice", {
+      logger.error("InvoiceReminderWorker: failed to load sales invoice", {
         invoiceId: payload.invoiceId,
         userId: payload.userId,
         message: invoiceErr.message,
       });
-      throw new HttpError(500, "Failed to load invoice");
+      throw new HttpError(500, "Failed to load sales invoice");
     }
 
     if (!invoice) {
-      logger.warn("⚠️ [WORKER-INVOICE-REMINDER] Invoice not found", {
+      logger.warn("⚠️ [WORKER-INVOICE-REMINDER] Sales invoice not found", {
         invoiceId: payload.invoiceId,
         userId: payload.userId,
       });
       return { ok: false, reason: "invoice_not_found" };
     }
 
-    const status = String((invoice as any).status ?? "").toLowerCase();
-    if (status === "paid" || status === "canceled") {
-      logger.info("⏭️ [WORKER-INVOICE-REMINDER] Skip closed invoice", {
+    const status = String(invoice.status ?? "").toLowerCase();
+    if (status === "paid" || status === "cancelled") {
+      logger.info("⏭️ [WORKER-INVOICE-REMINDER] Skip closed sales invoice", {
         invoiceId: payload.invoiceId,
         status,
       });
       return { ok: true, skipped: true, reason: "invoice_closed" };
     }
 
-    const clientEmail = String((invoice as any).client_email ?? "").trim();
-    if (!clientEmail) {
-      logger.warn("⚠️ [WORKER-INVOICE-REMINDER] Skip missing client_email", {
+    if (!invoice.contact_id) {
+      logger.warn("⚠️ [WORKER-INVOICE-REMINDER] Skip missing contact_id", {
         invoiceId: payload.invoiceId,
+      });
+      return { ok: true, skipped: true, reason: "missing_contact_id" };
+    }
+
+    const { data: contact, error: contactErr } = await supabaseAdmin
+      .from("contacts")
+      .select("id, email, name")
+      .eq("id", invoice.contact_id)
+      .eq("user_id", payload.userId)
+      .maybeSingle();
+
+    if (contactErr) {
+      logger.error("InvoiceReminderWorker: failed to load contact", {
+        invoiceId: payload.invoiceId,
+        userId: payload.userId,
+        contactId: invoice.contact_id,
+        message: contactErr.message,
+      });
+      throw new HttpError(500, "Failed to load invoice contact");
+    }
+
+    const clientEmail = String(contact?.email ?? "").trim();
+    if (!clientEmail) {
+      logger.warn("⚠️ [WORKER-INVOICE-REMINDER] Skip missing contact email", {
+        invoiceId: payload.invoiceId,
+        contactId: invoice.contact_id,
       });
       return { ok: true, skipped: true, reason: "missing_client_email" };
     }
 
     const invoiceNumber =
-      String((invoice as any).invoice_number ?? "").trim() ||
-      `#${String((invoice as any).id).slice(0, 8)}`;
+      String(invoice.invoice_number ?? "").trim() ||
+      `#${String(invoice.id).slice(0, 8)}`;
 
-    const amountCents = Number((invoice as any).total_amount_cents ?? 0);
-    const dueDateRaw = String((invoice as any).due_date ?? "").trim();
+    const amountCents = Number(invoice.total_amount_cents ?? 0);
+    const dueDateRaw = String(invoice.due_date ?? "").trim();
     const dueDate = dueDateRaw
       ? new Date(dueDateRaw).toLocaleDateString("fr-FR")
       : "date inconnue";
@@ -152,24 +177,27 @@ export const invoiceReminderWorker = new Worker(
 
     await sendReminderEmail(clientEmail, email.subject, email.text);
 
-    const currentReminderCount = Number((invoice as any).reminder_count ?? 0);
+    const currentReminderCount = Number(invoice.reminder_count ?? 0);
 
     const { error: updateErr } = await supabaseAdmin
-      .from("invoices")
+      .from("sales_invoices")
       .update({
         reminder_count: currentReminderCount + 1,
         last_reminder_at: new Date().toISOString(),
-        status: status === "sent" ? "overdue" : (invoice as any).status,
+        status: status === "sent" ? "overdue" : invoice.status,
       })
       .eq("id", payload.invoiceId)
       .eq("user_id", payload.userId);
 
     if (updateErr) {
-      logger.error("InvoiceReminderWorker: failed to update reminder fields", {
-        invoiceId: payload.invoiceId,
-        userId: payload.userId,
-        message: updateErr.message,
-      });
+      logger.error(
+        "InvoiceReminderWorker: failed to update sales invoice reminder fields",
+        {
+          invoiceId: payload.invoiceId,
+          userId: payload.userId,
+          message: updateErr.message,
+        }
+      );
       throw new HttpError(500, "Failed to update invoice reminder state");
     }
 
@@ -179,6 +207,8 @@ export const invoiceReminderWorker = new Worker(
       jobId: job.id,
       invoiceId: payload.invoiceId,
       userId: payload.userId,
+      contactId: invoice.contact_id,
+      contactName: contact?.name ?? null,
       toMasked: toSafe.masked,
       toDomain: toSafe.domain,
       toHash: toSafe.hash,
