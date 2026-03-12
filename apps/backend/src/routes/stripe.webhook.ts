@@ -157,7 +157,8 @@ router.post("/", async (req: Request, res: Response) => {
 
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
-        const userId = subscription.metadata?.userId || session.metadata?.userId;
+        const userId =
+          subscription.metadata?.userId || session.metadata?.userId;
         if (!userId) {
           logger.warn("No userId found in subscription/session metadata", {
             eventId,
@@ -171,7 +172,11 @@ router.post("/", async (req: Request, res: Response) => {
             ? session.customer
             : session.customer?.id;
 
-        await syncSubscriptionTruth(userId, subscription, customerId ?? undefined);
+        await syncSubscriptionTruth(
+          userId,
+          subscription,
+          customerId ?? undefined
+        );
         break;
       }
 
@@ -280,7 +285,9 @@ router.post("/", async (req: Request, res: Response) => {
 function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   const sub = (invoice as any).subscription;
   if (typeof sub === "string") return sub;
-  if (sub && typeof sub === "object" && typeof sub.id === "string") return sub.id;
+  if (sub && typeof sub === "object" && typeof sub.id === "string") {
+    return sub.id;
+  }
   return null;
 }
 

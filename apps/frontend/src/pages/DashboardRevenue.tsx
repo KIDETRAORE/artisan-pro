@@ -3,18 +3,31 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
-import { listInvoices, type Invoice } from "../services/invoices.api";
+import {
+  listSalesInvoices,
+  type SalesInvoice,
+} from "../services/salesInvoices.api";
 import { useComptaReportStore } from "../store/comptaReport.store";
 
 type DashboardResponse = {
   kpis?: {
     revenue?: { paidAllTimeCents: number; paidMonthCents: number };
+    invoices?: {
+      preview: Array<{
+        id: string;
+        client: string;
+        totalAmountCents: number;
+        dueDate: string;
+        status: string;
+        daysLate: number;
+      }>;
+    };
   };
 };
 
 type InvoiceRow = Pick<
-  Invoice,
-  "id" | "client_name" | "status" | "created_at" | "total_amount_cents" | "total_amount"
+  SalesInvoice,
+  "id" | "contact_id" | "status" | "created_at" | "total_cents"
 >;
 
 type KpiCardProps = {
@@ -49,11 +62,24 @@ function startOfCurrentMonthIso(): string {
 }
 
 function invoiceAmountCents(inv: InvoiceRow): number {
-  if (typeof inv.total_amount_cents === "number") return inv.total_amount_cents;
-  if (typeof inv.total_amount === "number") {
-    return Math.round(inv.total_amount * 100);
-  }
+  if (typeof inv.total_cents === "number") return inv.total_cents;
   return 0;
+}
+
+function getInvoiceDisplayClient(
+  invoice: InvoiceRow,
+  previewClientMap: Map<string, string>
+): string {
+  const fromPreview = previewClientMap.get(invoice.id);
+  if (fromPreview && fromPreview.trim().length > 0) {
+    return fromPreview;
+  }
+
+  if (invoice.contact_id && invoice.contact_id.trim().length > 0) {
+    return `Contact ${invoice.contact_id.slice(0, 8)}`;
+  }
+
+  return "Client";
 }
 
 export default function DashboardRevenue() {
@@ -77,7 +103,7 @@ export default function DashboardRevenue() {
           method: "GET",
         });
 
-        const inv = await listInvoices();
+        const inv = await listSalesInvoices();
 
         if (cancelled) return;
 
@@ -112,7 +138,9 @@ export default function DashboardRevenue() {
 
         return parsed.toISOString() >= monthStartIso;
       })
-      .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+      .sort((a, b) =>
+        String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""))
+      );
   }, [invoices, monthStartIso]);
 
   const paidMonthTotalCents = useMemo(() => {
@@ -127,6 +155,15 @@ export default function DashboardRevenue() {
 
   const paidAllTimeCents = kpis?.revenue?.paidAllTimeCents ?? 0;
   const paidMonthCents = kpis?.revenue?.paidMonthCents ?? paidMonthTotalCents;
+  const preview = kpis?.invoices?.preview ?? [];
+
+  const previewClientMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of preview) {
+      map.set(item.id, item.client);
+    }
+    return map;
+  }, [preview]);
 
   const analysis = useMemo(() => {
     if (hasComptaReport) {
@@ -334,7 +371,7 @@ export default function DashboardRevenue() {
                 >
                   <div>
                     <p className="text-sm font-bold text-[var(--theme-text)]">
-                      {it.client_name}
+                      {getInvoiceDisplayClient(it, previewClientMap)}
                     </p>
                     <p className="text-xs font-medium text-[var(--theme-muted)]">
                       #{it.id.slice(0, 8)}

@@ -148,15 +148,16 @@ async function loadInvoiceLines(
   invoiceId: string
 ): Promise<ArtisanProInvoiceLine[]> {
   const { data, error } = await supabaseAdmin
-    .from("sales_invoice_lines")
+    .from("invoice_lines")
     .select(
       "id, description, quantity, unit_price_cents, tax_rate, line_total_cents"
     )
-    .eq("sales_invoice_id", invoiceId)
+    .eq("invoice_id", invoiceId)
+    .eq("type", "sale")
     .order("created_at", { ascending: true });
 
   if (error) {
-    logger.warn("⚠️ [WORKER-INTEGRATION] sales_invoice_lines load failed", {
+    logger.warn("⚠️ [WORKER-INTEGRATION] invoice_lines load failed", {
       invoiceId,
       message: error.message,
     });
@@ -204,11 +205,7 @@ async function loadInvoiceContact(params: {
 
 function isSentStatus(status: unknown): boolean {
   const normalized = String(status ?? "").toLowerCase().trim();
-  return (
-    normalized === "sent" ||
-    normalized === "overdue" ||
-    normalized === "partial"
-  );
+  return normalized === "sent" || normalized === "overdue";
 }
 
 function isStubExternalId(externalId: string): boolean {
@@ -265,7 +262,7 @@ export const integrationWorker = new Worker<IntegrationJobPayload>(
         provider: payload.provider,
         invoiceId: invoice.id,
         status: invoice.status,
-        total_amount_cents: invoice.total_amount_cents,
+        total_cents: invoice.total_cents,
         due_date: invoice.due_date,
       });
 
@@ -330,9 +327,7 @@ export const integrationWorker = new Worker<IntegrationJobPayload>(
         });
 
         const totalAmount =
-          typeof invoice.total_amount_cents === "number"
-            ? invoice.total_amount_cents / 100
-            : 0;
+          typeof invoice.total_cents === "number" ? invoice.total_cents / 100 : 0;
 
         const normalizedStatus = toPennylaneInvoiceStatus(invoice.status);
 

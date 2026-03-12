@@ -179,7 +179,8 @@ export class DashboardController {
     );
 
     const overdueInvoices = unpaidInvoices.filter((row) => {
-      const dueDate = typeof row.due_date === "string" ? row.due_date.trim() : "";
+      const dueDate =
+        typeof row.due_date === "string" ? row.due_date.trim() : "";
       if (!dueDate) {
         return false;
       }
@@ -196,7 +197,8 @@ export class DashboardController {
     const currentMonthPrefix = new Date().toISOString().slice(0, 7);
 
     const paidMonthCents = paidInvoices.reduce((acc, row) => {
-      const dueDate = typeof row.due_date === "string" ? row.due_date.trim() : "";
+      const dueDate =
+        typeof row.due_date === "string" ? row.due_date.trim() : "";
       if (dueDate.startsWith(currentMonthPrefix)) {
         return acc + toCentsFromUnknown(row.total_cents);
       }

@@ -18,19 +18,23 @@ const CreateSalesInvoiceBodySchema = z.object({
   invoice_number: z.string().trim().min(1).nullable().optional(),
   issue_date: z.string().trim().min(1).nullable().optional(),
   due_date: z.string().trim().min(1).nullable().optional(),
-  total_amount_cents: z.number().int().nullable().optional(),
+  subtotal_cents: z.number().int().nonnegative().nullable().optional(),
+  tax_cents: z.number().int().nonnegative().nullable().optional(),
+  total_cents: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().trim().min(1).nullable().optional(),
   status: z
-    .enum(["draft", "sent", "paid", "partial", "overdue", "cancelled"])
-    .default("sent"),
+    .enum(["draft", "sent", "paid", "overdue", "canceled"])
+    .default("draft"),
   source_system: z
     .enum(["artisanpro", "pennylane", "odoo", "file_import", "manual"])
     .nullable()
     .optional(),
   source_external_id: z.string().trim().min(1).nullable().optional(),
-  origin_type: z
-    .enum(["manual", "artisanpro", "compta_import", "sync"])
-    .default("manual"),
+  origin_type: z.enum(["manual", "quote", "compta_import"]).default("manual"),
+  reminder_count: z.number().int().nonnegative().nullable().optional(),
+  last_reminder_at: z.string().trim().min(1).nullable().optional(),
+  stripe_checkout_id: z.string().trim().min(1).nullable().optional(),
+  paid_at: z.string().trim().min(1).nullable().optional(),
 });
 
 const UpdateSalesInvoiceBodySchema = z.object({
@@ -39,19 +43,21 @@ const UpdateSalesInvoiceBodySchema = z.object({
   invoice_number: z.string().trim().min(1).nullable().optional(),
   issue_date: z.string().trim().min(1).nullable().optional(),
   due_date: z.string().trim().min(1).nullable().optional(),
-  total_amount_cents: z.number().int().nullable().optional(),
+  subtotal_cents: z.number().int().nonnegative().nullable().optional(),
+  tax_cents: z.number().int().nonnegative().nullable().optional(),
+  total_cents: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().trim().min(1).nullable().optional(),
-  status: z
-    .enum(["draft", "sent", "paid", "partial", "overdue", "cancelled"])
-    .optional(),
+  status: z.enum(["draft", "sent", "paid", "overdue", "canceled"]).optional(),
   source_system: z
     .enum(["artisanpro", "pennylane", "odoo", "file_import", "manual"])
     .nullable()
     .optional(),
   source_external_id: z.string().trim().min(1).nullable().optional(),
-  origin_type: z
-    .enum(["manual", "artisanpro", "compta_import", "sync"])
-    .optional(),
+  origin_type: z.enum(["manual", "quote", "compta_import"]).optional(),
+  reminder_count: z.number().int().nonnegative().nullable().optional(),
+  last_reminder_at: z.string().trim().min(1).nullable().optional(),
+  stripe_checkout_id: z.string().trim().min(1).nullable().optional(),
+  paid_at: z.string().trim().min(1).nullable().optional(),
 });
 
 function getUserId(req: {

@@ -15,7 +15,6 @@ import automationRoutes from "./automation.routes";
 
 import { usageRouter } from "./usage.routes";
 
-import invoicesRoutes from "./invoices.routes";
 import clientsRoutes from "./clients.routes";
 import invoiceLinesRoutes from "./invoiceLines.routes";
 import projectsRoutes from "./projects.routes";
@@ -77,11 +76,6 @@ router.use("/devis", authMiddleware, devisRouter);
  * QUOTES
  */
 router.use("/quotes", authMiddleware, quotesRoutes);
-
-/**
- * INVOICES
- */
-router.use("/invoices", authMiddleware, invoicesRoutes);
 
 /**
  * SALES INVOICES (canonical accounting model)

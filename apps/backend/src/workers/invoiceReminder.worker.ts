@@ -94,7 +94,7 @@ export const invoiceReminderWorker = new Worker(
     const { data: invoice, error: invoiceErr } = await supabaseAdmin
       .from("sales_invoices")
       .select(
-        "id, user_id, contact_id, invoice_number, due_date, status, total_amount_cents, reminder_count, last_reminder_at"
+        "id, user_id, contact_id, invoice_number, due_date, status, total_cents, reminder_count, last_reminder_at"
       )
       .eq("id", payload.invoiceId)
       .eq("user_id", payload.userId)
@@ -118,7 +118,7 @@ export const invoiceReminderWorker = new Worker(
     }
 
     const status = String(invoice.status ?? "").toLowerCase();
-    if (status === "paid" || status === "cancelled") {
+    if (status === "paid" || status === "canceled") {
       logger.info("⏭️ [WORKER-INVOICE-REMINDER] Skip closed sales invoice", {
         invoiceId: payload.invoiceId,
         status,
@@ -163,7 +163,7 @@ export const invoiceReminderWorker = new Worker(
       String(invoice.invoice_number ?? "").trim() ||
       `#${String(invoice.id).slice(0, 8)}`;
 
-    const amountCents = Number(invoice.total_amount_cents ?? 0);
+    const amountCents = Number(invoice.total_cents ?? 0);
     const dueDateRaw = String(invoice.due_date ?? "").trim();
     const dueDate = dueDateRaw
       ? new Date(dueDateRaw).toLocaleDateString("fr-FR")

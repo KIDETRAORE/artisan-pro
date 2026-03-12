@@ -1,23 +1,19 @@
 // apps/frontend/src/components/invoices/InvoiceEditor.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import type { Invoice } from "../../services/invoices.api";
+import type { SalesInvoice } from "../../services/salesInvoices.api";
 import { listProjects, type Project } from "../../api/projects.api";
 
 type EditableFields = {
-  client_name: boolean;
-  client_email: boolean;
   due_date: boolean;
   project_id: boolean;
 };
 
 type Props = {
   loading: boolean;
-  invoice: Invoice | null;
+  invoice: SalesInvoice | null;
   canEdit?: boolean;
   editableFields?: EditableFields;
   onSave: (patch: {
-    client_name: string;
-    client_email: string | null;
     due_date: string;
     project_id: string | null;
   }) => Promise<void> | void;
@@ -30,8 +26,6 @@ export default function InvoiceEditor({
   editableFields,
   onSave,
 }: Props) {
-  const [clientName, setClientName] = useState("");
-  const [clientEmail, setClientEmail] = useState<string>("");
   const [dueDate, setDueDate] = useState<string>("");
   const [projectId, setProjectId] = useState<string>("");
 
@@ -41,8 +35,6 @@ export default function InvoiceEditor({
   const fields = useMemo<EditableFields>(
     () =>
       editableFields ?? {
-        client_name: true,
-        client_email: true,
         due_date: true,
         project_id: true,
       },
@@ -50,17 +42,9 @@ export default function InvoiceEditor({
   );
 
   useEffect(() => {
-    setClientName(invoice?.client_name ?? "");
-    setClientEmail(invoice?.client_email ?? "");
     setDueDate((invoice?.due_date ?? "").slice(0, 10));
     setProjectId(invoice?.project_id ?? "");
-  }, [
-    invoice?.id,
-    invoice?.client_name,
-    invoice?.client_email,
-    invoice?.due_date,
-    invoice?.project_id,
-  ]);
+  }, [invoice?.id, invoice?.due_date, invoice?.project_id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -89,29 +73,20 @@ export default function InvoiceEditor({
   }, []);
 
   const hasEditableField = useMemo(() => {
-    return (
-      canEdit &&
-      (fields.client_name ||
-        fields.client_email ||
-        fields.due_date ||
-        fields.project_id)
-    );
+    return canEdit && (fields.due_date || fields.project_id);
   }, [canEdit, fields]);
 
   const canSave = useMemo(() => {
     if (!invoice) return false;
     if (!hasEditableField) return false;
-    if (!clientName.trim()) return false;
     if (!dueDate.trim()) return false;
     return true;
-  }, [invoice, hasEditableField, clientName, dueDate]);
+  }, [invoice, hasEditableField, dueDate]);
 
   const submit = async () => {
     if (!canSave) return;
 
     await onSave({
-      client_name: clientName.trim(),
-      client_email: clientEmail.trim() ? clientEmail.trim() : null,
       due_date: new Date(dueDate).toISOString(),
       project_id: projectId.trim() ? projectId : null,
     });
@@ -121,35 +96,15 @@ export default function InvoiceEditor({
     <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
       <div className="p-6 border-b border-[var(--theme-border)]">
         <h3 className="text-lg font-bold text-[var(--theme-text)]">
-          Informations client
+          Informations facture
         </h3>
         <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
-          Renseigne le client, l’échéance et rattache la facture à un chantier si
-          besoin. Le reste est calculé via les lignes.
+          Renseigne l’échéance et rattache la facture à un chantier si besoin.
+          Le reste est calculé via les lignes.
         </p>
       </div>
 
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Nom client">
-          <input
-            value={clientName}
-            onChange={(e) => setClientName(e.target.value)}
-            disabled={!fields.client_name || !canEdit || loading}
-            className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)] disabled:opacity-60"
-            placeholder="Nom / Société"
-          />
-        </Field>
-
-        <Field label="Email (optionnel)">
-          <input
-            value={clientEmail}
-            onChange={(e) => setClientEmail(e.target.value)}
-            disabled={!fields.client_email || !canEdit || loading}
-            className="w-full px-4 py-3 rounded-2xl border border-[var(--theme-border)] outline-none focus:border-blue-300 bg-[var(--theme-card)] text-sm font-semibold text-[var(--theme-text)] disabled:opacity-60"
-            placeholder="client@mail.com"
-          />
-        </Field>
-
         <Field label="Date d’échéance">
           <input
             type="date"

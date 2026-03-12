@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { HttpError } from "../utils/httpError";
 import { requireUser } from "../utils/requireUser";
-import { InvoicesService } from "../services/invoices.service";
+import { SalesInvoicesService } from "../services/salesInvoices.service";
 import { InvoiceLinesService } from "../services/invoiceLines.service";
 import { integrationQueue } from "../queues/integration.queue";
 import { logger } from "../utils/logger";
@@ -31,7 +31,9 @@ async function getSalesInvoiceIdByLineId(lineId: string): Promise<string> {
     throw new HttpError(500, "Failed to load invoice line");
   }
 
-  const invoiceId = String((data as { invoice_id?: unknown } | null)?.invoice_id ?? "").trim();
+  const invoiceId = String(
+    (data as { invoice_id?: unknown } | null)?.invoice_id ?? ""
+  ).trim();
 
   if (!invoiceId) {
     throw new HttpError(404, "Invoice line not found");
@@ -43,9 +45,9 @@ async function getSalesInvoiceIdByLineId(lineId: string): Promise<string> {
 async function enqueueInvoiceSyncIfSent(params: {
   userId: string;
   invoiceId: string;
-  invoiceStatus: string;
+  invoiceStatus: string | null;
 }): Promise<void> {
-  if (String(params.invoiceStatus).toLowerCase() !== "sent") {
+  if (String(params.invoiceStatus ?? "").toLowerCase() !== "sent") {
     return;
   }
 
@@ -88,7 +90,10 @@ export class InvoiceLinesController {
 
     const invoiceId = invoiceIdParsed.data;
 
-    const invoice = await InvoicesService.getInvoice(user.id, invoiceId);
+    const invoice = await SalesInvoicesService.getSalesInvoice(
+      user.id,
+      invoiceId
+    );
     const line = await InvoiceLinesService.createLine(invoiceId, req.body);
 
     await enqueueInvoiceSyncIfSent({
@@ -120,7 +125,7 @@ export class InvoiceLinesController {
 
     const invoiceId = invoiceIdParsed.data;
 
-    await InvoicesService.getInvoice(user.id, invoiceId);
+    await SalesInvoicesService.getSalesInvoice(user.id, invoiceId);
 
     const lines = await InvoiceLinesService.listLines(invoiceId);
 
@@ -146,7 +151,10 @@ export class InvoiceLinesController {
     const lineId = lineIdParsed.data;
     const invoiceId = await getSalesInvoiceIdByLineId(lineId);
 
-    const invoice = await InvoicesService.getInvoice(user.id, invoiceId);
+    const invoice = await SalesInvoicesService.getSalesInvoice(
+      user.id,
+      invoiceId
+    );
     const line = await InvoiceLinesService.updateLine(lineId, req.body);
 
     await enqueueInvoiceSyncIfSent({
@@ -177,7 +185,10 @@ export class InvoiceLinesController {
     const lineId = lineIdParsed.data;
     const invoiceId = await getSalesInvoiceIdByLineId(lineId);
 
-    const invoice = await InvoicesService.getInvoice(user.id, invoiceId);
+    const invoice = await SalesInvoicesService.getSalesInvoice(
+      user.id,
+      invoiceId
+    );
 
     await InvoiceLinesService.deleteLine(lineId);
 

@@ -14,7 +14,8 @@ type FormState = {
   invoice_number: string;
   issue_date: string;
   due_date: string;
-  total_amount_cents: string;
+  subtotal_cents: string;
+  tax_cents: string;
   currency: string;
   status: SalesInvoiceStatus;
   contact_id: string;
@@ -25,9 +26,10 @@ const DEFAULT_FORM: FormState = {
   invoice_number: "",
   issue_date: "",
   due_date: "",
-  total_amount_cents: "",
+  subtotal_cents: "",
+  tax_cents: "",
   currency: "EUR",
-  status: "sent",
+  status: "draft",
   contact_id: "",
   project_id: "",
 };
@@ -61,19 +63,29 @@ function normalizeNullableString(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function toNullableCents(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const amount = Number(trimmed);
+  return Number.isFinite(amount) ? Math.round(amount) : null;
+}
+
 function buildCreatePayload(form: FormState): CreateSalesInvoiceInput {
-  const amount =
-    form.total_amount_cents.trim().length > 0
-      ? Number(form.total_amount_cents)
-      : null;
+  const subtotalCents = toNullableCents(form.subtotal_cents);
+  const taxCents = toNullableCents(form.tax_cents);
 
   return {
     invoice_number: normalizeNullableString(form.invoice_number),
     issue_date: normalizeNullableString(form.issue_date),
     due_date: normalizeNullableString(form.due_date),
-    total_amount_cents:
-      typeof amount === "number" && Number.isFinite(amount)
-        ? Math.round(amount)
+    subtotal_cents: subtotalCents,
+    tax_cents: taxCents,
+    total_cents:
+      subtotalCents !== null || taxCents !== null
+        ? (subtotalCents ?? 0) + (taxCents ?? 0)
         : null,
     currency: normalizeNullableString(form.currency),
     status: form.status,
@@ -246,16 +258,27 @@ export default function SalesInvoices(): React.ReactElement {
 
           <label className="space-y-1">
             <span className="text-sm font-medium text-[var(--theme-text)]">
-              Montant (centimes)
+              Sous-total (centimes)
             </span>
             <input
               type="number"
               className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
-              value={form.total_amount_cents}
-              onChange={(e) =>
-                updateForm("total_amount_cents", e.target.value)
-              }
-              placeholder="125000"
+              value={form.subtotal_cents}
+              onChange={(e) => updateForm("subtotal_cents", e.target.value)}
+              placeholder="100000"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-[var(--theme-text)]">
+              TVA (centimes)
+            </span>
+            <input
+              type="number"
+              className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
+              value={form.tax_cents}
+              onChange={(e) => updateForm("tax_cents", e.target.value)}
+              placeholder="20000"
             />
           </label>
 
@@ -272,10 +295,9 @@ export default function SalesInvoices(): React.ReactElement {
             >
               <option value="draft">Brouillon</option>
               <option value="sent">Envoyée</option>
-              <option value="partial">Partielle</option>
               <option value="paid">Payée</option>
               <option value="overdue">En retard</option>
-              <option value="cancelled">Annulée</option>
+              <option value="canceled">Annulée</option>
             </select>
           </label>
 
@@ -352,7 +374,13 @@ export default function SalesInvoices(): React.ReactElement {
                     Échéance
                   </th>
                   <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
-                    Montant
+                    Sous-total
+                  </th>
+                  <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
+                    TVA
+                  </th>
+                  <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
+                    Total
                   </th>
                   <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
                     Statut
@@ -367,7 +395,10 @@ export default function SalesInvoices(): React.ReactElement {
               </thead>
               <tbody>
                 {sortedItems.map((item) => (
-                  <tr key={item.id} className="border-b border-[var(--theme-border)]">
+                  <tr
+                    key={item.id}
+                    className="border-b border-[var(--theme-border)]"
+                  >
                     <td className="px-3 py-2 text-[var(--theme-text)]">
                       {item.invoice_number || "—"}
                     </td>
@@ -378,13 +409,19 @@ export default function SalesInvoices(): React.ReactElement {
                       {formatDate(item.due_date)}
                     </td>
                     <td className="px-3 py-2 text-[var(--theme-text)]">
-                      {formatAmount(item.total_amount_cents)}
+                      {formatAmount(item.subtotal_cents)}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--theme-text)]">
+                      {formatAmount(item.tax_cents)}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--theme-text)]">
+                      {formatAmount(item.total_cents)}
                     </td>
                     <td className="px-3 py-2">
                       <select
                         className="rounded-lg border border-[var(--theme-border)] bg-[var(--theme-card)] px-2 py-1 text-[var(--theme-text)]"
                         value={
-                          (item.status as SalesInvoiceStatus | null) ?? "sent"
+                          (item.status as SalesInvoiceStatus | null) ?? "draft"
                         }
                         onChange={(e) =>
                           void handleStatusChange(
@@ -395,10 +432,9 @@ export default function SalesInvoices(): React.ReactElement {
                       >
                         <option value="draft">Brouillon</option>
                         <option value="sent">Envoyée</option>
-                        <option value="partial">Partielle</option>
                         <option value="paid">Payée</option>
                         <option value="overdue">En retard</option>
-                        <option value="cancelled">Annulée</option>
+                        <option value="canceled">Annulée</option>
                       </select>
                     </td>
                     <td className="px-3 py-2 text-[var(--theme-text)]">

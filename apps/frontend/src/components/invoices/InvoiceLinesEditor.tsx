@@ -6,7 +6,7 @@ import {
   deleteInvoiceLine,
   patchInvoiceLine,
   type InvoiceLine,
-} from "../../services/invoices.api";
+} from "../../services/salesInvoices.api";
 
 type Props = {
   loading: boolean;

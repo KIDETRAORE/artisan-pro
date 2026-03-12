@@ -3,7 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
-import { listInvoices, type Invoice } from "../services/invoices.api";
+import {
+  listSalesInvoices,
+  type SalesInvoice,
+} from "../services/salesInvoices.api";
 import { useComptaReportStore } from "../store/comptaReport.store";
 
 type DashboardResponse = {
@@ -26,8 +29,15 @@ type DashboardResponse = {
 };
 
 type InvoiceRow = Pick<
-  Invoice,
-  "id" | "client_name" | "status" | "due_date" | "total_amount_cents" | "total_amount"
+  SalesInvoice,
+  | "id"
+  | "contact_id"
+  | "invoice_number"
+  | "status"
+  | "due_date"
+  | "total_cents"
+  | "subtotal_cents"
+  | "tax_cents"
 >;
 
 type KpiProps = {
@@ -64,11 +74,24 @@ function formatDateFr(iso: string): string {
 }
 
 function invoiceAmountCents(inv: InvoiceRow): number {
-  if (typeof inv.total_amount_cents === "number") return inv.total_amount_cents;
-  if (typeof inv.total_amount === "number") {
-    return Math.round(inv.total_amount * 100);
-  }
+  if (typeof inv.total_cents === "number") return inv.total_cents;
   return 0;
+}
+
+function getInvoiceDisplayClient(
+  invoice: InvoiceRow,
+  previewClientMap: Map<string, string>
+): string {
+  const fromPreview = previewClientMap.get(invoice.id);
+  if (fromPreview && fromPreview.trim().length > 0) {
+    return fromPreview;
+  }
+
+  if (invoice.contact_id && invoice.contact_id.trim().length > 0) {
+    return `Contact ${invoice.contact_id.slice(0, 8)}`;
+  }
+
+  return "Client";
 }
 
 export default function DashboardUnpaid() {
@@ -92,7 +115,7 @@ export default function DashboardUnpaid() {
         const dash = await fetchWithAuth<DashboardResponse>("/dashboard", {
           method: "GET",
         });
-        const inv = await listInvoices();
+        const inv = await listSalesInvoices();
 
         if (cancelled) return;
 
@@ -127,7 +150,9 @@ export default function DashboardUnpaid() {
 
   const overdue = useMemo(() => {
     const now = Date.now();
-    return unpaid.filter((i) => new Date(String(i.due_date ?? "")).getTime() < now);
+    return unpaid.filter(
+      (i) => new Date(String(i.due_date ?? "")).getTime() < now
+    );
   }, [unpaid]);
 
   const hasComptaReport = !!report;
@@ -147,6 +172,14 @@ export default function DashboardUnpaid() {
   const unpaidCount = kpis?.invoices?.unpaidCount ?? unpaid.length;
   const overdueCount = kpis?.invoices?.overdueCount ?? overdue.length;
   const preview = kpis?.invoices?.preview ?? [];
+
+  const previewClientMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of preview) {
+      map.set(item.id, item.client);
+    }
+    return map;
+  }, [preview]);
 
   const recommendations = useMemo(() => {
     if (hasComptaReport) {
@@ -512,11 +545,12 @@ export default function DashboardUnpaid() {
                   const status = String(it.status).toLowerCase();
                   const dueDate = String(it.due_date ?? "");
                   const overdueFlag = new Date(dueDate).getTime() < Date.now();
+                  const clientLabel = getInvoiceDisplayClient(it, previewClientMap);
 
                   return (
                     <tr key={it.id} className="text-sm">
                       <td className="px-4 py-3 font-bold text-[var(--theme-text)]">
-                        {it.client_name}
+                        {clientLabel}
                       </td>
                       <td className="px-4 py-3 text-[var(--theme-muted)]">
                         {formatDateFr(dueDate)}
