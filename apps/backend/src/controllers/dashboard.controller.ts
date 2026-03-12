@@ -218,6 +218,7 @@ export class DashboardController {
         const dueIso = row.due_date
           ? new Date(row.due_date).toISOString()
           : new Date(0).toISOString();
+
         const late =
           row.due_date && dueIso < nowIso ? daysBetween(dueIso, nowIso) : 0;
 
@@ -295,7 +296,8 @@ export class DashboardController {
             }
           | null;
 
-        const maybe = rj?.copilot ?? rj?.snapshot ?? rj?.copilotSnapshot ?? null;
+        const maybe =
+          rj?.copilot ?? rj?.snapshot ?? rj?.copilotSnapshot ?? null;
 
         if (maybe && typeof maybe === "object") {
           copilotSnapshot = maybe;

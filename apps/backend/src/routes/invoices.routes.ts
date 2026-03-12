@@ -1,6 +1,7 @@
 // apps/backend/src/routes/invoices.routes.ts
 import { Router } from "express";
 import type { Request } from "express";
+import { z } from "zod";
 import { asyncHandler } from "@utils/asyncHandler";
 import { requirePermission } from "@middlewares/requirePermission.middleware";
 import { PERMISSIONS } from "@auth/permissions";
@@ -9,6 +10,8 @@ import { HttpError } from "../utils/httpError";
 import { InvoicesService } from "../services/invoices.service";
 
 type AuthedRequest = Request & { user?: { id: string } };
+
+const InvoiceIdSchema = z.string().uuid();
 
 const router = Router();
 
@@ -43,8 +46,12 @@ router.get(
       throw new HttpError(401, "Unauthorized");
     }
 
-    const invoiceId = String(req.params.id);
-    const invoice = await InvoicesService.getInvoice(userId, invoiceId);
+    const invoiceId = InvoiceIdSchema.safeParse(req.params.id);
+    if (!invoiceId.success) {
+      throw new HttpError(400, "Invalid invoiceId");
+    }
+
+    const invoice = await InvoicesService.getInvoice(userId, invoiceId.data);
 
     return res.status(200).json({
       success: true,
@@ -84,10 +91,14 @@ router.patch(
       throw new HttpError(401, "Unauthorized");
     }
 
-    const invoiceId = String(req.params.id);
+    const invoiceId = InvoiceIdSchema.safeParse(req.params.id);
+    if (!invoiceId.success) {
+      throw new HttpError(400, "Invalid invoiceId");
+    }
+
     const invoice = await InvoicesService.updateInvoice(
       userId,
-      invoiceId,
+      invoiceId.data,
       req.body
     );
 
@@ -109,9 +120,12 @@ router.delete(
       throw new HttpError(401, "Unauthorized");
     }
 
-    const invoiceId = String(req.params.id);
+    const invoiceId = InvoiceIdSchema.safeParse(req.params.id);
+    if (!invoiceId.success) {
+      throw new HttpError(400, "Invalid invoiceId");
+    }
 
-    await InvoicesService.deleteInvoice(userId, invoiceId);
+    await InvoicesService.deleteInvoice(userId, invoiceId.data);
 
     return res.status(200).json({
       success: true,
@@ -130,12 +144,16 @@ router.post(
       throw new HttpError(401, "Unauthorized");
     }
 
-    const invoiceId = String(req.params.id);
-    const result = await InvoicesService.enqueueReminder(userId, invoiceId);
+    const invoiceId = InvoiceIdSchema.safeParse(req.params.id);
+    if (!invoiceId.success) {
+      throw new HttpError(400, "Invalid invoiceId");
+    }
+
+    const result = await InvoicesService.enqueueReminder(userId, invoiceId.data);
 
     return res.status(200).json({
       success: true,
-      invoiceId,
+      invoiceId: invoiceId.data,
       jobId: result.jobId,
     });
   })
@@ -152,8 +170,15 @@ router.post(
       throw new HttpError(401, "Unauthorized");
     }
 
-    const invoiceId = String(req.params.id);
-    const session = await InvoicesService.createPaymentSession(userId, invoiceId);
+    const invoiceId = InvoiceIdSchema.safeParse(req.params.id);
+    if (!invoiceId.success) {
+      throw new HttpError(400, "Invalid invoiceId");
+    }
+
+    const session = await InvoicesService.createPaymentSession(
+      userId,
+      invoiceId.data
+    );
 
     return res.status(200).json({
       success: true,
@@ -174,8 +199,15 @@ router.post(
       throw new HttpError(401, "Unauthorized");
     }
 
-    const invoiceId = String(req.params.id);
-    const invoice = await InvoicesService.finalizeInvoice(userId, invoiceId);
+    const invoiceId = InvoiceIdSchema.safeParse(req.params.id);
+    if (!invoiceId.success) {
+      throw new HttpError(400, "Invalid invoiceId");
+    }
+
+    const invoice = await InvoicesService.finalizeInvoice(
+      userId,
+      invoiceId.data
+    );
 
     return res.status(200).json({
       success: true,

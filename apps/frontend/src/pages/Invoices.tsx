@@ -49,7 +49,12 @@ interface FactureItem {
 }
 
 function formatMoney(value: number | undefined): string {
-  return `${Number(value ?? 0).toFixed(2)} €`;
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value ?? 0));
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -736,16 +741,23 @@ export default function Invoices() {
       return formatMoney(report.totals.recettesTTC);
     }
 
-    return "8 190.00 €";
-  }, [report]);
+    const totalPaid = realInvoices
+      .filter((invoice) => String(invoice.status ?? "").toLowerCase() === "paid")
+      .reduce((sum, invoice) => sum + moneyCentsFromInvoice(invoice), 0);
+
+    return formatMoney(totalPaid / 100);
+  }, [report, realInvoices]);
 
   const totalImpayes = useMemo(() => {
-    if (report?.tva?.aPayer != null) {
-      return formatMoney(report.tva.aPayer);
-    }
+    const totalUnpaid = realInvoices
+      .filter((invoice) => {
+        const status = String(invoice.status ?? "").toLowerCase();
+        return status === "sent" || status === "overdue";
+      })
+      .reduce((sum, invoice) => sum + moneyCentsFromInvoice(invoice), 0);
 
-    return "5 390.00 €";
-  }, [report]);
+    return formatMoney(totalUnpaid / 100);
+  }, [realInvoices]);
 
   const onCreate = () => {
     navigate("/invoices/new");
@@ -1071,10 +1083,11 @@ export default function Invoices() {
                             disabled={isReminding}
                             className="flex items-center gap-2 bg-[var(--theme-primary)] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-tighter hover:bg-blue-600 transition-all shadow-sm disabled:opacity-60"
                           >
-                            <Send size={12} />{" "}
+                            <Send size={12} />
                             {isReminding ? "Relance..." : "Relance IA"}
                           </button>
                         ) : null}
+
                         {fac.source === "invoice" && invoiceId ? (
                           <button
                             onClick={(e) => {
@@ -1086,6 +1099,7 @@ export default function Invoices() {
                             <Trash2 size={18} />
                           </button>
                         ) : null}
+
                         {fac.source === "compta" ? (
                           <button
                             onClick={(e) => {
@@ -1102,6 +1116,17 @@ export default function Invoices() {
                   </tr>
                 );
               })}
+
+              {displayedFactures.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="px-6 py-10 text-center text-sm text-[var(--theme-muted)]"
+                  >
+                    Aucune facture trouvée.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -1140,7 +1165,9 @@ function StatutFacture({ statut }: { statut: FactureItem["statut"] }) {
       label: "ATTENTE",
     },
   };
+
   const current = configs[statut];
+
   return (
     <span
       className={`flex items-center gap-1.5 w-fit px-3 py-1.5 rounded-full text-[9px] font-black tracking-widest border ${current.style}`}

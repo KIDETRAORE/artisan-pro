@@ -12,6 +12,8 @@ import {
   moneyCentsFromInvoice,
   patchInvoice,
   payInvoice,
+  subtotalCentsFromInvoice,
+  taxCentsFromInvoice,
   type Invoice,
   type InvoiceLine,
 } from "../services/invoices.api";
@@ -125,7 +127,7 @@ export default function InvoiceDetail() {
     void loadSyncEvents();
   }, [invoiceId, isCreateMode]);
 
-  const totals = useMemo(() => {
+  const linesTotals = useMemo(() => {
     const subtotal = lines.reduce((a, l) => a + (l.line_total_cents ?? 0), 0);
     const tax = lines.reduce((a, l) => {
       const rate = Number.isFinite(l.tax_rate) ? l.tax_rate : 0;
@@ -135,6 +137,22 @@ export default function InvoiceDetail() {
 
     return { subtotal, tax, total };
   }, [lines]);
+
+  const invoiceTotals = useMemo(() => {
+    if (!invoice) {
+      return {
+        subtotal: linesTotals.subtotal,
+        tax: linesTotals.tax,
+        total: linesTotals.total,
+      };
+    }
+
+    return {
+      subtotal: subtotalCentsFromInvoice(invoice),
+      tax: taxCentsFromInvoice(invoice),
+      total: moneyCentsFromInvoice(invoice),
+    };
+  }, [invoice, linesTotals]);
 
   const status = String(invoice?.status ?? "").toLowerCase();
 
@@ -179,8 +197,7 @@ export default function InvoiceDetail() {
 
   const canFinalize = useMemo(() => {
     if (!invoice) return false;
-    if (status !== "draft" && status !== "sent") return false;
-    return lines.length > 0;
+    return status === "draft" && lines.length > 0;
   }, [invoice, status, lines.length]);
 
   const canPay = useMemo(() => {
@@ -237,9 +254,9 @@ export default function InvoiceDetail() {
 
       const updated = await patchInvoice(invoice.id, patch);
       setInvoice(updated);
-    } catch (error) {
-      if (error instanceof ApiRequestError) {
-        setError(error.message);
+    } catch (caughtError) {
+      if (caughtError instanceof ApiRequestError) {
+        setError(caughtError.message);
       } else {
         setError("Impossible d’enregistrer les modifications.");
       }
@@ -366,7 +383,9 @@ export default function InvoiceDetail() {
             {isCreateMode
               ? "La facture sera créée lors de l’enregistrement."
               : invoice
-                ? `#${invoice.id.slice(0, 8)}`
+                ? invoice.invoice_number
+                  ? `#${invoice.invoice_number}`
+                  : `#${invoice.id.slice(0, 8)}`
                 : "Chargement…"}
           </p>
         </div>
@@ -455,17 +474,23 @@ export default function InvoiceDetail() {
             <div className="p-6 border-b border-[var(--theme-border)]">
               <h3 className="text-lg font-bold text-[var(--theme-text)]">Totaux</h3>
               <p className="text-[11px] text-[var(--theme-muted)] font-medium mt-1">
-                Calculs en centimes (MVP).
+                Totaux calculés et total canonique enregistré.
               </p>
             </div>
 
             <div className="p-6 space-y-3">
-              <Row label="Sous-total (HT)" value={formatEurFromCents(totals.subtotal)} />
-              <Row label="TVA (estimée)" value={formatEurFromCents(totals.tax)} />
+              <Row
+                label="Sous-total (HT)"
+                value={formatEurFromCents(invoiceTotals.subtotal)}
+              />
+              <Row
+                label="TVA"
+                value={formatEurFromCents(invoiceTotals.tax)}
+              />
               <div className="h-px bg-[var(--theme-bg)] my-2" />
               <Row
                 label="Total (TTC)"
-                value={formatEurFromCents(totals.total)}
+                value={formatEurFromCents(invoiceTotals.total)}
                 strong
               />
 
@@ -473,6 +498,13 @@ export default function InvoiceDetail() {
                 Statut:{" "}
                 <span className="font-black text-[var(--theme-text)]">
                   {status ? status.toUpperCase() : "—"}
+                </span>
+              </div>
+
+              <div className="mt-4 text-xs text-[var(--theme-muted)] font-medium">
+                Total lignes (calcul local):{" "}
+                <span className="font-black text-[var(--theme-text)]">
+                  {formatEurFromCents(linesTotals.total)}
                 </span>
               </div>
 
@@ -498,7 +530,9 @@ export default function InvoiceDetail() {
 
           <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
             <div className="p-6 border-b border-[var(--theme-border)]">
-              <h3 className="text-lg font-bold text-[var(--theme-text)]">Sync Pennylane</h3>
+              <h3 className="text-lg font-bold text-[var(--theme-text)]">
+                Sync Pennylane
+              </h3>
             </div>
 
             <div className="p-6 space-y-3 text-sm text-[var(--theme-muted)]">
@@ -540,15 +574,16 @@ export default function InvoiceDetail() {
 
           <div className="bg-[var(--theme-card)] rounded-3xl shadow-xl shadow-slate-200/50 border border-[var(--theme-border)] overflow-hidden">
             <div className="p-6 border-b border-[var(--theme-border)]">
-              <h3 className="text-lg font-bold text-[var(--theme-text)]">Recommandations</h3>
+              <h3 className="text-lg font-bold text-[var(--theme-text)]">
+                Recommandations
+              </h3>
             </div>
             <div className="p-6 space-y-2 text-sm text-[var(--theme-muted)]">
               <Bullet>Créer en draft → lignes → finaliser.</Bullet>
               <Bullet>Rattacher la facture à un chantier pour alimenter les analytics.</Bullet>
-              <Bullet>Garder les montants en centimes partout (cohérence).</Bullet>
+              <Bullet>Garder les montants en centimes partout.</Bullet>
               <Bullet>
-                Si tu modifies des lignes après “sent”, refais “Finaliser & Sync”
-                pour resync.
+                Une facture envoyée ne doit plus être modifiée côté lignes.
               </Bullet>
             </div>
           </div>
@@ -578,7 +613,9 @@ function Row({
       </div>
       <div
         className={`text-sm ${
-          strong ? "font-black text-[var(--theme-text)]" : "font-bold text-[var(--theme-text)]"
+          strong
+            ? "font-black text-[var(--theme-text)]"
+            : "font-bold text-[var(--theme-text)]"
         }`}
       >
         {value}

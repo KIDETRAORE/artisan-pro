@@ -13,43 +13,19 @@ import visionRoutes from "./vision.routes";
 import vocalRoutes from "./vocal.routes";
 import automationRoutes from "./automation.routes";
 
-// ✅ AJOUT
 import { usageRouter } from "./usage.routes";
 
-// ✅ AJOUT: INVOICES
 import invoicesRoutes from "./invoices.routes";
-
-// ✅ AJOUT: CLIENTS
 import clientsRoutes from "./clients.routes";
-
-// ✅ AJOUT: INVOICE LINES
 import invoiceLinesRoutes from "./invoiceLines.routes";
-
-// ✅ AJOUT: PROJECTS
 import projectsRoutes from "./projects.routes";
-
-// ✅ AJOUT: PROJECT EXPENSES
 import projectExpensesRoutes from "./projectExpenses.routes";
-
-// ✅ AJOUT: INTEGRATIONS
 import integrationsRoutes from "./integrations.routes";
-
-// ✅ AJOUT: ERP WEBHOOKS
 import erpWebhookRoutes from "./erp.webhook.routes";
-
-// ✅ AJOUT: PROJECT ACCOUNTING IMPORT
 import projectAccountingRoutes from "./projectAccounting.routes";
-
-// ✅ AJOUT: QUOTES
 import quotesRoutes from "./quotes.routes";
-
-// ✅ AJOUT: SALES INVOICES
 import salesInvoicesRoutes from "./salesInvoices.routes";
-
-// ✅ AJOUT: PURCHASE BILLS
 import purchaseBillsRoutes from "./purchaseBills.routes";
-
-// ✅ AJOUT: PAYMENTS
 import paymentsRoutes from "./payments.routes";
 
 import { authMiddleware } from "@middlewares/auth.middleware";
@@ -66,9 +42,12 @@ const router = Router();
  * ROUTES TECHNIQUES (PUBLIC)
  * ============================
  */
+
 router.use("/health", healthRoutes);
 
-// ✅ AJOUT: ERP WEBHOOKS (PUBLIC)
+/**
+ * ERP WEBHOOKS (PUBLIC)
+ */
 router.use("/erp/webhooks", erpWebhookRoutes);
 
 /**
@@ -76,6 +55,7 @@ router.use("/erp/webhooks", erpWebhookRoutes);
  * STRIPE (AUTH)
  * ============================
  */
+
 router.use("/stripe", authMiddleware, stripeRoutes);
 
 /**
@@ -83,6 +63,7 @@ router.use("/stripe", authMiddleware, stripeRoutes);
  * ROUTES BUSINESS (AUTH)
  * ============================
  */
+
 router.use(
   "/dashboard",
   authMiddleware,
@@ -92,45 +73,65 @@ router.use(
 
 router.use("/devis", authMiddleware, devisRouter);
 
-// ✅ AJOUT: QUOTES (AUTH)
+/**
+ * QUOTES
+ */
 router.use("/quotes", authMiddleware, quotesRoutes);
 
-// ✅ AJOUT: INVOICES (AUTH)
+/**
+ * INVOICES
+ */
 router.use("/invoices", authMiddleware, invoicesRoutes);
 
-// ✅ AJOUT: SALES INVOICES (AUTH)
+/**
+ * SALES INVOICES (canonical accounting model)
+ */
 router.use("/sales-invoices", authMiddleware, salesInvoicesRoutes);
 
-// ✅ AJOUT: PURCHASE BILLS (AUTH)
+/**
+ * PURCHASE BILLS
+ */
 router.use("/purchase-bills", authMiddleware, purchaseBillsRoutes);
 
-// ✅ AJOUT: PAYMENTS (AUTH)
+/**
+ * PAYMENTS
+ */
 router.use("/payments", authMiddleware, paymentsRoutes);
 
-// ✅ AJOUT: INVOICE LINES (AUTH)
-// On monte le router à la racine pour éviter de doubler "/invoice-lines"
-// car invoiceLines.routes.ts expose déjà "/invoice-lines"
+/**
+ * INVOICE LINES
+ * Router expose déjà /invoice-lines
+ */
 router.use("/", authMiddleware, invoiceLinesRoutes);
 
-// ✅ AJOUT: CLIENTS (AUTH)
+/**
+ * CLIENTS
+ */
 router.use("/clients", authMiddleware, clientsRoutes);
 
-// ✅ AJOUT: PROJECTS (AUTH)
+/**
+ * PROJECTS
+ */
 router.use("/projects", authMiddleware, projectsRoutes);
 
-// ✅ AJOUT: PROJECT EXPENSES (AUTH)
-// On monte aussi à la racine car projectExpenses.routes.ts expose déjà
-// "/projects/:projectId/expenses" et "/project-expenses/:expenseId"
+/**
+ * PROJECT EXPENSES
+ */
 router.use("/", authMiddleware, projectExpensesRoutes);
 
-// ✅ AJOUT: PROJECT ACCOUNTING IMPORT
-// Ce router gère l'upload multer pour /projects/:projectId/import-accounting
-router.use("/", projectAccountingRoutes);
+/**
+ * PROJECT ACCOUNTING IMPORT
+ */
+router.use("/", authMiddleware, projectAccountingRoutes);
 
-// ✅ AJOUT: USAGE (AUTH)
+/**
+ * USAGE
+ */
 router.use("/usage", authMiddleware, usageRouter);
 
-// ✅ AJOUT: INTEGRATIONS (AUTH)
+/**
+ * INTEGRATIONS
+ */
 router.use("/integrations", authMiddleware, integrationsRoutes);
 
 /**
@@ -139,18 +140,13 @@ router.use("/integrations", authMiddleware, integrationsRoutes);
  * ============================
  */
 
-// ✅ MODIF UNIQUE : /ai ne passe plus par quotaMiddleware
-// -> permet à /ai/compta/latest et /ai/status/:jobId de rester en lecture
-// -> /ai/run et /ai/chat gardent déjà leur pré-check quota dans ai.routes.ts
 const aiBaseGuards = [
   authMiddleware,
   requirePermission(PERMISSIONS.AI_USE),
 ] as const;
 
-// /ai/* : guards communs (le rate-limit spécifique /run est géré DANS ai.routes.ts)
 router.use("/ai", ...aiBaseGuards, aiRoutes);
 
-// Autres modules IA (inchangés, sans aiRateLimit global)
 router.use(
   "/assistant",
   authMiddleware,
@@ -158,6 +154,7 @@ router.use(
   quotaMiddleware,
   assistantRoutes
 );
+
 router.use(
   "/compta",
   authMiddleware,
@@ -165,6 +162,7 @@ router.use(
   quotaMiddleware,
   comptaRoutes
 );
+
 router.use(
   "/vision",
   authMiddleware,
@@ -172,6 +170,7 @@ router.use(
   quotaMiddleware,
   visionRoutes
 );
+
 router.use(
   "/vocal",
   authMiddleware,
@@ -181,17 +180,17 @@ router.use(
 );
 
 /**
- * ✅ NOTE:
- * Les routes Expert sont montées directement dans app.ts via:
+ * NOTE :
+ * Les routes Expert sont montées directement dans app.ts :
  * app.use("/ai/expert", expertRouter);
- * (évite de les monter 2 fois ici).
  */
 
 /**
  * ============================
- * AUTOMATISATION (ADMIN ONLY)
+ * AUTOMATION (ADMIN ONLY)
  * ============================
  */
+
 router.use(
   "/automation",
   authMiddleware,

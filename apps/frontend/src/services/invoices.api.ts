@@ -154,6 +154,24 @@ export function moneyCentsFromInvoice(inv: Invoice): number {
   return 0;
 }
 
+export function subtotalCentsFromInvoice(inv: Invoice): number {
+  if (typeof inv.subtotal_cents === "number") {
+    return inv.subtotal_cents;
+  }
+
+  return moneyCentsFromInvoice(inv);
+}
+
+export function taxCentsFromInvoice(inv: Invoice): number {
+  if (typeof inv.tax_amount_cents === "number") {
+    return inv.tax_amount_cents;
+  }
+
+  const total = moneyCentsFromInvoice(inv);
+  const subtotal = subtotalCentsFromInvoice(inv);
+  return Math.max(0, total - subtotal);
+}
+
 export async function listInvoices(): Promise<Invoice[]> {
   const data = await fetchWithAuth<ListInvoicesResponse | Invoice[]>(
     API.invoices,
@@ -172,9 +190,12 @@ export async function listInvoices(): Promise<Invoice[]> {
 }
 
 export async function getInvoice(id: string): Promise<Invoice> {
-  const data = await fetchWithAuth<InvoiceResponse | Invoice>(API.invoiceById(id), {
-    method: "GET",
-  });
+  const data = await fetchWithAuth<InvoiceResponse | Invoice>(
+    API.invoiceById(id),
+    {
+      method: "GET",
+    }
+  );
 
   return unwrapInvoice(data);
 }
@@ -199,7 +220,6 @@ export async function createInvoiceDraft(params: {
       project_id: params.project_id ?? null,
       status: "draft",
       total_amount: 0,
-      total_amount_cents: 0,
       invoice_number: params.invoice_number ?? null,
       origin_type: params.origin_type ?? "manual",
       source_system: params.source_system ?? "artisanpro",
@@ -230,11 +250,26 @@ export async function patchInvoice(
     total_amount_cents?: number;
   }
 ): Promise<Invoice> {
-  const data = await fetchWithAuth<InvoiceResponse | Invoice>(API.invoiceById(id), {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  });
+  const normalizedPatch: Record<string, unknown> = { ...patch };
+
+  if (
+    typeof patch.total_amount_cents === "number" &&
+    Number.isFinite(patch.total_amount_cents) &&
+    normalizedPatch.total_amount === undefined
+  ) {
+    normalizedPatch.total_amount = patch.total_amount_cents / 100;
+  }
+
+  delete normalizedPatch.total_amount_cents;
+
+  const data = await fetchWithAuth<InvoiceResponse | Invoice>(
+    API.invoiceById(id),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(normalizedPatch),
+    }
+  );
 
   return unwrapInvoice(data);
 }
@@ -388,7 +423,10 @@ export async function patchInvoiceLine(
 export async function deleteInvoiceLine(
   id: string
 ): Promise<DeleteInvoiceLineResponse> {
-  return await fetchWithAuth<DeleteInvoiceLineResponse>(API.invoiceLineById(id), {
-    method: "DELETE",
-  });
+  return await fetchWithAuth<DeleteInvoiceLineResponse>(
+    API.invoiceLineById(id),
+    {
+      method: "DELETE",
+    }
+  );
 }

@@ -373,37 +373,37 @@ function mapCanonicalInvoiceToLegacy(
   };
 }
 
+const CANONICAL_INVOICE_SELECT = [
+  "id",
+  "user_id",
+  "contact_id",
+  "project_id",
+  "invoice_number",
+  "issue_date",
+  "due_date",
+  "subtotal_cents",
+  "tax_cents",
+  "total_cents",
+  "currency",
+  "status",
+  "source_system",
+  "source_external_id",
+  "origin_type",
+  "created_at",
+  "updated_at",
+  "reminder_count",
+  "last_reminder_at",
+  "stripe_checkout_id",
+  "paid_at",
+].join(", ");
+
 async function getCanonicalInvoice(
   userId: string,
   invoiceId: string
 ): Promise<CanonicalInvoiceDbRow | null> {
   const { data, error } = await supabaseAdmin
     .from("sales_invoices")
-    .select(
-      [
-        "id",
-        "user_id",
-        "contact_id",
-        "project_id",
-        "invoice_number",
-        "issue_date",
-        "due_date",
-        "subtotal_cents",
-        "tax_cents",
-        "total_cents",
-        "currency",
-        "status",
-        "source_system",
-        "source_external_id",
-        "origin_type",
-        "created_at",
-        "updated_at",
-        "reminder_count",
-        "last_reminder_at",
-        "stripe_checkout_id",
-        "paid_at",
-      ].join(", ")
-    )
+    .select(CANONICAL_INVOICE_SELECT)
     .eq("id", invoiceId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -429,31 +429,7 @@ async function listCanonicalInvoices(
 ): Promise<CanonicalInvoiceDbRow[]> {
   const { data, error } = await supabaseAdmin
     .from("sales_invoices")
-    .select(
-      [
-        "id",
-        "user_id",
-        "contact_id",
-        "project_id",
-        "invoice_number",
-        "issue_date",
-        "due_date",
-        "subtotal_cents",
-        "tax_cents",
-        "total_cents",
-        "currency",
-        "status",
-        "source_system",
-        "source_external_id",
-        "origin_type",
-        "created_at",
-        "updated_at",
-        "reminder_count",
-        "last_reminder_at",
-        "stripe_checkout_id",
-        "paid_at",
-      ].join(", ")
-    )
+    .select(CANONICAL_INVOICE_SELECT)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -645,7 +621,7 @@ async function generateInvoiceNumber(userId: string): Promise<string> {
 async function enqueuePennylanePush(params: {
   userId: string;
   invoiceId: string;
-}) {
+}): Promise<void> {
   try {
     await integrationQueue.add(
       "push_invoice",
@@ -873,30 +849,41 @@ export class InvoicesService {
     if (patch.due_date !== undefined) {
       updatePayload.due_date = patch.due_date;
     }
+
     if (patch.project_id !== undefined) {
       updatePayload.project_id = patch.project_id ?? null;
     }
+
     if (patch.invoice_number !== undefined) {
       updatePayload.invoice_number = patch.invoice_number ?? null;
     }
+
     if (patch.origin_type !== undefined) {
       updatePayload.origin_type = patch.origin_type ?? null;
     }
-    if (patch.source_system !== undefined || normalizedSourceSystem !== undefined) {
+
+    if (
+      patch.source_system !== undefined ||
+      normalizedSourceSystem !== undefined
+    ) {
       updatePayload.source_system = normalizedSourceSystem ?? null;
     }
+
     if (patch.source_external_id !== undefined) {
       updatePayload.source_external_id = patch.source_external_id ?? null;
     }
+
     if (patch.status !== undefined) {
       updatePayload.status = normalizeLegacyStatusToCanonical(patch.status);
     }
+
     if (patch.total_amount !== undefined) {
       const nextTotalCents = toCentsFromEuro(patch.total_amount);
       updatePayload.subtotal_cents = nextTotalCents;
       updatePayload.tax_cents = 0;
       updatePayload.total_cents = nextTotalCents;
     }
+
     if (resolvedContactId !== undefined) {
       updatePayload.contact_id = resolvedContactId;
     }

@@ -1,45 +1,91 @@
-/**
- * Rôles système / business
- */
-export type UserRole = "user" | "admin" | "free" | "pro";
+// apps/backend/src/auth/permissions.ts
 
 /**
- * Permissions métier (naming stable)
+ * ============================
+ * USER ROLES
+ * ============================
+ * Rôles applicatifs utilisés par requireRole()
+ */
+export type UserRole =
+  | "user"
+  | "admin"
+  | "free"
+  | "pro";
+
+/**
+ * ============================
+ * PERMISSIONS MÉTIER
+ * ============================
+ * Format standard :
+ *
+ * module:action
+ *
+ * Exemple :
+ * invoices:read
+ * invoices:write
  */
 export const PERMISSIONS = {
+  /**
+   * Dashboard
+   */
   ACCESS_DASHBOARD: "dashboard:read",
 
+  /**
+   * Devis
+   */
   DEVIS_READ: "devis:read",
   DEVIS_WRITE: "devis:write",
 
-  // ✅ Factures
+  /**
+   * Factures
+   */
   INVOICES_READ: "invoices:read",
   INVOICES_WRITE: "invoices:write",
 
-  // ✅ Clients
+  /**
+   * Clients
+   */
   CLIENTS_READ: "clients:read",
   CLIENTS_WRITE: "clients:write",
 
-  // ✅ Projets / chantiers
+  /**
+   * Projets / chantiers
+   */
   PROJECTS_READ: "projects:read",
   PROJECTS_WRITE: "projects:write",
 
-  // ✅ Lignes de facture
+  /**
+   * Lignes de facture
+   */
   INVOICE_LINES_READ: "invoice_lines:read",
   INVOICE_LINES_WRITE: "invoice_lines:write",
 
-  // ✅ IA
+  /**
+   * IA
+   */
   AI_USE: "ai:use",
 
-  // ✅ Automatisation
+  /**
+   * Automatisation
+   */
   AUTOMATION_USE: "automation:use",
 
-  // ✅ Admin
+  /**
+   * Admin
+   */
   MANAGE_USERS: "users:manage",
 
-  // ✅ Modules IA spécifiques
+  /**
+   * Modules IA spécialisés
+   */
   USE_VISION: "vision:use",
   USE_VOCAL: "vocal:use",
 } as const;
 
-export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
+/**
+ * ============================
+ * TYPE PERMISSION
+ * ============================
+ */
+export type Permission =
+  typeof PERMISSIONS[keyof typeof PERMISSIONS];
