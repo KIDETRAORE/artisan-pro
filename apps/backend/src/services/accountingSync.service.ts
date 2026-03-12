@@ -48,6 +48,17 @@ function getExternalDisplayName(external: ExternalInvoice): string {
   return external.type === "purchase" ? "Supplier" : "Client";
 }
 
+function getExternalAmountCents(external: ExternalInvoice): number | null {
+  if (
+    typeof external.totalAmountCents === "number" &&
+    Number.isFinite(external.totalAmountCents)
+  ) {
+    return Math.round(external.totalAmountCents);
+  }
+
+  return null;
+}
+
 async function buildConnector(
   userId: string,
   provider: SupportedSyncProvider
@@ -155,18 +166,21 @@ async function createCanonicalInvoice(params: {
   contactId: string;
 }): Promise<{ id: string }> {
   const { userId, provider, external, contactId } = params;
+  const amountCents = getExternalAmountCents(external);
 
   if (external.type === "purchase") {
     const createdBill = await PurchaseBillsService.createPurchaseBill(userId, {
       contact_id: contactId,
-      total_amount_cents: external.totalAmountCents ?? null,
       issue_date: external.issueDate ?? null,
       due_date: external.dueDate ?? null,
-      status: "received",
+      subtotal_cents: amountCents ?? 0,
+      tax_cents: 0,
+      total_cents: amountCents ?? 0,
+      status: "posted",
       source_system: provider,
       source_external_id: external.externalId,
       origin_type: "compta_import",
-      bill_number: external.invoiceNumber,
+      bill_number: external.invoiceNumber ?? null,
       currency: external.currency ?? "EUR",
     });
 
@@ -175,14 +189,16 @@ async function createCanonicalInvoice(params: {
 
   const createdInvoice = await SalesInvoicesService.createSalesInvoice(userId, {
     contact_id: contactId,
-    total_amount_cents: external.totalAmountCents ?? null,
     issue_date: external.issueDate ?? null,
     due_date: external.dueDate ?? null,
+    subtotal_cents: amountCents ?? 0,
+    tax_cents: 0,
+    total_cents: amountCents ?? 0,
     status: "sent",
     source_system: provider,
     source_external_id: external.externalId,
     origin_type: "compta_import",
-    invoice_number: external.invoiceNumber,
+    invoice_number: external.invoiceNumber ?? null,
     currency: external.currency ?? "EUR",
   });
 
@@ -197,6 +213,7 @@ async function updateCanonicalInvoiceLink(params: {
   contactId: string;
 }): Promise<void> {
   const { userId, provider, external, internalId, contactId } = params;
+  const amountCents = getExternalAmountCents(external);
 
   if (external.type === "purchase") {
     await PurchaseBillsService.updatePurchaseBill(userId, internalId, {
@@ -218,8 +235,15 @@ async function updateCanonicalInvoiceLink(params: {
         external.issueDate.trim().length > 0
           ? external.issueDate.trim()
           : undefined,
-      total_amount_cents: external.totalAmountCents ?? undefined,
+      ...(amountCents !== null
+        ? {
+            subtotal_cents: amountCents,
+            tax_cents: 0,
+            total_cents: amountCents,
+          }
+        : {}),
       currency: external.currency ?? undefined,
+      status: "posted",
     });
 
     return;
@@ -244,7 +268,13 @@ async function updateCanonicalInvoiceLink(params: {
       external.issueDate.trim().length > 0
         ? external.issueDate.trim()
         : undefined,
-    total_amount_cents: external.totalAmountCents ?? undefined,
+    ...(amountCents !== null
+      ? {
+          subtotal_cents: amountCents,
+          tax_cents: 0,
+          total_cents: amountCents,
+        }
+      : {}),
     currency: external.currency ?? undefined,
   });
 }

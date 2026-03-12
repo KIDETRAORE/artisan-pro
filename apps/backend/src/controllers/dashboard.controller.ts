@@ -45,11 +45,15 @@ function daysBetween(fromIso: string, toIso: string): number {
 }
 
 function toCentsFromUnknown(v: unknown): number {
-  if (typeof v === "number") return Number.isFinite(v) ? Math.round(v) : 0;
+  if (typeof v === "number") {
+    return Number.isFinite(v) ? Math.round(v) : 0;
+  }
+
   if (typeof v === "string") {
     const n = Number(v);
     return Number.isFinite(n) ? Math.round(n) : 0;
   }
+
   return 0;
 }
 
@@ -108,7 +112,7 @@ export class DashboardController {
     const { data: salesInvoicesRows, error: salesInvoicesErr } =
       await supabaseAdmin
         .from("sales_invoices")
-        .select("id, total_amount_cents, due_date, status, contact_id")
+        .select("id, total_cents, due_date, status, contact_id")
         .eq("user_id", user.id);
 
     if (salesInvoicesErr) {
@@ -121,7 +125,7 @@ export class DashboardController {
 
     const salesInvoices = (salesInvoicesRows ?? []) as Array<{
       id: string;
-      total_amount_cents: unknown;
+      total_cents: unknown;
       due_date: string | null;
       status: string | null;
       contact_id: string | null;
@@ -164,7 +168,7 @@ export class DashboardController {
     const nowIso = new Date().toISOString();
 
     const paidStatuses = new Set(["paid"]);
-    const unpaidStatuses = new Set(["sent", "overdue", "partial"]);
+    const unpaidStatuses = new Set(["sent", "overdue"]);
 
     const paidInvoices = salesInvoices.filter((row) =>
       paidStatuses.has(String(row.status ?? "").toLowerCase())
@@ -185,7 +189,7 @@ export class DashboardController {
     });
 
     const paidAllTimeCents = paidInvoices.reduce(
-      (acc, row) => acc + toCentsFromUnknown(row.total_amount_cents),
+      (acc, row) => acc + toCentsFromUnknown(row.total_cents),
       0
     );
 
@@ -194,18 +198,18 @@ export class DashboardController {
     const paidMonthCents = paidInvoices.reduce((acc, row) => {
       const dueDate = typeof row.due_date === "string" ? row.due_date.trim() : "";
       if (dueDate.startsWith(currentMonthPrefix)) {
-        return acc + toCentsFromUnknown(row.total_amount_cents);
+        return acc + toCentsFromUnknown(row.total_cents);
       }
       return acc;
     }, 0);
 
     const unpaidTotalCents = unpaidInvoices.reduce(
-      (acc, row) => acc + toCentsFromUnknown(row.total_amount_cents),
+      (acc, row) => acc + toCentsFromUnknown(row.total_cents),
       0
     );
 
     const overdueTotalCents = overdueInvoices.reduce(
-      (acc, row) => acc + toCentsFromUnknown(row.total_amount_cents),
+      (acc, row) => acc + toCentsFromUnknown(row.total_cents),
       0
     );
 
@@ -214,12 +218,15 @@ export class DashboardController {
         const dueIso = row.due_date
           ? new Date(row.due_date).toISOString()
           : new Date(0).toISOString();
-        const late = row.due_date && dueIso < nowIso ? daysBetween(dueIso, nowIso) : 0;
+        const late =
+          row.due_date && dueIso < nowIso ? daysBetween(dueIso, nowIso) : 0;
 
         return {
           id: row.id,
-          client: row.contact_id ? contactNameMap.get(row.contact_id) ?? "Client" : "Client",
-          totalAmountCents: toCentsFromUnknown(row.total_amount_cents),
+          client: row.contact_id
+            ? contactNameMap.get(row.contact_id) ?? "Client"
+            : "Client",
+          totalAmountCents: toCentsFromUnknown(row.total_cents),
           dueDate: dueIso,
           status: String(row.status ?? ""),
           daysLate: late,

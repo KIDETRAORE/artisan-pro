@@ -10,17 +10,6 @@ import { InvoiceLinesController } from "@controllers/invoiceLines.controller";
 
 const router = Router();
 
-/**
- * ✅ MODIFS UNIQUES:
- * - Aligner les endpoints avec invoices.api.ts (frontend):
- *   GET    /invoice-lines?invoiceId=...
- *   POST   /invoice-lines
- *   PATCH  /invoice-lines/:id
- *   DELETE /invoice-lines/:id
- * - Utiliser les nouvelles permissions dédiées:
- *   INVOICE_LINES_READ / INVOICE_LINES_WRITE
- */
-
 // Create line
 router.post(
   "/invoice-lines",

@@ -12,6 +12,7 @@ import {
   type AccountingSource,
 } from "./accountingMatching.service";
 import { ExternalIdMapService } from "./externalIdMap.service";
+import { ContactsService } from "./contacts.service";
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "canceled";
 export type InvoiceOriginType = "manual" | "quote" | "compta_import";
@@ -39,6 +40,36 @@ export type InvoiceRow = {
   issue_date?: string | null;
   stripe_checkout_id?: string | null;
   paid_at?: string | null;
+};
+
+type CanonicalInvoiceDbRow = {
+  id: string;
+  user_id: string;
+  contact_id: string | null;
+  project_id: string | null;
+  invoice_number: string | null;
+  issue_date: string | null;
+  due_date: string | null;
+  subtotal_cents: number | null;
+  tax_cents: number | null;
+  total_cents: number | null;
+  currency: string | null;
+  status: string | null;
+  source_system: string | null;
+  source_external_id: string | null;
+  origin_type: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  reminder_count: number | null;
+  last_reminder_at: string | null;
+  stripe_checkout_id: string | null;
+  paid_at: string | null;
+};
+
+type ContactSnapshot = {
+  id: string;
+  name: string;
+  email: string | null;
 };
 
 const CreateInvoiceSchema = z.object({
@@ -78,20 +109,92 @@ const UpdateInvoiceSchema = z.object({
   status: z.enum(["draft", "sent", "paid", "overdue", "canceled"]).optional(),
 });
 
+const CanonicalInvoiceDbRowSchema = z.object({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  contact_id: z.string().uuid().nullable(),
+  project_id: z.string().uuid().nullable(),
+  invoice_number: z.string().nullable(),
+  issue_date: z.string().nullable(),
+  due_date: z.string().nullable(),
+  subtotal_cents: z.number().int().nullable(),
+  tax_cents: z.number().int().nullable(),
+  total_cents: z.number().int().nullable(),
+  currency: z.string().nullable(),
+  status: z.string().nullable(),
+  source_system: z.string().nullable(),
+  source_external_id: z.string().nullable(),
+  origin_type: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string().nullable().optional(),
+  reminder_count: z.number().int().nullable(),
+  last_reminder_at: z.string().nullable(),
+  stripe_checkout_id: z.string().nullable(),
+  paid_at: z.string().nullable(),
+});
+
 const stripe = new Stripe(ENV.STRIPE_SECRET_KEY, {});
 
-function normalizeStatus(s: unknown): string {
-  return String(s ?? "").toLowerCase().trim();
+function normalizeStatus(value: unknown): string {
+  return String(value ?? "").toLowerCase().trim();
+}
+
+function normalizeLegacyStatusToCanonical(
+  status: InvoiceStatus | string | null | undefined
+): "draft" | "sent" | "paid" | "overdue" | "canceled" {
+  const normalized = normalizeStatus(status);
+
+  if (
+    normalized === "draft" ||
+    normalized === "sent" ||
+    normalized === "paid" ||
+    normalized === "overdue" ||
+    normalized === "canceled"
+  ) {
+    return normalized;
+  }
+
+  if (normalized === "cancelled") {
+    return "canceled";
+  }
+
+  return "sent";
+}
+
+function normalizeCanonicalStatusToLegacy(
+  status: string | null | undefined
+): string {
+  const normalized = normalizeStatus(status);
+
+  if (normalized === "cancelled") {
+    return "canceled";
+  }
+
+  return normalized || "draft";
+}
+
+function toCentsFromEuro(amount: number): number {
+  return Math.round(amount * 100);
+}
+
+function toEuroFromCents(amountCents: number | null | undefined): number {
+  if (typeof amountCents !== "number" || !Number.isFinite(amountCents)) {
+    return 0;
+  }
+
+  return amountCents / 100;
 }
 
 function toCentsFallback(invoice: InvoiceRow): number {
-  const cents = (invoice as any).total_amount_cents;
-  if (typeof cents === "number" && Number.isFinite(cents))
+  const cents = invoice.total_amount_cents;
+  if (typeof cents === "number" && Number.isFinite(cents)) {
     return Math.round(cents);
+  }
 
   const eur = invoice.total_amount;
-  if (typeof eur === "number" && Number.isFinite(eur))
+  if (typeof eur === "number" && Number.isFinite(eur)) {
     return Math.round(eur * 100);
+  }
 
   return 0;
 }
@@ -143,7 +246,6 @@ async function syncInvoiceExternalMapping(params: {
   sourceSystem: string;
   sourceExternalId: string | null | undefined;
   invoiceId: string;
-  matchConfidence?: "exact" | "high" | "probable" | "manual";
 }): Promise<void> {
   const sourceSystem = String(params.sourceSystem ?? "").trim();
   const sourceExternalId = String(params.sourceExternalId ?? "").trim();
@@ -191,11 +293,254 @@ function assertInvoiceUpdateAllowed(
   }
 }
 
+async function getContactsMap(
+  userId: string,
+  contactIds: Array<string | null | undefined>
+): Promise<Map<string, ContactSnapshot>> {
+  const ids = Array.from(
+    new Set(
+      contactIds.filter(
+        (value): value is string => typeof value === "string" && value.length > 0
+      )
+    )
+  );
+
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("contacts")
+    .select("id, name, email")
+    .eq("user_id", userId)
+    .in("id", ids);
+
+  if (error) {
+    logger.warn("InvoicesService.getContactsMap failed", {
+      userId,
+      message: error.message,
+    });
+    return new Map();
+  }
+
+  const map = new Map<string, ContactSnapshot>();
+
+  for (const row of (data ?? []) as Array<{
+    id?: unknown;
+    name?: unknown;
+    email?: unknown;
+  }>) {
+    const id = String(row.id ?? "").trim();
+    if (!id) continue;
+
+    map.set(id, {
+      id,
+      name: String(row.name ?? "").trim() || "Client",
+      email: typeof row.email === "string" ? row.email : null,
+    });
+  }
+
+  return map;
+}
+
+function mapCanonicalInvoiceToLegacy(
+  row: CanonicalInvoiceDbRow,
+  contact: ContactSnapshot | null
+): InvoiceRow {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    client_name: contact?.name ?? "Client",
+    client_email: contact?.email ?? null,
+    contact_id: row.contact_id,
+    total_amount: toEuroFromCents(row.total_cents),
+    status: normalizeCanonicalStatusToLegacy(row.status),
+    due_date: row.due_date ?? "",
+    last_reminder_at: row.last_reminder_at,
+    reminder_count: row.reminder_count ?? 0,
+    created_at: row.created_at,
+    project_id: row.project_id,
+    invoice_number: row.invoice_number,
+    origin_type: (row.origin_type as InvoiceOriginType | string | null) ?? null,
+    source_system: row.source_system,
+    source_external_id: row.source_external_id,
+    total_amount_cents: row.total_cents,
+    subtotal_cents: row.subtotal_cents,
+    tax_amount_cents: row.tax_cents,
+    issue_date: row.issue_date,
+    stripe_checkout_id: row.stripe_checkout_id,
+    paid_at: row.paid_at,
+  };
+}
+
+async function getCanonicalInvoice(
+  userId: string,
+  invoiceId: string
+): Promise<CanonicalInvoiceDbRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("sales_invoices")
+    .select(
+      [
+        "id",
+        "user_id",
+        "contact_id",
+        "project_id",
+        "invoice_number",
+        "issue_date",
+        "due_date",
+        "subtotal_cents",
+        "tax_cents",
+        "total_cents",
+        "currency",
+        "status",
+        "source_system",
+        "source_external_id",
+        "origin_type",
+        "created_at",
+        "updated_at",
+        "reminder_count",
+        "last_reminder_at",
+        "stripe_checkout_id",
+        "paid_at",
+      ].join(", ")
+    )
+    .eq("id", invoiceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    logger.error("InvoicesService.getCanonicalInvoice failed", {
+      userId,
+      invoiceId,
+      message: error.message,
+    });
+    throw new HttpError(500, "Failed to load invoice");
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return CanonicalInvoiceDbRowSchema.parse(data);
+}
+
+async function listCanonicalInvoices(
+  userId: string
+): Promise<CanonicalInvoiceDbRow[]> {
+  const { data, error } = await supabaseAdmin
+    .from("sales_invoices")
+    .select(
+      [
+        "id",
+        "user_id",
+        "contact_id",
+        "project_id",
+        "invoice_number",
+        "issue_date",
+        "due_date",
+        "subtotal_cents",
+        "tax_cents",
+        "total_cents",
+        "currency",
+        "status",
+        "source_system",
+        "source_external_id",
+        "origin_type",
+        "created_at",
+        "updated_at",
+        "reminder_count",
+        "last_reminder_at",
+        "stripe_checkout_id",
+        "paid_at",
+      ].join(", ")
+    )
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    logger.error("InvoicesService.listCanonicalInvoices failed", {
+      userId,
+      message: error.message,
+    });
+    throw new HttpError(500, "Failed to list invoices");
+  }
+
+  return CanonicalInvoiceDbRowSchema.array().parse(data ?? []);
+}
+
+async function hydrateLegacyInvoice(
+  userId: string,
+  row: CanonicalInvoiceDbRow
+): Promise<InvoiceRow> {
+  const contactsMap = await getContactsMap(userId, [row.contact_id]);
+  const contact =
+    row.contact_id && contactsMap.has(row.contact_id)
+      ? contactsMap.get(row.contact_id) ?? null
+      : null;
+
+  return mapCanonicalInvoiceToLegacy(row, contact);
+}
+
+async function hydrateLegacyInvoices(
+  userId: string,
+  rows: CanonicalInvoiceDbRow[]
+): Promise<InvoiceRow[]> {
+  const contactsMap = await getContactsMap(
+    userId,
+    rows.map((row) => row.contact_id)
+  );
+
+  return rows.map((row) =>
+    mapCanonicalInvoiceToLegacy(
+      row,
+      row.contact_id ? contactsMap.get(row.contact_id) ?? null : null
+    )
+  );
+}
+
+async function resolveContactIdForInvoice(params: {
+  userId: string;
+  contactId?: string | null;
+  clientName?: string | null;
+  clientEmail?: string | null;
+  sourceSystem?: string | null;
+  sourceExternalId?: string | null;
+}): Promise<string | null> {
+  if (params.contactId !== undefined) {
+    return params.contactId ?? null;
+  }
+
+  const clientName = String(params.clientName ?? "").trim();
+  const clientEmail = params.clientEmail ?? null;
+
+  if (!clientName) {
+    return null;
+  }
+
+  const contact = await ContactsService.findOrCreateContact({
+    userId: params.userId,
+    sourceSystem: toAccountingSource({
+      originType: "manual",
+      sourceSystem: params.sourceSystem ?? "artisanpro",
+    }),
+    input: {
+      name: clientName,
+      contact_type: "client",
+      email: clientEmail,
+      source_system: params.sourceSystem ?? "artisanpro",
+      source_external_id: params.sourceExternalId ?? null,
+    },
+  });
+
+  return contact.id;
+}
+
 async function invoiceHasLines(invoiceId: string): Promise<boolean> {
   const { data, error } = await supabaseAdmin
     .from("invoice_lines")
     .select("id")
     .eq("invoice_id", invoiceId)
+    .eq("type", "sale")
     .limit(1)
     .maybeSingle();
 
@@ -208,6 +553,93 @@ async function invoiceHasLines(invoiceId: string): Promise<boolean> {
   }
 
   return !!data;
+}
+
+async function recomputeSalesInvoiceTotals(
+  invoiceId: string
+): Promise<{ subtotalCents: number; taxCents: number; totalCents: number }> {
+  const { data, error } = await supabaseAdmin
+    .from("invoice_lines")
+    .select("line_total_cents, line_total, tax_rate")
+    .eq("invoice_id", invoiceId)
+    .eq("type", "sale");
+
+  if (error) {
+    logger.error("InvoicesService.recomputeSalesInvoiceTotals failed", {
+      invoiceId,
+      message: error.message,
+    });
+    throw new HttpError(500, "Failed to recompute invoice totals");
+  }
+
+  const { subtotalCents, taxCents } = ((data ?? []) as Array<{
+    line_total_cents?: unknown;
+    line_total?: unknown;
+    tax_rate?: unknown;
+  }>).reduce(
+    (acc, row) => {
+      const lineTotalCents =
+        typeof row.line_total_cents === "number" &&
+        Number.isFinite(row.line_total_cents)
+          ? Math.round(row.line_total_cents)
+          : typeof row.line_total === "number" && Number.isFinite(row.line_total)
+            ? Math.round(row.line_total * 100)
+            : 0;
+
+      const taxRate =
+        typeof row.tax_rate === "number" && Number.isFinite(row.tax_rate)
+          ? row.tax_rate
+          : 0;
+
+      acc.subtotalCents += lineTotalCents;
+      acc.taxCents += Math.round(lineTotalCents * (taxRate / 100));
+
+      return acc;
+    },
+    { subtotalCents: 0, taxCents: 0 }
+  );
+
+  const totalCents = subtotalCents + taxCents;
+
+  const { error: updateError } = await supabaseAdmin
+    .from("sales_invoices")
+    .update({
+      subtotal_cents: subtotalCents,
+      tax_cents: taxCents,
+      total_cents: totalCents,
+    })
+    .eq("id", invoiceId);
+
+  if (updateError) {
+    logger.error("InvoicesService.recomputeSalesInvoiceTotals update failed", {
+      invoiceId,
+      message: updateError.message,
+    });
+    throw new HttpError(500, "Failed to recompute invoice totals");
+  }
+
+  return { subtotalCents, taxCents, totalCents };
+}
+
+async function generateInvoiceNumber(userId: string): Promise<string> {
+  const { data, error } = await supabaseAdmin.rpc("generate_invoice_number", {
+    p_user_id: userId,
+  });
+
+  if (error) {
+    logger.error("InvoicesService.generateInvoiceNumber failed", {
+      userId,
+      message: error.message,
+    });
+    throw new HttpError(500, "Failed to generate invoice number");
+  }
+
+  const nextInvoiceNumber = String(data ?? "").trim();
+  if (!nextInvoiceNumber) {
+    throw new HttpError(500, "Failed to generate invoice number");
+  }
+
+  return nextInvoiceNumber;
 }
 
 async function enqueuePennylanePush(params: {
@@ -244,6 +676,7 @@ async function enqueuePennylanePush(params: {
 export class InvoicesService {
   static async createInvoice(userId: string, input: unknown): Promise<InvoiceRow> {
     const parsed = CreateInvoiceSchema.safeParse(input);
+
     if (!parsed.success) {
       throw new HttpError(400, "Invalid invoice payload");
     }
@@ -254,7 +687,19 @@ export class InvoicesService {
       sourceSystem: payload.source_system,
     });
 
+    const resolvedContactId = await resolveContactIdForInvoice({
+      userId,
+      contactId: payload.contact_id,
+      clientName: payload.client_name,
+      clientEmail: payload.client_email ?? null,
+      sourceSystem: normalizedSourceSystem,
+      sourceExternalId: payload.source_external_id ?? null,
+    });
+
+    const totalAmountCents = toCentsFromEuro(payload.total_amount);
+
     const match = await AccountingMatchingService.matchInvoiceCandidate(userId, {
+      type: "sale",
       sourceSystem: toAccountingSource({
         originType: payload.origin_type,
         sourceSystem: normalizedSourceSystem,
@@ -264,7 +709,7 @@ export class InvoicesService {
       clientName: payload.client_name ?? null,
       issueDate: null,
       dueDate: payload.due_date ?? null,
-      totalAmountCents: Math.round(payload.total_amount * 100),
+      totalAmountCents,
     });
 
     if (
@@ -277,8 +722,6 @@ export class InvoicesService {
         sourceSystem: normalizedSourceSystem,
         sourceExternalId: payload.source_external_id,
         invoiceId: match.matchedInvoiceId,
-        matchConfidence:
-          match.confidence === "manual_required" ? "manual" : match.confidence,
       });
 
       return await InvoicesService.getInvoice(userId, match.matchedInvoiceId);
@@ -289,17 +732,23 @@ export class InvoicesService {
     }
 
     if (match.decision === "upgrade_source" && match.matchedInvoiceId) {
-      const { data, error } = await supabaseAdmin
-        .from("invoices")
+      const { error } = await supabaseAdmin
+        .from("sales_invoices")
         .update({
+          contact_id: resolvedContactId,
+          project_id: payload.project_id ?? null,
+          due_date: payload.due_date,
+          subtotal_cents: totalAmountCents,
+          tax_cents: 0,
+          total_cents: totalAmountCents,
+          status: normalizeLegacyStatusToCanonical(payload.status),
+          invoice_number: payload.invoice_number ?? null,
           origin_type: payload.origin_type ?? "manual",
           source_system: normalizedSourceSystem,
           source_external_id: payload.source_external_id ?? null,
         })
         .eq("id", match.matchedInvoiceId)
-        .eq("user_id", userId)
-        .select("*")
-        .single();
+        .eq("user_id", userId);
 
       if (error) {
         logger.error("InvoicesService.createInvoice upgrade_source failed", {
@@ -314,37 +763,36 @@ export class InvoicesService {
         userId,
         sourceSystem: normalizedSourceSystem,
         sourceExternalId: payload.source_external_id,
-        invoiceId: data.id,
-        matchConfidence:
-          match.confidence === "manual_required" ? "manual" : match.confidence,
+        invoiceId: match.matchedInvoiceId,
       });
 
-      return data as InvoiceRow;
+      return await InvoicesService.getInvoice(userId, match.matchedInvoiceId);
     }
 
     const { data, error } = await supabaseAdmin
-      .from("invoices")
+      .from("sales_invoices")
       .insert({
         user_id: userId,
-        client_name: payload.client_name,
-        client_email: payload.client_email ?? null,
-        contact_id: payload.contact_id ?? null,
-        total_amount: payload.total_amount,
-        due_date: payload.due_date,
+        contact_id: resolvedContactId,
         project_id: payload.project_id ?? null,
-        status: payload.status,
+        due_date: payload.due_date,
+        subtotal_cents: totalAmountCents,
+        tax_cents: 0,
+        total_cents: totalAmountCents,
+        currency: "EUR",
+        status: normalizeLegacyStatusToCanonical(payload.status),
         invoice_number: payload.invoice_number ?? null,
         origin_type: payload.origin_type ?? "manual",
         source_system: normalizedSourceSystem,
         source_external_id: payload.source_external_id ?? null,
       })
-      .select("*")
+      .select("id")
       .single();
 
-    if (error) {
+    if (error || !data?.id) {
       logger.error("InvoicesService.createInvoice failed", {
         userId,
-        message: error.message,
+        message: error?.message ?? "Missing inserted id",
       });
       throw new HttpError(500, "Failed to create invoice");
     }
@@ -353,54 +801,25 @@ export class InvoicesService {
       userId,
       sourceSystem: normalizedSourceSystem,
       sourceExternalId: payload.source_external_id,
-      invoiceId: data.id,
-      matchConfidence:
-        match.confidence === "manual_required" ? "manual" : match.confidence,
+      invoiceId: String(data.id),
     });
 
-    return data as InvoiceRow;
+    return await InvoicesService.getInvoice(userId, String(data.id));
   }
 
   static async listInvoices(userId: string): Promise<InvoiceRow[]> {
-    const { data, error } = await supabaseAdmin
-      .from("invoices")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      logger.error("InvoicesService.listInvoices failed", {
-        userId,
-        message: error.message,
-      });
-      throw new HttpError(500, "Failed to list invoices");
-    }
-
-    return (data ?? []) as InvoiceRow[];
+    const rows = await listCanonicalInvoices(userId);
+    return await hydrateLegacyInvoices(userId, rows);
   }
 
   static async getInvoice(userId: string, invoiceId: string): Promise<InvoiceRow> {
-    const { data, error } = await supabaseAdmin
-      .from("invoices")
-      .select("*")
-      .eq("id", invoiceId)
-      .eq("user_id", userId)
-      .maybeSingle();
+    const row = await getCanonicalInvoice(userId, invoiceId);
 
-    if (error) {
-      logger.error("InvoicesService.getInvoice failed", {
-        userId,
-        invoiceId,
-        message: error.message,
-      });
-      throw new HttpError(500, "Failed to load invoice");
-    }
-
-    if (!data) {
+    if (!row) {
       throw new HttpError(404, "Invoice not found");
     }
 
-    return data as InvoiceRow;
+    return await hydrateLegacyInvoice(userId, row);
   }
 
   static async updateInvoice(
@@ -409,24 +828,84 @@ export class InvoicesService {
     input: unknown
   ): Promise<InvoiceRow> {
     const parsed = UpdateInvoiceSchema.safeParse(input);
+
     if (!parsed.success) {
       throw new HttpError(400, "Invalid invoice payload");
     }
 
     const patch = parsed.data;
-
     const before = await InvoicesService.getInvoice(userId, invoiceId);
     const beforeStatus = normalizeStatus(before.status);
 
     assertInvoiceUpdateAllowed(beforeStatus, patch);
 
-    const { data, error } = await supabaseAdmin
-      .from("invoices")
-      .update(patch)
+    const normalizedSourceSystem =
+      patch.source_system !== undefined || patch.origin_type !== undefined
+        ? resolveSourceSystem({
+            originType: patch.origin_type ?? before.origin_type,
+            sourceSystem: patch.source_system ?? before.source_system,
+          })
+        : undefined;
+
+    const resolvedContactId =
+      patch.contact_id !== undefined ||
+      patch.client_name !== undefined ||
+      patch.client_email !== undefined
+        ? await resolveContactIdForInvoice({
+            userId,
+            contactId: patch.contact_id,
+            clientName: patch.client_name ?? before.client_name,
+            clientEmail:
+              patch.client_email !== undefined
+                ? patch.client_email
+                : before.client_email,
+            sourceSystem:
+              normalizedSourceSystem ?? before.source_system ?? "artisanpro",
+            sourceExternalId:
+              patch.source_external_id !== undefined
+                ? patch.source_external_id
+                : before.source_external_id,
+          })
+        : undefined;
+
+    const updatePayload: Record<string, unknown> = {};
+
+    if (patch.due_date !== undefined) {
+      updatePayload.due_date = patch.due_date;
+    }
+    if (patch.project_id !== undefined) {
+      updatePayload.project_id = patch.project_id ?? null;
+    }
+    if (patch.invoice_number !== undefined) {
+      updatePayload.invoice_number = patch.invoice_number ?? null;
+    }
+    if (patch.origin_type !== undefined) {
+      updatePayload.origin_type = patch.origin_type ?? null;
+    }
+    if (patch.source_system !== undefined || normalizedSourceSystem !== undefined) {
+      updatePayload.source_system = normalizedSourceSystem ?? null;
+    }
+    if (patch.source_external_id !== undefined) {
+      updatePayload.source_external_id = patch.source_external_id ?? null;
+    }
+    if (patch.status !== undefined) {
+      updatePayload.status = normalizeLegacyStatusToCanonical(patch.status);
+    }
+    if (patch.total_amount !== undefined) {
+      const nextTotalCents = toCentsFromEuro(patch.total_amount);
+      updatePayload.subtotal_cents = nextTotalCents;
+      updatePayload.tax_cents = 0;
+      updatePayload.total_cents = nextTotalCents;
+    }
+    if (resolvedContactId !== undefined) {
+      updatePayload.contact_id = resolvedContactId;
+    }
+
+    const { error } = await supabaseAdmin
+      .from("sales_invoices")
+      .update(updatePayload)
       .eq("id", invoiceId)
-      .eq("user_id", userId)
-      .select("*")
-      .single();
+      .eq("user_id", userId);
 
     if (error) {
       logger.error("InvoicesService.updateInvoice failed", {
@@ -437,8 +916,20 @@ export class InvoicesService {
       throw new HttpError(500, "Failed to update invoice");
     }
 
-    const updated = data as InvoiceRow;
+    if (
+      normalizedSourceSystem &&
+      patch.source_external_id !== undefined &&
+      patch.source_external_id
+    ) {
+      await syncInvoiceExternalMapping({
+        userId,
+        sourceSystem: normalizedSourceSystem,
+        sourceExternalId: patch.source_external_id,
+        invoiceId,
+      });
+    }
 
+    const updated = await InvoicesService.getInvoice(userId, invoiceId);
     const afterStatus = normalizeStatus(updated.status);
     const wantsFinalizationSync =
       normalizeStatus(patch.status) === "sent" &&
@@ -469,7 +960,7 @@ export class InvoicesService {
     }
 
     const { error } = await supabaseAdmin
-      .from("invoices")
+      .from("sales_invoices")
       .delete()
       .eq("id", invoiceId)
       .eq("user_id", userId);
@@ -486,8 +977,8 @@ export class InvoicesService {
 
   static async finalizeInvoice(userId: string, invoiceId: string): Promise<InvoiceRow> {
     const invoice = await InvoicesService.getInvoice(userId, invoiceId);
-
     const status = normalizeStatus(invoice.status);
+
     if (status === "paid" || status === "canceled") {
       throw new HttpError(409, "Invoice cannot be finalized in its current state");
     }
@@ -497,44 +988,21 @@ export class InvoicesService {
       throw new HttpError(400, "Cannot finalize invoice without lines");
     }
 
-    const { error: rpcErr } = await supabaseAdmin.rpc(
-      "recompute_invoice_totals_cents",
-      { p_invoice_id: invoiceId }
-    );
-
-    if (rpcErr) {
-      logger.error(
-        "InvoicesService.finalizeInvoice recompute_invoice_totals_cents failed",
-        { userId, invoiceId, message: rpcErr.message }
-      );
-      throw new HttpError(500, "Failed to recompute invoice totals");
-    }
+    const totals = await recomputeSalesInvoiceTotals(invoiceId);
 
     let nextInvoiceNumber: string | null = null;
-
-    if ((invoice as any).invoice_number == null) {
-      const { data: num, error: numErr } = await supabaseAdmin.rpc(
-        "generate_invoice_number",
-        { p_user_id: userId }
-      );
-
-      if (numErr) {
-        logger.error(
-          "InvoicesService.finalizeInvoice generate_invoice_number failed",
-          { userId, invoiceId, message: numErr.message }
-        );
-        throw new HttpError(500, "Failed to generate invoice number");
-      }
-
-      nextInvoiceNumber = String(num ?? "");
-      if (!nextInvoiceNumber || nextInvoiceNumber.trim().length === 0) {
-        throw new HttpError(500, "Failed to generate invoice number");
-      }
+    if (invoice.invoice_number == null) {
+      nextInvoiceNumber = await generateInvoiceNumber(userId);
     }
 
-    const patch: Record<string, unknown> = { status: "sent" };
+    const patch: Record<string, unknown> = {
+      status: "sent",
+      subtotal_cents: totals.subtotalCents,
+      tax_cents: totals.taxCents,
+      total_cents: totals.totalCents,
+    };
 
-    if ((invoice as any).issue_date == null) {
+    if (invoice.issue_date == null) {
       patch.issue_date = new Date().toISOString();
     }
 
@@ -542,13 +1010,11 @@ export class InvoicesService {
       patch.invoice_number = nextInvoiceNumber;
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("invoices")
+    const { error } = await supabaseAdmin
+      .from("sales_invoices")
       .update(patch)
       .eq("id", invoiceId)
-      .eq("user_id", userId)
-      .select("*")
-      .single();
+      .eq("user_id", userId);
 
     if (error) {
       logger.error("InvoicesService.finalizeInvoice update failed", {
@@ -561,7 +1027,7 @@ export class InvoicesService {
 
     await enqueuePennylanePush({ userId, invoiceId });
 
-    return data as InvoiceRow;
+    return await InvoicesService.getInvoice(userId, invoiceId);
   }
 
   static async enqueueReminder(
@@ -569,8 +1035,8 @@ export class InvoicesService {
     invoiceId: string
   ): Promise<{ jobId: string }> {
     const invoice = await InvoicesService.getInvoice(userId, invoiceId);
-
     const status = normalizeStatus(invoice.status);
+
     if (status !== "sent" && status !== "overdue") {
       throw new HttpError(409, "Invoice cannot be reminded in its current state");
     }
@@ -622,8 +1088,8 @@ export class InvoicesService {
     invoiceId: string
   ): Promise<{ id: string; url: string }> {
     const invoice = await InvoicesService.getInvoice(userId, invoiceId);
-
     const status = normalizeStatus(invoice.status);
+
     if (status === "paid" || status === "canceled") {
       throw new HttpError(409, "Invoice cannot be paid in its current state");
     }
@@ -666,13 +1132,22 @@ export class InvoicesService {
       },
     });
 
-    await supabaseAdmin
-      .from("invoices")
+    const { error } = await supabaseAdmin
+      .from("sales_invoices")
       .update({
         stripe_checkout_id: session.id,
       })
       .eq("id", invoice.id)
       .eq("user_id", userId);
+
+    if (error) {
+      logger.error("InvoicesService.createPaymentSession persist failed", {
+        userId,
+        invoiceId,
+        message: error.message,
+      });
+      throw new HttpError(500, "Failed to persist Stripe checkout session");
+    }
 
     const url = session.url;
     if (!url) {

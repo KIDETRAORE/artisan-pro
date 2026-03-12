@@ -6,11 +6,10 @@ import { HttpError } from "../utils/httpError";
 
 export const PurchaseBillStatusSchema = z.enum([
   "draft",
-  "received",
-  "partial",
+  "posted",
   "paid",
   "overdue",
-  "cancelled",
+  "canceled",
 ]);
 
 export type PurchaseBillStatus = z.infer<typeof PurchaseBillStatusSchema>;
@@ -29,9 +28,7 @@ export type PurchaseBillSourceSystem = z.infer<
 
 export const PurchaseBillOriginTypeSchema = z.enum([
   "manual",
-  "artisanpro",
   "compta_import",
-  "sync",
 ]);
 
 export type PurchaseBillOriginType = z.infer<
@@ -46,7 +43,9 @@ export const PurchaseBillRowSchema = z.object({
   bill_number: z.string().nullable(),
   issue_date: z.string().nullable().optional(),
   due_date: z.string().nullable(),
-  total_amount_cents: z.number().int().nullable(),
+  subtotal_cents: z.number().int().nullable(),
+  tax_cents: z.number().int().nullable(),
+  total_cents: z.number().int().nullable(),
   currency: z.string().nullable(),
   status: z.string().nullable(),
   source_system: z.string().nullable(),
@@ -64,9 +63,11 @@ const CreatePurchaseBillSchema = z.object({
   bill_number: z.string().trim().min(1).nullable().optional(),
   issue_date: z.string().trim().min(1).nullable().optional(),
   due_date: z.string().trim().min(1).nullable().optional(),
-  total_amount_cents: z.number().int().nullable().optional(),
+  subtotal_cents: z.number().int().nonnegative().nullable().optional(),
+  tax_cents: z.number().int().nonnegative().nullable().optional(),
+  total_cents: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().trim().min(1).nullable().optional(),
-  status: PurchaseBillStatusSchema.default("received"),
+  status: PurchaseBillStatusSchema.default("posted"),
   source_system: PurchaseBillSourceSystemSchema.nullable().optional(),
   source_external_id: z.string().trim().min(1).nullable().optional(),
   origin_type: PurchaseBillOriginTypeSchema.default("manual"),
@@ -80,7 +81,9 @@ const UpdatePurchaseBillSchema = z.object({
   bill_number: z.string().trim().min(1).nullable().optional(),
   issue_date: z.string().trim().min(1).nullable().optional(),
   due_date: z.string().trim().min(1).nullable().optional(),
-  total_amount_cents: z.number().int().nullable().optional(),
+  subtotal_cents: z.number().int().nonnegative().nullable().optional(),
+  tax_cents: z.number().int().nonnegative().nullable().optional(),
+  total_cents: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().trim().min(1).nullable().optional(),
   status: PurchaseBillStatusSchema.optional(),
   source_system: PurchaseBillSourceSystemSchema.nullable().optional(),
@@ -90,20 +93,30 @@ const UpdatePurchaseBillSchema = z.object({
 
 export type UpdatePurchaseBillInput = z.infer<typeof UpdatePurchaseBillSchema>;
 
-function normalizeNullableString(value: string | null | undefined): string | null {
+function normalizeNullableString(
+  value: string | null | undefined
+): string | null {
   if (typeof value !== "string") return value ?? null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
 function sanitizeCreateInput(input: CreatePurchaseBillInput) {
+  const subtotalCents = input.subtotal_cents ?? 0;
+  const taxCents = input.tax_cents ?? 0;
+  const totalCents =
+    input.total_cents ??
+    (subtotalCents !== null && taxCents !== null ? subtotalCents + taxCents : 0);
+
   return {
     contact_id: input.contact_id ?? null,
     project_id: input.project_id ?? null,
     bill_number: normalizeNullableString(input.bill_number),
     issue_date: normalizeNullableString(input.issue_date),
     due_date: normalizeNullableString(input.due_date),
-    total_amount_cents: input.total_amount_cents ?? null,
+    subtotal_cents: subtotalCents,
+    tax_cents: taxCents,
+    total_cents: totalCents,
     currency: normalizeNullableString(input.currency) ?? "EUR",
     status: input.status,
     source_system: input.source_system ?? null,
@@ -135,12 +148,20 @@ function sanitizeUpdateInput(input: UpdatePurchaseBillInput) {
     patch.due_date = normalizeNullableString(input.due_date);
   }
 
-  if ("total_amount_cents" in input) {
-    patch.total_amount_cents = input.total_amount_cents ?? null;
+  if ("subtotal_cents" in input) {
+    patch.subtotal_cents = input.subtotal_cents ?? 0;
+  }
+
+  if ("tax_cents" in input) {
+    patch.tax_cents = input.tax_cents ?? 0;
+  }
+
+  if ("total_cents" in input) {
+    patch.total_cents = input.total_cents ?? 0;
   }
 
   if ("currency" in input) {
-    patch.currency = normalizeNullableString(input.currency);
+    patch.currency = normalizeNullableString(input.currency) ?? "EUR";
   }
 
   if ("status" in input) {
@@ -159,8 +180,21 @@ function sanitizeUpdateInput(input: UpdatePurchaseBillInput) {
     patch.origin_type = input.origin_type;
   }
 
+  const nextSubtotal =
+    typeof patch.subtotal_cents === "number" ? patch.subtotal_cents : undefined;
+  const nextTax =
+    typeof patch.tax_cents === "number" ? patch.tax_cents : undefined;
+  const hasExplicitTotal = typeof patch.total_cents === "number";
+
+  if (!hasExplicitTotal && (nextSubtotal !== undefined || nextTax !== undefined)) {
+    patch.total_cents = (nextSubtotal ?? 0) + (nextTax ?? 0);
+  }
+
   return patch;
 }
+
+const PURCHASE_BILL_SELECT =
+  "id, user_id, contact_id, project_id, bill_number, issue_date, due_date, subtotal_cents, tax_cents, total_cents, currency, status, source_system, source_external_id, origin_type, created_at, updated_at";
 
 async function readOneById(
   userId: string,
@@ -168,9 +202,7 @@ async function readOneById(
 ): Promise<PurchaseBillRow | null> {
   const { data, error } = await supabaseAdmin
     .from("purchase_bills")
-    .select(
-      "id, user_id, contact_id, project_id, bill_number, issue_date, due_date, total_amount_cents, currency, status, source_system, source_external_id, origin_type, created_at, updated_at"
-    )
+    .select(PURCHASE_BILL_SELECT)
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
@@ -190,9 +222,7 @@ export class PurchaseBillsService {
   static async listPurchaseBills(userId: string): Promise<PurchaseBillRow[]> {
     const { data, error } = await supabaseAdmin
       .from("purchase_bills")
-      .select(
-        "id, user_id, contact_id, project_id, bill_number, issue_date, due_date, total_amount_cents, currency, status, source_system, source_external_id, origin_type, created_at, updated_at"
-      )
+      .select(PURCHASE_BILL_SELECT)
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
@@ -229,9 +259,7 @@ export class PurchaseBillsService {
 
     const { data, error } = await supabaseAdmin
       .from("purchase_bills")
-      .select(
-        "id, user_id, contact_id, project_id, bill_number, issue_date, due_date, total_amount_cents, currency, status, source_system, source_external_id, origin_type, created_at, updated_at"
-      )
+      .select(PURCHASE_BILL_SELECT)
       .eq("user_id", params.userId)
       .eq("source_system", params.sourceSystem)
       .eq("source_external_id", sourceExternalId)
@@ -261,9 +289,7 @@ export class PurchaseBillsService {
         user_id: userId,
         ...payload,
       })
-      .select(
-        "id, user_id, contact_id, project_id, bill_number, issue_date, due_date, total_amount_cents, currency, status, source_system, source_external_id, origin_type, created_at, updated_at"
-      )
+      .select(PURCHASE_BILL_SELECT)
       .single();
 
     if (error || !data) {

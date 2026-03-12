@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
+import { listInvoices, type Invoice } from "../services/invoices.api";
 import { useComptaReportStore } from "../store/comptaReport.store";
 
 type DashboardResponse = {
@@ -11,14 +12,10 @@ type DashboardResponse = {
   };
 };
 
-type InvoiceRow = {
-  id: string;
-  client_name: string;
-  status: string;
-  created_at: string;
-  total_amount_cents?: number | null;
-  total_amount?: number | null;
-};
+type InvoiceRow = Pick<
+  Invoice,
+  "id" | "client_name" | "status" | "created_at" | "total_amount_cents" | "total_amount"
+>;
 
 type KpiCardProps = {
   label: string;
@@ -80,7 +77,7 @@ export default function DashboardRevenue() {
           method: "GET",
         });
 
-        const inv = await fetchWithAuth<unknown>("/invoices", { method: "GET" });
+        const inv = await listInvoices();
 
         if (cancelled) return;
 
@@ -106,8 +103,16 @@ export default function DashboardRevenue() {
   const paidMonth = useMemo(() => {
     return invoices
       .filter((i) => String(i.status).toLowerCase() === "paid")
-      .filter((i) => new Date(i.created_at).toISOString() >= monthStartIso)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      .filter((i) => {
+        const createdAt = String(i.created_at ?? "").trim();
+        if (!createdAt) return false;
+
+        const parsed = new Date(createdAt);
+        if (Number.isNaN(parsed.getTime())) return false;
+
+        return parsed.toISOString() >= monthStartIso;
+      })
+      .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
   }, [invoices, monthStartIso]);
 
   const paidMonthTotalCents = useMemo(() => {

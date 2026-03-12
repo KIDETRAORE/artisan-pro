@@ -736,7 +736,7 @@ export default function Invoices() {
       return formatMoney(report.totals.recettesTTC);
     }
 
-    return "8 190€";
+    return "8 190.00 €";
   }, [report]);
 
   const totalImpayes = useMemo(() => {
@@ -744,7 +744,7 @@ export default function Invoices() {
       return formatMoney(report.tva.aPayer);
     }
 
-    return "5 390€";
+    return "5 390.00 €";
   }, [report]);
 
   const onCreate = () => {

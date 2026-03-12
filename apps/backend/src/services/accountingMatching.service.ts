@@ -64,7 +64,7 @@ type CanonicalInvoiceLookupRow = {
 };
 
 type ContactLookupRow = {
-  id: string;
+  id: string | null;
   name: string | null;
 };
 
@@ -75,7 +75,9 @@ type CanonicalInvoiceDbRow = {
   contact_id?: unknown;
   issue_date?: unknown;
   due_date?: unknown;
-  total_amount_cents?: unknown;
+  subtotal_cents?: unknown;
+  tax_cents?: unknown;
+  total_cents?: unknown;
   source_system?: unknown;
 };
 
@@ -160,6 +162,10 @@ function toNullableNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function getRowAmountCents(row: CanonicalInvoiceDbRow): number | null {
+  return toNullableNumber(row.total_cents);
+}
+
 async function getCanonicalInvoiceById(
   userId: string,
   candidate: InvoiceMatchCandidate,
@@ -194,7 +200,7 @@ async function listCanonicalInvoices(
   const { data, error } = await supabaseAdmin
     .from(table)
     .select(
-      `id, ${numberColumn}, contact_id, issue_date, due_date, total_amount_cents, source_system`
+      `id, ${numberColumn}, contact_id, issue_date, due_date, subtotal_cents, tax_cents, total_cents, source_system`
     )
     .eq("user_id", userId);
 
@@ -211,7 +217,7 @@ async function listCanonicalInvoices(
     contact_id: toNullableString(row.contact_id),
     issue_date: toNullableString(row.issue_date),
     due_date: toNullableString(row.due_date),
-    total_amount_cents: toNullableNumber(row.total_amount_cents),
+    total_amount_cents: getRowAmountCents(row),
     source_system: toNullableString(row.source_system),
   }));
 }
@@ -234,7 +240,10 @@ async function getContactsNameMap(contactIds: string[]): Promise<Map<string, str
 
   return new Map(
     (data as ContactLookupRow[])
-      .filter((row) => typeof row.id === "string")
+      .filter(
+        (row): row is { id: string; name: string | null } =>
+          typeof row.id === "string"
+      )
       .map((row) => [row.id, row.name ?? ""])
   );
 }
@@ -248,8 +257,9 @@ async function findByExternalIdMap(
   const { data, error } = await supabaseAdmin
     .from("external_id_map")
     .select("internal_id")
-    .eq("provider", candidate.sourceSystem)
-    .eq("object_type", "invoice")
+    .eq("user_id", userId)
+    .eq("source_system", candidate.sourceSystem)
+    .eq("external_entity_type", "invoice")
     .eq("external_id", candidate.sourceExternalId)
     .maybeSingle();
 
@@ -257,7 +267,11 @@ async function findByExternalIdMap(
     return null;
   }
 
-  const invoice = await getCanonicalInvoiceById(userId, candidate, data.internal_id);
+  const invoice = await getCanonicalInvoiceById(
+    userId,
+    candidate,
+    String(data.internal_id)
+  );
 
   if (!invoice?.id) {
     return null;
@@ -340,7 +354,9 @@ async function findByInvoiceNumber(
     matchedInvoiceId: match.id,
     matchedBy: "invoice_number",
     reason:
-      candidate.type === "purchase" ? "bill_number match" : "invoice_number match",
+      candidate.type === "purchase"
+        ? "bill_number match"
+        : "invoice_number match",
   };
 }
 

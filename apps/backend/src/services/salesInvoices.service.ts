@@ -8,9 +8,8 @@ export const SalesInvoiceStatusSchema = z.enum([
   "draft",
   "sent",
   "paid",
-  "partial",
   "overdue",
-  "cancelled",
+  "canceled",
 ]);
 
 export type SalesInvoiceStatus = z.infer<typeof SalesInvoiceStatusSchema>;
@@ -29,9 +28,8 @@ export type SalesInvoiceSourceSystem = z.infer<
 
 export const SalesInvoiceOriginTypeSchema = z.enum([
   "manual",
-  "artisanpro",
+  "quote",
   "compta_import",
-  "sync",
 ]);
 
 export type SalesInvoiceOriginType = z.infer<
@@ -46,12 +44,18 @@ export const SalesInvoiceRowSchema = z.object({
   invoice_number: z.string().nullable(),
   issue_date: z.string().nullable().optional(),
   due_date: z.string().nullable(),
-  total_amount_cents: z.number().int().nullable(),
+  subtotal_cents: z.number().int().nullable(),
+  tax_cents: z.number().int().nullable(),
+  total_cents: z.number().int().nullable(),
   currency: z.string().nullable(),
   status: z.string().nullable(),
   source_system: z.string().nullable(),
   source_external_id: z.string().nullable(),
   origin_type: z.string().nullable(),
+  reminder_count: z.number().int().nullable().optional(),
+  last_reminder_at: z.string().nullable().optional(),
+  stripe_checkout_id: z.string().nullable().optional(),
+  paid_at: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -64,12 +68,18 @@ const CreateSalesInvoiceSchema = z.object({
   invoice_number: z.string().trim().min(1).nullable().optional(),
   issue_date: z.string().trim().min(1).nullable().optional(),
   due_date: z.string().trim().min(1).nullable().optional(),
-  total_amount_cents: z.number().int().nullable().optional(),
+  subtotal_cents: z.number().int().nonnegative().nullable().optional(),
+  tax_cents: z.number().int().nonnegative().nullable().optional(),
+  total_cents: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().trim().min(1).nullable().optional(),
   status: SalesInvoiceStatusSchema.default("sent"),
   source_system: SalesInvoiceSourceSystemSchema.nullable().optional(),
   source_external_id: z.string().trim().min(1).nullable().optional(),
   origin_type: SalesInvoiceOriginTypeSchema.default("manual"),
+  reminder_count: z.number().int().nonnegative().nullable().optional(),
+  last_reminder_at: z.string().trim().min(1).nullable().optional(),
+  stripe_checkout_id: z.string().trim().min(1).nullable().optional(),
+  paid_at: z.string().trim().min(1).nullable().optional(),
 });
 
 export type CreateSalesInvoiceInput = z.infer<typeof CreateSalesInvoiceSchema>;
@@ -80,18 +90,53 @@ const UpdateSalesInvoiceSchema = z.object({
   invoice_number: z.string().trim().min(1).nullable().optional(),
   issue_date: z.string().trim().min(1).nullable().optional(),
   due_date: z.string().trim().min(1).nullable().optional(),
-  total_amount_cents: z.number().int().nullable().optional(),
+  subtotal_cents: z.number().int().nonnegative().nullable().optional(),
+  tax_cents: z.number().int().nonnegative().nullable().optional(),
+  total_cents: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().trim().min(1).nullable().optional(),
   status: SalesInvoiceStatusSchema.optional(),
   source_system: SalesInvoiceSourceSystemSchema.nullable().optional(),
   source_external_id: z.string().trim().min(1).nullable().optional(),
   origin_type: SalesInvoiceOriginTypeSchema.optional(),
+  reminder_count: z.number().int().nonnegative().nullable().optional(),
+  last_reminder_at: z.string().trim().min(1).nullable().optional(),
+  stripe_checkout_id: z.string().trim().min(1).nullable().optional(),
+  paid_at: z.string().trim().min(1).nullable().optional(),
 });
 
 export type UpdateSalesInvoiceInput = z.infer<typeof UpdateSalesInvoiceSchema>;
 
-function normalizeNullableString(value: string | null | undefined): string | null {
-  if (typeof value !== "string") return value ?? null;
+const SALES_INVOICE_SELECT = [
+  "id",
+  "user_id",
+  "contact_id",
+  "project_id",
+  "invoice_number",
+  "issue_date",
+  "due_date",
+  "subtotal_cents",
+  "tax_cents",
+  "total_cents",
+  "currency",
+  "status",
+  "source_system",
+  "source_external_id",
+  "origin_type",
+  "reminder_count",
+  "last_reminder_at",
+  "stripe_checkout_id",
+  "paid_at",
+  "created_at",
+  "updated_at",
+].join(", ");
+
+function normalizeNullableString(
+  value: string | null | undefined
+): string | null {
+  if (typeof value !== "string") {
+    return value ?? null;
+  }
+
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
@@ -103,12 +148,18 @@ function sanitizeCreateInput(input: CreateSalesInvoiceInput) {
     invoice_number: normalizeNullableString(input.invoice_number),
     issue_date: normalizeNullableString(input.issue_date),
     due_date: normalizeNullableString(input.due_date),
-    total_amount_cents: input.total_amount_cents ?? null,
+    subtotal_cents: input.subtotal_cents ?? 0,
+    tax_cents: input.tax_cents ?? 0,
+    total_cents: input.total_cents ?? 0,
     currency: normalizeNullableString(input.currency) ?? "EUR",
     status: input.status,
     source_system: input.source_system ?? null,
     source_external_id: normalizeNullableString(input.source_external_id),
     origin_type: input.origin_type,
+    reminder_count: input.reminder_count ?? 0,
+    last_reminder_at: normalizeNullableString(input.last_reminder_at),
+    stripe_checkout_id: normalizeNullableString(input.stripe_checkout_id),
+    paid_at: normalizeNullableString(input.paid_at),
   };
 }
 
@@ -135,8 +186,16 @@ function sanitizeUpdateInput(input: UpdateSalesInvoiceInput) {
     patch.due_date = normalizeNullableString(input.due_date);
   }
 
-  if ("total_amount_cents" in input) {
-    patch.total_amount_cents = input.total_amount_cents ?? null;
+  if ("subtotal_cents" in input) {
+    patch.subtotal_cents = input.subtotal_cents ?? 0;
+  }
+
+  if ("tax_cents" in input) {
+    patch.tax_cents = input.tax_cents ?? 0;
+  }
+
+  if ("total_cents" in input) {
+    patch.total_cents = input.total_cents ?? 0;
   }
 
   if ("currency" in input) {
@@ -159,6 +218,22 @@ function sanitizeUpdateInput(input: UpdateSalesInvoiceInput) {
     patch.origin_type = input.origin_type;
   }
 
+  if ("reminder_count" in input) {
+    patch.reminder_count = input.reminder_count ?? 0;
+  }
+
+  if ("last_reminder_at" in input) {
+    patch.last_reminder_at = normalizeNullableString(input.last_reminder_at);
+  }
+
+  if ("stripe_checkout_id" in input) {
+    patch.stripe_checkout_id = normalizeNullableString(input.stripe_checkout_id);
+  }
+
+  if ("paid_at" in input) {
+    patch.paid_at = normalizeNullableString(input.paid_at);
+  }
+
   return patch;
 }
 
@@ -168,9 +243,7 @@ async function readOneById(
 ): Promise<SalesInvoiceRow | null> {
   const { data, error } = await supabaseAdmin
     .from("sales_invoices")
-    .select(
-      "id, user_id, contact_id, project_id, invoice_number, issue_date, due_date, total_amount_cents, currency, status, source_system, source_external_id, origin_type, created_at, updated_at"
-    )
+    .select(SALES_INVOICE_SELECT)
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
@@ -190,9 +263,7 @@ export class SalesInvoicesService {
   static async listSalesInvoices(userId: string): Promise<SalesInvoiceRow[]> {
     const { data, error } = await supabaseAdmin
       .from("sales_invoices")
-      .select(
-        "id, user_id, contact_id, project_id, invoice_number, issue_date, due_date, total_amount_cents, currency, status, source_system, source_external_id, origin_type, created_at, updated_at"
-      )
+      .select(SALES_INVOICE_SELECT)
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
@@ -229,9 +300,7 @@ export class SalesInvoicesService {
 
     const { data, error } = await supabaseAdmin
       .from("sales_invoices")
-      .select(
-        "id, user_id, contact_id, project_id, invoice_number, issue_date, due_date, total_amount_cents, currency, status, source_system, source_external_id, origin_type, created_at, updated_at"
-      )
+      .select(SALES_INVOICE_SELECT)
       .eq("user_id", params.userId)
       .eq("source_system", params.sourceSystem)
       .eq("source_external_id", sourceExternalId)
@@ -261,9 +330,7 @@ export class SalesInvoicesService {
         user_id: userId,
         ...payload,
       })
-      .select(
-        "id, user_id, contact_id, project_id, invoice_number, issue_date, due_date, total_amount_cents, currency, status, source_system, source_external_id, origin_type, created_at, updated_at"
-      )
+      .select(SALES_INVOICE_SELECT)
       .single();
 
     if (error || !data) {

@@ -241,12 +241,12 @@ export default function Layout() {
         pathname === "/assistant" ||
         pathname.startsWith("/devis") ||
         pathname.startsWith("/vision") ||
-        pathname.startsWith("/invoices") ||
-        pathname.startsWith("/invoice") ||
-        pathname.startsWith("/facture") ||
         pathname.startsWith("/sales-invoices") ||
         pathname.startsWith("/purchase-bills") ||
-        pathname.startsWith("/payments"),
+        pathname.startsWith("/payments") ||
+        pathname.startsWith("/invoices") ||
+        pathname.startsWith("/invoice") ||
+        pathname.startsWith("/facture"),
     },
     {
       name: "COMPTE",

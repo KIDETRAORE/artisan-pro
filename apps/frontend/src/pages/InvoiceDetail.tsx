@@ -20,7 +20,7 @@ import {
   resyncPennylaneInvoice,
   type PennylaneInvoiceSyncEvent,
 } from "../services/integrations.api";
-import InvoiceEditor from "../components//invoices/InvoiceEditor";
+import InvoiceEditor from "../components/invoices/InvoiceEditor";
 import InvoiceLinesEditor from "../components/invoices/InvoiceLinesEditor";
 import { ApiRequestError } from "../utils/apiRequestError";
 
@@ -60,6 +60,8 @@ export default function InvoiceDetail() {
       project_id: null,
       total_amount: 0,
       total_amount_cents: 0,
+      subtotal_cents: 0,
+      tax_amount_cents: 0,
       invoice_number: null,
       origin_type: "manual",
       source_system: "artisanpro",
@@ -67,6 +69,8 @@ export default function InvoiceDetail() {
       reminder_count: 0,
       last_reminder_at: null,
       paid_at: null,
+      issue_date: null,
+      stripe_checkout_id: null,
     };
   }, [invoice, isCreateMode]);
 
@@ -287,8 +291,8 @@ export default function InvoiceDetail() {
 
     try {
       const res = await payInvoice(invoice.id);
+      const checkoutUrl = res.checkoutUrl;
 
-      const checkoutUrl = (res as any)?.checkoutUrl;
       if (!checkoutUrl || typeof checkoutUrl !== "string") {
         setError("Impossible de démarrer le paiement (URL Stripe manquante).");
         return;
@@ -542,7 +546,10 @@ export default function InvoiceDetail() {
               <Bullet>Créer en draft → lignes → finaliser.</Bullet>
               <Bullet>Rattacher la facture à un chantier pour alimenter les analytics.</Bullet>
               <Bullet>Garder les montants en centimes partout (cohérence).</Bullet>
-              <Bullet>Si tu modifies des lignes après “sent”, refais “Finaliser & Sync” pour resync.</Bullet>
+              <Bullet>
+                Si tu modifies des lignes après “sent”, refais “Finaliser & Sync”
+                pour resync.
+              </Bullet>
             </div>
           </div>
         </div>
@@ -562,11 +569,17 @@ function Row({
 }) {
   return (
     <div className="flex items-center justify-between">
-      <div className={`text-sm ${strong ? "font-bold text-[var(--theme-text)]" : "text-[var(--theme-muted)]"}`}>
+      <div
+        className={`text-sm ${
+          strong ? "font-bold text-[var(--theme-text)]" : "text-[var(--theme-muted)]"
+        }`}
+      >
         {label}
       </div>
       <div
-        className={`text-sm ${strong ? "font-black text-[var(--theme-text)]" : "font-bold text-[var(--theme-text)]"}`}
+        className={`text-sm ${
+          strong ? "font-black text-[var(--theme-text)]" : "font-bold text-[var(--theme-text)]"
+        }`}
       >
         {value}
       </div>

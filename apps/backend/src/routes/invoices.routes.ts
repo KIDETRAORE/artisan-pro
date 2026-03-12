@@ -18,10 +18,17 @@ router.get(
   asyncHandler(async (req, res) => {
     const r = req as AuthedRequest;
     const userId = r.user?.id;
-    if (!userId) throw new HttpError(401, "Unauthorized");
 
-    const data = await InvoicesService.listInvoices(userId);
-    return res.status(200).json(data);
+    if (!userId) {
+      throw new HttpError(401, "Unauthorized");
+    }
+
+    const invoices = await InvoicesService.listInvoices(userId);
+
+    return res.status(200).json({
+      success: true,
+      invoices,
+    });
   })
 );
 
@@ -31,11 +38,18 @@ router.get(
   asyncHandler(async (req, res) => {
     const r = req as AuthedRequest;
     const userId = r.user?.id;
-    if (!userId) throw new HttpError(401, "Unauthorized");
+
+    if (!userId) {
+      throw new HttpError(401, "Unauthorized");
+    }
 
     const invoiceId = String(req.params.id);
     const invoice = await InvoicesService.getInvoice(userId, invoiceId);
-    return res.status(200).json(invoice);
+
+    return res.status(200).json({
+      success: true,
+      invoice,
+    });
   })
 );
 
@@ -45,10 +59,17 @@ router.post(
   asyncHandler(async (req, res) => {
     const r = req as AuthedRequest;
     const userId = r.user?.id;
-    if (!userId) throw new HttpError(401, "Unauthorized");
+
+    if (!userId) {
+      throw new HttpError(401, "Unauthorized");
+    }
 
     const invoice = await InvoicesService.createInvoice(userId, req.body);
-    return res.status(201).json(invoice);
+
+    return res.status(201).json({
+      success: true,
+      invoice,
+    });
   })
 );
 
@@ -58,7 +79,10 @@ router.patch(
   asyncHandler(async (req, res) => {
     const r = req as AuthedRequest;
     const userId = r.user?.id;
-    if (!userId) throw new HttpError(401, "Unauthorized");
+
+    if (!userId) {
+      throw new HttpError(401, "Unauthorized");
+    }
 
     const invoiceId = String(req.params.id);
     const invoice = await InvoicesService.updateInvoice(
@@ -66,7 +90,11 @@ router.patch(
       invoiceId,
       req.body
     );
-    return res.status(200).json(invoice);
+
+    return res.status(200).json({
+      success: true,
+      invoice,
+    });
   })
 );
 
@@ -76,9 +104,13 @@ router.delete(
   asyncHandler(async (req, res) => {
     const r = req as AuthedRequest;
     const userId = r.user?.id;
-    if (!userId) throw new HttpError(401, "Unauthorized");
+
+    if (!userId) {
+      throw new HttpError(401, "Unauthorized");
+    }
 
     const invoiceId = String(req.params.id);
+
     await InvoicesService.deleteInvoice(userId, invoiceId);
 
     return res.status(200).json({
@@ -93,13 +125,16 @@ router.post(
   asyncHandler(async (req, res) => {
     const r = req as AuthedRequest;
     const userId = r.user?.id;
-    if (!userId) throw new HttpError(401, "Unauthorized");
+
+    if (!userId) {
+      throw new HttpError(401, "Unauthorized");
+    }
 
     const invoiceId = String(req.params.id);
     const result = await InvoicesService.enqueueReminder(userId, invoiceId);
 
     return res.status(200).json({
-      ok: true,
+      success: true,
       invoiceId,
       jobId: result.jobId,
     });
@@ -112,14 +147,16 @@ router.post(
   asyncHandler(async (req, res) => {
     const r = req as AuthedRequest;
     const userId = r.user?.id;
-    if (!userId) throw new HttpError(401, "Unauthorized");
+
+    if (!userId) {
+      throw new HttpError(401, "Unauthorized");
+    }
 
     const invoiceId = String(req.params.id);
-
     const session = await InvoicesService.createPaymentSession(userId, invoiceId);
 
     return res.status(200).json({
-      ok: true,
+      success: true,
       checkoutUrl: session.url,
       sessionId: session.id,
     });
@@ -132,13 +169,16 @@ router.post(
   asyncHandler(async (req, res) => {
     const r = req as AuthedRequest;
     const userId = r.user?.id;
-    if (!userId) throw new HttpError(401, "Unauthorized");
+
+    if (!userId) {
+      throw new HttpError(401, "Unauthorized");
+    }
 
     const invoiceId = String(req.params.id);
     const invoice = await InvoicesService.finalizeInvoice(userId, invoiceId);
 
     return res.status(200).json({
-      ok: true,
+      success: true,
       invoice,
     });
   })

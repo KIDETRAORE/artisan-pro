@@ -47,6 +47,7 @@ export default function InvoiceLinesEditor({
       const rate = Number.isFinite(l.tax_rate) ? l.tax_rate : 0;
       return a + Math.round((l.line_total_cents ?? 0) * (rate / 100));
     }, 0);
+
     return { subtotal, tax, total: subtotal + tax };
   }, [lines]);
 
@@ -60,7 +61,7 @@ export default function InvoiceLinesEditor({
     if (readOnly) return;
 
     const desc = draftDesc.trim();
-    if (!desc) return;
+    if (!desc || !invoiceId) return;
 
     try {
       const created = await createInvoiceLine({

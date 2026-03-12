@@ -1,7 +1,10 @@
 // apps/backend/src/services/quotes.service.ts
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
-import { InvoicesService, type InvoiceRow } from "./invoices.service";
+import {
+  SalesInvoicesService,
+  type SalesInvoiceRow,
+} from "./salesInvoices.service";
 
 export type Quote = {
   id: string;
@@ -80,7 +83,7 @@ export async function updateQuoteStatus(
 export async function convertQuoteToInvoice(
   userId: string,
   quoteId: string
-): Promise<{ quote: Quote; invoice: InvoiceRow }> {
+): Promise<{ quote: Quote; invoice: SalesInvoiceRow }> {
   const { data: quote, error } = await supabaseAdmin
     .from("quotes")
     .select("*")
@@ -113,13 +116,18 @@ export async function convertQuoteToInvoice(
       ? typedQuote.total_amount_cents
       : 0;
 
-  const invoice = await InvoicesService.createInvoice(userId, {
-    client_name: typedQuote.client_name ?? "Client",
-    client_email: null,
-    total_amount: totalAmountCents / 100,
-    due_date: new Date().toISOString(),
+  const nowIso = new Date().toISOString();
+
+  const invoice = await SalesInvoicesService.createSalesInvoice(userId, {
+    contact_id: null,
+    project_id: null,
+    invoice_number: null,
+    issue_date: nowIso,
+    due_date: nowIso,
+    total_amount_cents: totalAmountCents,
+    currency: typedQuote.currency ?? "EUR",
     status: "draft",
-    origin_type: "quote",
+    origin_type: "artisanpro",
     source_system: "artisanpro",
     source_external_id: typedQuote.id,
   });

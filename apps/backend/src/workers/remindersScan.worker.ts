@@ -5,7 +5,7 @@ import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { logger } from "../utils/logger";
 import { reminderQueue } from "../queues/reminder.queue";
 
-const REMINDABLE_STATUSES = ["sent", "overdue", "partial"] as const;
+const REMINDABLE_STATUSES = ["sent", "overdue"] as const;
 const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MAX_REMINDERS = 10;
 

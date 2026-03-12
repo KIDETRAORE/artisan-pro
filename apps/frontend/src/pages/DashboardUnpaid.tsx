@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fetchWithAuth } from "../auth/fetchWithAuth";
+import { listInvoices, type Invoice } from "../services/invoices.api";
 import { useComptaReportStore } from "../store/comptaReport.store";
 
 type DashboardResponse = {
@@ -24,14 +25,10 @@ type DashboardResponse = {
   };
 };
 
-type InvoiceRow = {
-  id: string;
-  client_name: string;
-  status: string;
-  due_date: string;
-  total_amount_cents?: number | null;
-  total_amount?: number | null;
-};
+type InvoiceRow = Pick<
+  Invoice,
+  "id" | "client_name" | "status" | "due_date" | "total_amount_cents" | "total_amount"
+>;
 
 type KpiProps = {
   label: string;
@@ -95,9 +92,10 @@ export default function DashboardUnpaid() {
         const dash = await fetchWithAuth<DashboardResponse>("/dashboard", {
           method: "GET",
         });
-        const inv = await fetchWithAuth<unknown>("/invoices", { method: "GET" });
+        const inv = await listInvoices();
 
         if (cancelled) return;
+
         setKpis(dash?.kpis ?? null);
         setInvoices((Array.isArray(inv) ? (inv as InvoiceRow[]) : []) ?? []);
       } catch {
@@ -120,8 +118,8 @@ export default function DashboardUnpaid() {
     return invoices
       .filter((i) => unpaidStatuses.has(String(i.status).toLowerCase()))
       .sort((a, b) => {
-        const ad = new Date(a.due_date).getTime();
-        const bd = new Date(b.due_date).getTime();
+        const ad = new Date(String(a.due_date ?? "")).getTime();
+        const bd = new Date(String(b.due_date ?? "")).getTime();
         if (ad !== bd) return ad - bd;
         return invoiceAmountCents(b) - invoiceAmountCents(a);
       });
@@ -129,7 +127,7 @@ export default function DashboardUnpaid() {
 
   const overdue = useMemo(() => {
     const now = Date.now();
-    return unpaid.filter((i) => new Date(i.due_date).getTime() < now);
+    return unpaid.filter((i) => new Date(String(i.due_date ?? "")).getTime() < now);
   }, [unpaid]);
 
   const hasComptaReport = !!report;
@@ -435,13 +433,15 @@ export default function DashboardUnpaid() {
             </button>
 
             {menuOpen ? (
-              <div className="absolute right-0 top-12 z-20 w-48 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-2 shadow-xl">
+              <div className="absolute right-0 top-12 z-20 w-56 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-2 shadow-xl">
                 <Link
-                  to={hasComptaReport ? "/compta" : "/invoices"}
+                  to={hasComptaReport ? "/compta" : "/sales-invoices"}
                   onClick={() => setMenuOpen(false)}
                   className="block rounded-xl px-3 py-2 text-sm font-medium text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
                 >
-                  {hasComptaReport ? "Ouvrir Compta IA" : "Créer une facture"}
+                  {hasComptaReport
+                    ? "Ouvrir Compta IA"
+                    : "Ouvrir les factures clients"}
                 </Link>
               </div>
             ) : null}
@@ -510,7 +510,8 @@ export default function DashboardUnpaid() {
               ) : unpaid.length > 0 ? (
                 unpaid.map((it) => {
                   const status = String(it.status).toLowerCase();
-                  const overdueFlag = new Date(it.due_date).getTime() < Date.now();
+                  const dueDate = String(it.due_date ?? "");
+                  const overdueFlag = new Date(dueDate).getTime() < Date.now();
 
                   return (
                     <tr key={it.id} className="text-sm">
@@ -518,7 +519,7 @@ export default function DashboardUnpaid() {
                         {it.client_name}
                       </td>
                       <td className="px-4 py-3 text-[var(--theme-muted)]">
-                        {formatDateFr(it.due_date)}
+                        {formatDateFr(dueDate)}
                         {overdueFlag ? " • en retard" : ""}
                       </td>
                       <td className="px-4 py-3">

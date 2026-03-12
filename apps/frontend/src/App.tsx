@@ -34,10 +34,6 @@ const DashboardRevenue = lazy(() => import("./pages/DashboardRevenue"));
 const DashboardUnpaid = lazy(() => import("./pages/DashboardUnpaid"));
 const DashboardQuotes = lazy(() => import("./pages/DashboardQuotes"));
 
-// ✅ MODIF: renommage Facture -> Invoices
-const Invoices = lazy(() => import("./pages/Invoices"));
-const InvoiceDetail = lazy(() => import("./pages/InvoiceDetail"));
-
 // ✅ AJOUT: page publique paiement OK
 const InvoicePaid = lazy(() => import("./pages/InvoicePaid"));
 
@@ -155,19 +151,37 @@ export default function App() {
           <Route path="/compta" element={<Compta />} />
 
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/accueil" element={<Navigate to="/dashboard" replace />} />
+          <Route
+            path="/accueil"
+            element={<Navigate to="/dashboard" replace />}
+          />
           <Route path="/dashboard/revenue" element={<DashboardRevenue />} />
           <Route path="/dashboard/unpaid" element={<DashboardUnpaid />} />
           <Route path="/dashboard/quotes" element={<DashboardQuotes />} />
 
           <Route path="/assistant" element={<Assistant />} />
-          <Route path="/actions" element={<Navigate to="/assistant" replace />} />
+          <Route
+            path="/actions"
+            element={<Navigate to="/assistant" replace />}
+          />
 
-          {/* ✅ MODIF: utilisation de Invoices */}
-          <Route path="/invoices" element={<Invoices />} />
-          <Route path="/invoices/new" element={<InvoiceDetail />} />
-          <Route path="/invoices/:id" element={<InvoiceDetail />} />
-          <Route path="/factures" element={<Navigate to="/invoices" replace />} />
+          {/* ✅ MODIF: suppression des pages legacy /invoices au profit du canonique */}
+          <Route
+            path="/invoices"
+            element={<Navigate to="/sales-invoices" replace />}
+          />
+          <Route
+            path="/invoices/new"
+            element={<Navigate to="/sales-invoices" replace />}
+          />
+          <Route
+            path="/invoices/:id"
+            element={<Navigate to="/sales-invoices" replace />}
+          />
+          <Route
+            path="/factures"
+            element={<Navigate to="/sales-invoices" replace />}
+          />
 
           {/* ✅ AJOUT: routes canonique compta */}
           <Route path="/sales-invoices" element={<SalesInvoices />} />

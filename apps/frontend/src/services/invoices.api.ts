@@ -1,3 +1,4 @@
+// apps/frontend/src/services/invoices.api.ts
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "canceled";
@@ -14,16 +15,18 @@ export type Invoice = {
   project_id?: string | null;
   total_amount_cents?: number | null;
   total_amount?: number | null;
+  subtotal_cents?: number | null;
+  tax_amount_cents?: number | null;
   created_at?: string;
-
   invoice_number?: string | null;
   origin_type?: InvoiceOriginType | string | null;
   source_system?: string | null;
   source_external_id?: string | null;
-
   reminder_count?: number | null;
   last_reminder_at?: string | null;
   paid_at?: string | null;
+  issue_date?: string | null;
+  stripe_checkout_id?: string | null;
 };
 
 export type InvoiceLine = {
@@ -42,33 +45,47 @@ export type PayInvoiceResponse = {
   sessionId?: string;
 };
 
-type ListInvoicesResponse = {
-  success: boolean;
-  invoices: Invoice[];
+type SuccessEnvelope = {
+  success?: boolean;
+  ok?: boolean;
 };
 
-type ListInvoiceLinesResponse = {
-  success: boolean;
-  lines: InvoiceLine[];
+type ListInvoicesResponse = SuccessEnvelope & {
+  invoices?: Invoice[];
 };
 
-type CreateInvoiceLineResponse = {
-  success: boolean;
-  line: InvoiceLine;
+type InvoiceResponse = SuccessEnvelope & {
+  invoice?: Invoice;
 };
 
-type DeleteInvoiceLineResponse = {
-  success: boolean;
+type ListInvoiceLinesResponse = SuccessEnvelope & {
+  lines?: InvoiceLine[];
 };
 
-type DeleteInvoiceResponse = {
-  success: boolean;
+type CreateInvoiceLineResponse = SuccessEnvelope & {
+  line?: InvoiceLine;
 };
 
-type SendInvoiceReminderResponse = {
-  ok: boolean;
-  invoiceId: string;
+type PatchInvoiceLineResponse = SuccessEnvelope & {
+  line?: InvoiceLine;
+};
+
+type DeleteInvoiceLineResponse = SuccessEnvelope;
+
+type DeleteInvoiceResponse = SuccessEnvelope;
+
+type SendInvoiceReminderResponse = SuccessEnvelope & {
+  invoiceId?: string;
   jobId?: string | null;
+};
+
+type FinalizeInvoiceResponse = SuccessEnvelope & {
+  invoice?: Invoice;
+};
+
+type PayInvoiceEnvelope = SuccessEnvelope & {
+  checkoutUrl?: string;
+  sessionId?: string;
 };
 
 export type InvoiceSoftDuplicateParams = {
@@ -105,33 +122,61 @@ function normalizeIsoDate(value: string | null | undefined): string {
   return String(value ?? "").slice(0, 10);
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function unwrapInvoice(data: unknown): Invoice {
+  if (isObject(data) && "invoice" in data && data.invoice) {
+    return data.invoice as Invoice;
+  }
+
+  return data as Invoice;
+}
+
+function unwrapLine(data: unknown): InvoiceLine {
+  if (isObject(data) && "line" in data && data.line) {
+    return data.line as InvoiceLine;
+  }
+
+  return data as InvoiceLine;
+}
+
 export function moneyCentsFromInvoice(inv: Invoice): number {
-  if (typeof inv.total_amount_cents === "number") return inv.total_amount_cents;
-  if (typeof inv.total_amount === "number")
+  if (typeof inv.total_amount_cents === "number") {
+    return inv.total_amount_cents;
+  }
+
+  if (typeof inv.total_amount === "number") {
     return Math.round(inv.total_amount * 100);
+  }
+
   return 0;
 }
 
 export async function listInvoices(): Promise<Invoice[]> {
-  const data = await fetchWithAuth<any>(API.invoices, { method: "GET" });
+  const data = await fetchWithAuth<ListInvoicesResponse | Invoice[]>(
+    API.invoices,
+    { method: "GET" }
+  );
 
-  // Si le backend renvoie l'enveloppe { success, invoices }
-  if (data && typeof data === 'object' && 'invoices' in data && Array.isArray(data.invoices)) {
-    return data.invoices;
-  }
-
-  // Si le backend renvoie directement le tableau (ancien comportement)
   if (Array.isArray(data)) {
     return data as Invoice[];
+  }
+
+  if (isObject(data) && Array.isArray(data.invoices)) {
+    return data.invoices as Invoice[];
   }
 
   return [];
 }
 
 export async function getInvoice(id: string): Promise<Invoice> {
-  return await fetchWithAuth<Invoice>(API.invoiceById(id), {
+  const data = await fetchWithAuth<InvoiceResponse | Invoice>(API.invoiceById(id), {
     method: "GET",
   });
+
+  return unwrapInvoice(data);
 }
 
 export async function createInvoiceDraft(params: {
@@ -144,7 +189,7 @@ export async function createInvoiceDraft(params: {
   source_system?: string | null;
   source_external_id?: string | null;
 }): Promise<Invoice> {
-  return await fetchWithAuth<Invoice>(API.invoices, {
+  const data = await fetchWithAuth<InvoiceResponse | Invoice>(API.invoices, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -161,6 +206,8 @@ export async function createInvoiceDraft(params: {
       source_external_id: params.source_external_id ?? null,
     }),
   });
+
+  return unwrapInvoice(data);
 }
 
 export async function patchInvoice(
@@ -183,36 +230,51 @@ export async function patchInvoice(
     total_amount_cents?: number;
   }
 ): Promise<Invoice> {
-  return await fetchWithAuth<Invoice>(API.invoiceById(id), {
+  const data = await fetchWithAuth<InvoiceResponse | Invoice>(API.invoiceById(id), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
+
+  return unwrapInvoice(data);
 }
 
 export async function finalizeInvoice(
   id: string
-): Promise<{ ok: boolean; invoice: Invoice }> {
-  return await fetchWithAuth<{ ok: boolean; invoice: Invoice }>(
-    API.finalize(id),
-    {
-      method: "POST",
-    }
-  );
+): Promise<{ success: boolean; invoice: Invoice }> {
+  const data = await fetchWithAuth<FinalizeInvoiceResponse>(API.finalize(id), {
+    method: "POST",
+  });
+
+  return {
+    success: true,
+    invoice: unwrapInvoice(data),
+  };
 }
 
 export async function payInvoice(id: string): Promise<PayInvoiceResponse> {
-  return await fetchWithAuth<PayInvoiceResponse>(API.pay(id), {
+  const data = await fetchWithAuth<PayInvoiceEnvelope>(API.pay(id), {
     method: "POST",
   });
+
+  return {
+    checkoutUrl: String(data.checkoutUrl ?? ""),
+    sessionId: data.sessionId,
+  };
 }
 
 export async function sendInvoiceReminder(
   id: string
 ): Promise<SendInvoiceReminderResponse> {
-  return await fetchWithAuth<SendInvoiceReminderResponse>(API.remind(id), {
+  const data = await fetchWithAuth<SendInvoiceReminderResponse>(API.remind(id), {
     method: "POST",
   });
+
+  return {
+    success: true,
+    invoiceId: data.invoiceId,
+    jobId: data.jobId ?? null,
+  };
 }
 
 export async function deleteInvoice(
@@ -268,6 +330,7 @@ export async function listInvoiceLines(
       method: "GET",
     }
   );
+
   return data.lines ?? [];
 }
 
@@ -282,49 +345,44 @@ export async function createInvoiceLine(input: {
   const unit = Number.isFinite(input.unit_price_cents)
     ? input.unit_price_cents
     : 0;
-  const lineTotal = Math.round(qty * unit);
 
-  const data = await fetchWithAuth<CreateInvoiceLineResponse>(API.invoiceLines, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      invoice_id: input.invoice_id,
-      description: input.description,
-      quantity: qty,
-      unit_price_cents: unit,
-      tax_rate: input.tax_rate,
-      line_total_cents: lineTotal,
-    }),
-  });
+  const data = await fetchWithAuth<CreateInvoiceLineResponse | InvoiceLine>(
+    API.invoiceLines,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        invoice_id: input.invoice_id,
+        description: input.description,
+        quantity: qty,
+        unit_price_cents: unit,
+        tax_rate: input.tax_rate,
+      }),
+    }
+  );
 
-  return data.line;
+  return unwrapLine(data);
 }
 
 export async function patchInvoiceLine(
   id: string,
   patch: Partial<
-    Pick<InvoiceLine, "description" | "quantity" | "unit_price_cents" | "tax_rate">
+    Pick<
+      InvoiceLine,
+      "description" | "quantity" | "unit_price_cents" | "tax_rate"
+    >
   >
 ): Promise<InvoiceLine> {
-  const qty = typeof patch.quantity === "number" ? patch.quantity : undefined;
-  const unit =
-    typeof patch.unit_price_cents === "number"
-      ? patch.unit_price_cents
-      : undefined;
+  const data = await fetchWithAuth<PatchInvoiceLineResponse | InvoiceLine>(
+    API.invoiceLineById(id),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }
+  );
 
-  const line_total_cents =
-    typeof qty === "number" && typeof unit === "number"
-      ? Math.round(qty * unit)
-      : undefined;
-
-  return await fetchWithAuth<InvoiceLine>(API.invoiceLineById(id), {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ...patch,
-      ...(typeof line_total_cents === "number" ? { line_total_cents } : {}),
-    }),
-  });
+  return unwrapLine(data);
 }
 
 export async function deleteInvoiceLine(

@@ -16,6 +16,34 @@ export type InvoiceLineRow = {
   created_at: string;
 };
 
+type CanonicalInvoiceLineRow = {
+  id: string;
+  invoice_id: string;
+  type: "sale" | "purchase" | string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  tax_rate: number;
+  line_total: number;
+  created_at: string;
+  unit_price_cents: number | null;
+  line_total_cents: number | null;
+};
+
+const CanonicalInvoiceLineRowSchema = z.object({
+  id: z.string().uuid(),
+  invoice_id: z.string().uuid(),
+  type: z.string(),
+  description: z.string(),
+  quantity: z.number(),
+  unit_price: z.number(),
+  tax_rate: z.number(),
+  line_total: z.number(),
+  created_at: z.string(),
+  unit_price_cents: z.number().nullable(),
+  line_total_cents: z.number().nullable(),
+});
+
 const CreateInvoiceLineSchema = z.object({
   description: z.string().min(1),
   quantity: z.number().positive(),
@@ -34,10 +62,49 @@ function normalizeStatus(value: unknown): string {
   return String(value ?? "").toLowerCase().trim();
 }
 
+function centsToUnitPrice(unitPriceCents: number): number {
+  return unitPriceCents / 100;
+}
+
+function centsToLineTotal(lineTotalCents: number): number {
+  return lineTotalCents / 100;
+}
+
+function fallbackCentsFromNumber(value: number | null | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.round(value * 100);
+}
+
+function mapCanonicalLineToLegacy(row: CanonicalInvoiceLineRow): InvoiceLineRow {
+  return {
+    id: row.id,
+    invoice_id: row.invoice_id,
+    description: row.description,
+    quantity: row.quantity,
+    unit_price_cents:
+      typeof row.unit_price_cents === "number" &&
+      Number.isFinite(row.unit_price_cents)
+        ? Math.round(row.unit_price_cents)
+        : fallbackCentsFromNumber(row.unit_price),
+    tax_rate: row.tax_rate,
+    line_total_cents:
+      typeof row.line_total_cents === "number" &&
+      Number.isFinite(row.line_total_cents)
+        ? Math.round(row.line_total_cents)
+        : fallbackCentsFromNumber(row.line_total),
+    created_at: row.created_at,
+  };
+}
+
 async function recomputeInvoiceTotals(invoiceId: string): Promise<void> {
-  const { error } = await supabaseAdmin.rpc("recompute_invoice_totals_cents", {
-    p_invoice_id: invoiceId,
-  });
+  const { data, error } = await supabaseAdmin
+    .from("invoice_lines")
+    .select("line_total_cents, line_total, tax_rate")
+    .eq("invoice_id", invoiceId)
+    .eq("type", "sale");
 
   if (error) {
     logger.error("InvoiceLinesService.recomputeInvoiceTotals failed", {
@@ -46,11 +113,57 @@ async function recomputeInvoiceTotals(invoiceId: string): Promise<void> {
     });
     throw new HttpError(500, "Failed to recompute invoice totals");
   }
+
+  const { subtotalCents, taxCents } = ((data ?? []) as Array<{
+    line_total_cents?: unknown;
+    line_total?: unknown;
+    tax_rate?: unknown;
+  }>).reduce(
+    (acc, row) => {
+      const lineTotalCents =
+        typeof row.line_total_cents === "number" &&
+        Number.isFinite(row.line_total_cents)
+          ? Math.round(row.line_total_cents)
+          : typeof row.line_total === "number" && Number.isFinite(row.line_total)
+            ? Math.round(row.line_total * 100)
+            : 0;
+
+      const taxRate =
+        typeof row.tax_rate === "number" && Number.isFinite(row.tax_rate)
+          ? row.tax_rate
+          : 0;
+
+      acc.subtotalCents += lineTotalCents;
+      acc.taxCents += Math.round(lineTotalCents * (taxRate / 100));
+
+      return acc;
+    },
+    { subtotalCents: 0, taxCents: 0 }
+  );
+
+  const totalCents = subtotalCents + taxCents;
+
+  const { error: updateError } = await supabaseAdmin
+    .from("sales_invoices")
+    .update({
+      subtotal_cents: subtotalCents,
+      tax_cents: taxCents,
+      total_cents: totalCents,
+    })
+    .eq("id", invoiceId);
+
+  if (updateError) {
+    logger.error("InvoiceLinesService.recomputeInvoiceTotals update failed", {
+      invoiceId,
+      message: updateError.message,
+    });
+    throw new HttpError(500, "Failed to recompute invoice totals");
+  }
 }
 
 async function assertInvoiceIsDraft(invoiceId: string): Promise<void> {
   const { data, error } = await supabaseAdmin
-    .from("invoices")
+    .from("sales_invoices")
     .select("id, status")
     .eq("id", invoiceId)
     .maybeSingle();
@@ -67,7 +180,7 @@ async function assertInvoiceIsDraft(invoiceId: string): Promise<void> {
     throw new HttpError(404, "Invoice not found");
   }
 
-  const status = normalizeStatus((data as any).status);
+  const status = normalizeStatus((data as { status?: unknown }).status);
   if (status !== "draft") {
     throw new HttpError(
       409,
@@ -83,8 +196,9 @@ async function getLineWithInvoiceStatus(lineId: string): Promise<{
 }> {
   const { data, error } = await supabaseAdmin
     .from("invoice_lines")
-    .select("invoice_id, quantity, unit_price_cents")
+    .select("invoice_id, quantity, unit_price_cents, unit_price, type")
     .eq("id", lineId)
+    .eq("type", "sale")
     .maybeSingle();
 
   if (error) {
@@ -99,10 +213,23 @@ async function getLineWithInvoiceStatus(lineId: string): Promise<{
     throw new HttpError(404, "Invoice line not found");
   }
 
+  const row = data as {
+    invoice_id?: unknown;
+    quantity?: unknown;
+    unit_price_cents?: unknown;
+    unit_price?: unknown;
+  };
+
   return {
-    invoice_id: String((data as any).invoice_id),
-    quantity: Number((data as any).quantity ?? 0),
-    unit_price_cents: Number((data as any).unit_price_cents ?? 0),
+    invoice_id: String(row.invoice_id ?? ""),
+    quantity: Number(row.quantity ?? 0),
+    unit_price_cents:
+      typeof row.unit_price_cents === "number" &&
+      Number.isFinite(row.unit_price_cents)
+        ? Math.round(row.unit_price_cents)
+        : fallbackCentsFromNumber(
+            typeof row.unit_price === "number" ? row.unit_price : 0
+          ),
   };
 }
 
@@ -120,17 +247,19 @@ export class InvoiceLinesService {
     await assertInvoiceIsDraft(invoiceId);
 
     const payload = parsed.data;
-
-    const line_total_cents = payload.quantity * payload.unit_price_cents;
+    const line_total_cents = Math.round(payload.quantity * payload.unit_price_cents);
 
     const { data, error } = await supabaseAdmin
       .from("invoice_lines")
       .insert({
         invoice_id: invoiceId,
+        type: "sale",
         description: payload.description,
         quantity: payload.quantity,
-        unit_price_cents: payload.unit_price_cents,
+        unit_price: centsToUnitPrice(payload.unit_price_cents),
         tax_rate: payload.tax_rate,
+        line_total: centsToLineTotal(line_total_cents),
+        unit_price_cents: payload.unit_price_cents,
         line_total_cents,
       })
       .select("*")
@@ -141,13 +270,14 @@ export class InvoiceLinesService {
         invoiceId,
         message: error.message,
       });
-
       throw new HttpError(500, "Failed to create invoice line");
     }
 
     await recomputeInvoiceTotals(invoiceId);
 
-    return data as InvoiceLineRow;
+    return mapCanonicalLineToLegacy(
+      CanonicalInvoiceLineRowSchema.parse(data)
+    );
   }
 
   static async listLines(invoiceId: string): Promise<InvoiceLineRow[]> {
@@ -155,6 +285,7 @@ export class InvoiceLinesService {
       .from("invoice_lines")
       .select("*")
       .eq("invoice_id", invoiceId)
+      .eq("type", "sale")
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -162,11 +293,12 @@ export class InvoiceLinesService {
         invoiceId,
         message: error.message,
       });
-
       throw new HttpError(500, "Failed to list invoice lines");
     }
 
-    return (data ?? []) as InvoiceLineRow[];
+    return CanonicalInvoiceLineRowSchema.array()
+      .parse(data ?? [])
+      .map(mapCanonicalLineToLegacy);
   }
 
   static async updateLine(
@@ -180,8 +312,8 @@ export class InvoiceLinesService {
     }
 
     const patch = parsed.data;
-
     const existing = await getLineWithInvoiceStatus(lineId);
+
     await assertInvoiceIsDraft(existing.invoice_id);
 
     const nextQuantity =
@@ -190,18 +322,22 @@ export class InvoiceLinesService {
       patch.unit_price_cents !== undefined
         ? patch.unit_price_cents
         : existing.unit_price_cents;
+    const nextLineTotalCents = Math.round(nextQuantity * nextUnitPriceCents);
 
     const updatePayload: Record<string, unknown> = {
       ...patch,
       quantity: nextQuantity,
+      unit_price: centsToUnitPrice(nextUnitPriceCents),
       unit_price_cents: nextUnitPriceCents,
-      line_total_cents: nextQuantity * nextUnitPriceCents,
+      line_total: centsToLineTotal(nextLineTotalCents),
+      line_total_cents: nextLineTotalCents,
     };
 
     const { data, error } = await supabaseAdmin
       .from("invoice_lines")
       .update(updatePayload)
       .eq("id", lineId)
+      .eq("type", "sale")
       .select("*")
       .single();
 
@@ -210,30 +346,32 @@ export class InvoiceLinesService {
         lineId,
         message: error.message,
       });
-
       throw new HttpError(500, "Failed to update invoice line");
     }
 
     await recomputeInvoiceTotals(existing.invoice_id);
 
-    return data as InvoiceLineRow;
+    return mapCanonicalLineToLegacy(
+      CanonicalInvoiceLineRowSchema.parse(data)
+    );
   }
 
   static async deleteLine(lineId: string): Promise<void> {
     const existing = await getLineWithInvoiceStatus(lineId);
+
     await assertInvoiceIsDraft(existing.invoice_id);
 
     const { error } = await supabaseAdmin
       .from("invoice_lines")
       .delete()
-      .eq("id", lineId);
+      .eq("id", lineId)
+      .eq("type", "sale");
 
     if (error) {
       logger.error("InvoiceLinesService.deleteLine failed", {
         lineId,
         message: error.message,
       });
-
       throw new HttpError(500, "Failed to delete invoice line");
     }
 

@@ -10,7 +10,7 @@ const InvoiceIdSchema = z.string().uuid();
 export class InvoicesController {
   /**
    * POST /invoices
-   * Crée une facture (source de vérité ArtisanPro)
+   * Crée une facture
    */
   static async create(req: Request, res: Response) {
     const user = requireUser(req);
@@ -60,7 +60,7 @@ export class InvoicesController {
 
   /**
    * PATCH /invoices/:invoiceId
-   * Met à jour une facture (ex: status, due_date, total_amount...)
+   * Met à jour une facture
    */
   static async update(req: Request, res: Response) {
     const user = requireUser(req);
@@ -102,12 +102,8 @@ export class InvoicesController {
   }
 
   /**
-   * ✅ AJOUT: POST /invoices/:invoiceId/finalize
-   * Finalise la facture :
-   * - vérifie qu'il y a des lignes
-   * - recompute totaux côté backend (cents)
-   * - status -> sent
-   * - enqueue sync Pennylane
+   * POST /invoices/:invoiceId/finalize
+   * Finalise la facture
    */
   static async finalize(req: Request, res: Response) {
     const user = requireUser(req);
@@ -117,7 +113,10 @@ export class InvoicesController {
       throw new HttpError(400, "Invalid invoiceId");
     }
 
-    const invoice = await InvoicesService.finalizeInvoice(user.id, invoiceId.data);
+    const invoice = await InvoicesService.finalizeInvoice(
+      user.id,
+      invoiceId.data
+    );
 
     return res.status(200).json({
       success: true,
@@ -126,8 +125,32 @@ export class InvoicesController {
   }
 
   /**
-   * ✅ AJOUT: POST /invoices/:invoiceId/pay
-   * Crée une session Stripe Checkout (payment) et renvoie l'URL
+   * POST /invoices/:invoiceId/remind
+   * Enqueue une relance manuelle
+   */
+  static async remind(req: Request, res: Response) {
+    const user = requireUser(req);
+
+    const invoiceId = InvoiceIdSchema.safeParse(req.params.invoiceId);
+    if (!invoiceId.success) {
+      throw new HttpError(400, "Invalid invoiceId");
+    }
+
+    const reminder = await InvoicesService.enqueueReminder(
+      user.id,
+      invoiceId.data
+    );
+
+    return res.status(200).json({
+      success: true,
+      invoiceId: invoiceId.data,
+      jobId: reminder.jobId,
+    });
+  }
+
+  /**
+   * POST /invoices/:invoiceId/pay
+   * Crée une session Stripe Checkout
    */
   static async pay(req: Request, res: Response) {
     const user = requireUser(req);
@@ -137,7 +160,10 @@ export class InvoicesController {
       throw new HttpError(400, "Invalid invoiceId");
     }
 
-    const session = await InvoicesService.createPaymentSession(user.id, invoiceId.data);
+    const session = await InvoicesService.createPaymentSession(
+      user.id,
+      invoiceId.data
+    );
 
     return res.status(200).json({
       success: true,
