@@ -1,5 +1,4 @@
 // apps/frontend/src/services/salesInvoices.api.ts
-
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 
 export type SalesInvoiceStatus =

@@ -1,5 +1,4 @@
 // apps/backend/src/routes/purchaseBills.routes.ts
-
 import { Router } from "express";
 import { z } from "zod";
 import { authMiddleware } from "@middlewares/auth.middleware";
@@ -18,19 +17,19 @@ const CreatePurchaseBillBodySchema = z.object({
   bill_number: z.string().trim().min(1).nullable().optional(),
   issue_date: z.string().trim().min(1).nullable().optional(),
   due_date: z.string().trim().min(1).nullable().optional(),
-  total_amount_cents: z.number().int().nullable().optional(),
+  subtotal_cents: z.number().int().nonnegative().nullable().optional(),
+  tax_cents: z.number().int().nonnegative().nullable().optional(),
+  total_cents: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().trim().min(1).nullable().optional(),
   status: z
-    .enum(["draft", "received", "partial", "paid", "overdue", "cancelled"])
-    .default("received"),
+    .enum(["draft", "posted", "paid", "overdue", "canceled"])
+    .default("draft"),
   source_system: z
     .enum(["artisanpro", "pennylane", "odoo", "file_import", "manual"])
     .nullable()
     .optional(),
   source_external_id: z.string().trim().min(1).nullable().optional(),
-  origin_type: z
-    .enum(["manual", "artisanpro", "compta_import", "sync"])
-    .default("manual"),
+  origin_type: z.enum(["manual", "compta_import"]).default("manual"),
 });
 
 const UpdatePurchaseBillBodySchema = z.object({
@@ -39,19 +38,17 @@ const UpdatePurchaseBillBodySchema = z.object({
   bill_number: z.string().trim().min(1).nullable().optional(),
   issue_date: z.string().trim().min(1).nullable().optional(),
   due_date: z.string().trim().min(1).nullable().optional(),
-  total_amount_cents: z.number().int().nullable().optional(),
+  subtotal_cents: z.number().int().nonnegative().nullable().optional(),
+  tax_cents: z.number().int().nonnegative().nullable().optional(),
+  total_cents: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().trim().min(1).nullable().optional(),
-  status: z
-    .enum(["draft", "received", "partial", "paid", "overdue", "cancelled"])
-    .optional(),
+  status: z.enum(["draft", "posted", "paid", "overdue", "canceled"]).optional(),
   source_system: z
     .enum(["artisanpro", "pennylane", "odoo", "file_import", "manual"])
     .nullable()
     .optional(),
   source_external_id: z.string().trim().min(1).nullable().optional(),
-  origin_type: z
-    .enum(["manual", "artisanpro", "compta_import", "sync"])
-    .optional(),
+  origin_type: z.enum(["manual", "compta_import"]).optional(),
 });
 
 function getUserId(req: {
