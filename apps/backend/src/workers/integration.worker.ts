@@ -10,30 +10,41 @@ import {
   type ArtisanProInvoiceLine,
 } from "../integrations/providers/pennylane/pennylane.connector";
 import { IntegrationsService } from "../services/integrations.service";
+import { AccountingSyncService } from "../services/accountingSync.service";
 import type { IntegrationJobPayload } from "../queues/integration.queue";
-
-const ProviderSchema = z
-  .string()
-  .min(1)
-  .transform((s) => s.toLowerCase());
 
 const PushInvoiceJobSchema = z.object({
   type: z.literal("push_invoice"),
   userId: z.string().uuid(),
   invoiceId: z.string().uuid(),
-  provider: ProviderSchema,
+  provider: z.literal("pennylane"),
 });
 
-type PushInvoiceJob = z.infer<typeof PushInvoiceJobSchema>;
+const SyncAccountingJobSchema = z.object({
+  type: z.literal("sync_accounting"),
+  userId: z.string().uuid(),
+  provider: z.enum(["pennylane", "odoo"]),
+});
 
-function parseJobData(data: unknown): PushInvoiceJob {
-  const parsed = PushInvoiceJobSchema.safeParse(data);
+const IntegrationJobSchema = z.union([
+  PushInvoiceJobSchema,
+  SyncAccountingJobSchema,
+]);
+
+type PushInvoiceJob = z.infer<typeof PushInvoiceJobSchema>;
+type SyncAccountingJob = z.infer<typeof SyncAccountingJobSchema>;
+type ParsedIntegrationJob = PushInvoiceJob | SyncAccountingJob;
+
+function parseJobData(data: unknown): ParsedIntegrationJob {
+  const parsed = IntegrationJobSchema.safeParse(data);
+
   if (!parsed.success) {
     logger.warn("⚠️ [WORKER-INTEGRATION] Invalid job payload", {
       issues: parsed.error.issues,
     });
     throw new Error("invalid_job_payload");
   }
+
   return parsed.data;
 }
 
@@ -47,7 +58,10 @@ const CIRCUIT_RESET_TIMEOUT_MS = 60000;
 
 function isCircuitOpen(provider: string): boolean {
   const state = providerCircuitState[provider];
-  if (!state || state.openedAt === null) return false;
+
+  if (!state || state.openedAt === null) {
+    return false;
+  }
 
   const now = Date.now();
 
@@ -69,6 +83,7 @@ function recordFailure(provider: string) {
 
   if (state.failures >= CIRCUIT_FAILURE_THRESHOLD) {
     state.openedAt = Date.now();
+
     logger.warn("🚨 [WORKER-INTEGRATION] Circuit breaker opened", {
       provider,
     });
@@ -87,23 +102,28 @@ function toPennylaneInvoiceStatus(status: string | null | undefined): string {
 }
 
 async function upsertExternalIdMap(params: {
-  provider: string;
+  userId: string;
+  provider: "pennylane";
   objectType: "invoice";
   externalId: string;
   internalId: string;
 }) {
   const { error } = await supabaseAdmin.from("external_id_map").upsert(
     {
-      provider: params.provider,
-      object_type: params.objectType,
+      user_id: params.userId,
+      source_system: params.provider,
+      external_entity_type: params.objectType,
       external_id: params.externalId,
       internal_id: params.internalId,
     },
-    { onConflict: "provider,object_type,internal_id" }
+    {
+      onConflict: "user_id,source_system,external_entity_type,external_id",
+    }
   );
 
   if (error) {
     logger.warn("⚠️ [WORKER-INTEGRATION] external_id_map upsert failed", {
+      userId: params.userId,
       provider: params.provider,
       objectType: params.objectType,
       externalId: params.externalId,
@@ -114,20 +134,23 @@ async function upsertExternalIdMap(params: {
 }
 
 async function findExistingExternalId(params: {
-  provider: string;
+  userId: string;
+  provider: "pennylane";
   objectType: "invoice";
   internalId: string;
 }): Promise<string | null> {
   const { data, error } = await supabaseAdmin
     .from("external_id_map")
     .select("external_id")
-    .eq("provider", params.provider)
-    .eq("object_type", params.objectType)
+    .eq("user_id", params.userId)
+    .eq("source_system", params.provider)
+    .eq("external_entity_type", params.objectType)
     .eq("internal_id", params.internalId)
     .maybeSingle();
 
   if (error) {
     logger.warn("⚠️ [WORKER-INTEGRATION] external_id_map lookup failed", {
+      userId: params.userId,
       provider: params.provider,
       objectType: params.objectType,
       internalId: params.internalId,
@@ -136,11 +159,14 @@ async function findExistingExternalId(params: {
     return null;
   }
 
-  if (!data) return null;
+  if (!data) {
+    return null;
+  }
 
   const externalId = String(
     (data as { external_id?: string }).external_id ?? ""
-  );
+  ).trim();
+
   return externalId.length > 0 ? externalId : null;
 }
 
@@ -238,6 +264,312 @@ async function logSyncEvent(params: {
   }
 }
 
+async function handleSyncAccountingJob(
+  job: Job<IntegrationJobPayload>,
+  payload: SyncAccountingJob
+) {
+  logger.info("🔁 [WORKER-INTEGRATION] Accounting sync job start", {
+    jobId: job.id,
+    provider: payload.provider,
+    userId: payload.userId,
+  });
+
+  if (isCircuitOpen(payload.provider)) {
+    logger.warn("⛔ [WORKER-INTEGRATION] Circuit open, skipping sync job", {
+      jobId: job.id,
+      provider: payload.provider,
+      userId: payload.userId,
+    });
+
+    if (payload.provider === "pennylane") {
+      await IntegrationsService.markPennylaneSyncError(
+        payload.userId,
+        "circuit_open"
+      );
+    } else {
+      await IntegrationsService.markOdooSyncError(
+        payload.userId,
+        "circuit_open"
+      );
+    }
+
+    throw new Error("circuit_open");
+  }
+
+  try {
+    const result = await AccountingSyncService.syncAccounting(
+      payload.userId,
+      payload.provider
+    );
+
+    recordSuccess(payload.provider);
+
+    await logSyncEvent({
+      userId: payload.userId,
+      provider: payload.provider,
+      objectType: "sync",
+      objectId: `${payload.provider}:${payload.userId}`,
+      status: "success",
+      message: `sync_accounting completed (created: ${result.created}, linked: ${result.linked}, upgraded: ${result.upgraded}, ignored: ${result.ignored}, conflicts: ${result.conflicts})`,
+      details: result,
+    });
+
+    logger.info("✅ [WORKER-INTEGRATION] Accounting sync job success", {
+      jobId: job.id,
+      provider: payload.provider,
+      userId: payload.userId,
+      result,
+    });
+
+    return {
+      ok: true,
+      type: "sync_accounting",
+      provider: payload.provider,
+      userId: payload.userId,
+      result,
+    };
+  } catch (err) {
+    recordFailure(payload.provider);
+
+    const errorMessage = err instanceof Error ? err.message : "unknown_error";
+
+    await logSyncEvent({
+      userId: payload.userId,
+      provider: payload.provider,
+      objectType: "sync",
+      objectId: `${payload.provider}:${payload.userId}`,
+      status: "error",
+      message: errorMessage,
+    });
+
+    logger.error("💥 [WORKER-INTEGRATION] Accounting sync job failed", {
+      jobId: job.id,
+      provider: payload.provider,
+      userId: payload.userId,
+      error: errorMessage,
+    });
+
+    throw err;
+  }
+}
+
+async function handlePushInvoiceJob(
+  job: Job<IntegrationJobPayload>,
+  payload: PushInvoiceJob
+) {
+  const invoice = await SalesInvoicesService.getSalesInvoice(
+    payload.userId,
+    payload.invoiceId
+  );
+
+  logger.info("📦 [WORKER-INTEGRATION] Sales invoice loaded", {
+    jobId: job.id,
+    provider: payload.provider,
+    invoiceId: invoice.id,
+    status: invoice.status,
+    total_cents: invoice.total_cents,
+    due_date: invoice.due_date,
+  });
+
+  if (isCircuitOpen("pennylane")) {
+    logger.warn("⛔ [WORKER-INTEGRATION] Circuit open, skipping job", {
+      invoiceId: invoice.id,
+    });
+
+    await IntegrationsService.markPennylaneSyncError(
+      payload.userId,
+      "circuit_open"
+    );
+
+    throw new Error("circuit_open");
+  }
+
+  if (!isSentStatus(invoice.status)) {
+    logger.info("⏭️ [WORKER-INTEGRATION] Skip invoice not sent", {
+      jobId: job.id,
+      invoiceId: invoice.id,
+      status: invoice.status,
+    });
+
+    return {
+      ok: true,
+      provider: "pennylane",
+      invoiceId: invoice.id,
+      skipped: true,
+      reason: "not_sent",
+    };
+  }
+
+  const lines = await loadInvoiceLines(invoice.id);
+
+  if (lines.length === 0) {
+    logger.info("⏭️ [WORKER-INTEGRATION] Skip invoice without lines", {
+      jobId: job.id,
+      invoiceId: invoice.id,
+    });
+
+    await logSyncEvent({
+      userId: payload.userId,
+      provider: "pennylane",
+      objectType: "invoice",
+      objectId: invoice.id,
+      status: "error",
+      message: "invoice_without_lines",
+    });
+
+    await IntegrationsService.markPennylaneSyncError(
+      payload.userId,
+      "invoice_without_lines"
+    );
+
+    throw new Error("invoice_without_lines");
+  }
+
+  const contact = await loadInvoiceContact({
+    userId: payload.userId,
+    contactId: invoice.contact_id,
+  });
+
+  const totalAmount =
+    typeof invoice.total_cents === "number" ? invoice.total_cents / 100 : 0;
+
+  const normalizedStatus = toPennylaneInvoiceStatus(invoice.status);
+
+  try {
+    const existingExternalId = await findExistingExternalId({
+      userId: payload.userId,
+      provider: "pennylane",
+      objectType: "invoice",
+      internalId: invoice.id,
+    });
+
+    if (existingExternalId) {
+      const updated = await PennylaneConnector.updateInvoice(
+        existingExternalId,
+        {
+          id: invoice.id,
+          client_name: contact.name,
+          client_email: contact.email,
+          total_amount: totalAmount,
+          due_date: invoice.due_date ?? "",
+          status: normalizedStatus,
+          lines,
+        }
+      );
+
+      recordSuccess("pennylane");
+      await IntegrationsService.markPennylaneSyncSuccess(payload.userId);
+
+      logger.info("🔄 [WORKER-INTEGRATION] Pennylane updateInvoice success", {
+        jobId: job.id,
+        invoiceId: invoice.id,
+        externalId: updated.externalId,
+      });
+
+      if (!isStubExternalId(updated.externalId)) {
+        await upsertExternalIdMap({
+          userId: payload.userId,
+          provider: "pennylane",
+          objectType: "invoice",
+          externalId: updated.externalId,
+          internalId: invoice.id,
+        });
+      }
+
+      await logSyncEvent({
+        userId: payload.userId,
+        provider: "pennylane",
+        objectType: "invoice",
+        objectId: invoice.id,
+        status: "success",
+        message: "invoice updated",
+      });
+
+      return {
+        ok: true,
+        provider: "pennylane",
+        invoiceId: invoice.id,
+        externalId: updated.externalId,
+        updated: true,
+      };
+    }
+
+    const result = await PennylaneConnector.pushInvoice({
+      id: invoice.id,
+      client_name: contact.name,
+      client_email: contact.email,
+      total_amount: totalAmount,
+      due_date: invoice.due_date ?? "",
+      status: normalizedStatus,
+      lines,
+    });
+
+    recordSuccess("pennylane");
+    await IntegrationsService.markPennylaneSyncSuccess(payload.userId);
+
+    logger.info("✅ [WORKER-INTEGRATION] Pennylane pushInvoice success", {
+      jobId: job.id,
+      invoiceId: invoice.id,
+      externalId: result.externalId,
+    });
+
+    if (!isStubExternalId(result.externalId)) {
+      await upsertExternalIdMap({
+        userId: payload.userId,
+        provider: "pennylane",
+        objectType: "invoice",
+        externalId: result.externalId,
+        internalId: invoice.id,
+      });
+    } else {
+      logger.info(
+        "🧪 [WORKER-INTEGRATION] Skip external_id_map upsert (stub)",
+        {
+          jobId: job.id,
+          invoiceId: invoice.id,
+          externalId: result.externalId,
+        }
+      );
+    }
+
+    await logSyncEvent({
+      userId: payload.userId,
+      provider: "pennylane",
+      objectType: "invoice",
+      objectId: invoice.id,
+      status: "success",
+      message: "invoice pushed",
+    });
+
+    return {
+      ok: true,
+      provider: "pennylane",
+      invoiceId: invoice.id,
+      externalId: result.externalId,
+    };
+  } catch (err) {
+    recordFailure("pennylane");
+
+    const errorMessage = err instanceof Error ? err.message : "unknown_error";
+
+    await IntegrationsService.markPennylaneSyncError(
+      payload.userId,
+      errorMessage
+    );
+
+    await logSyncEvent({
+      userId: payload.userId,
+      provider: "pennylane",
+      objectType: "invoice",
+      objectId: invoice.id,
+      status: "error",
+      message: errorMessage,
+    });
+
+    throw err;
+  }
+}
+
 export const integrationWorker = new Worker<IntegrationJobPayload>(
   "integrationQueue",
   async (job: Job<IntegrationJobPayload>) => {
@@ -247,237 +579,16 @@ export const integrationWorker = new Worker<IntegrationJobPayload>(
       jobId: job.id,
       type: payload.type,
       provider: payload.provider,
-      invoiceId: payload.invoiceId,
       userId: payload.userId,
+      invoiceId: "invoiceId" in payload ? payload.invoiceId : undefined,
     });
 
+    if (payload.type === "sync_accounting") {
+      return await handleSyncAccountingJob(job, payload);
+    }
+
     if (payload.type === "push_invoice") {
-      const invoice = await SalesInvoicesService.getSalesInvoice(
-        payload.userId,
-        payload.invoiceId
-      );
-
-      logger.info("📦 [WORKER-INTEGRATION] Sales invoice loaded", {
-        jobId: job.id,
-        provider: payload.provider,
-        invoiceId: invoice.id,
-        status: invoice.status,
-        total_cents: invoice.total_cents,
-        due_date: invoice.due_date,
-      });
-
-      if (payload.provider === "pennylane") {
-        if (isCircuitOpen("pennylane")) {
-          logger.warn("⛔ [WORKER-INTEGRATION] Circuit open, skipping job", {
-            invoiceId: invoice.id,
-          });
-
-          await IntegrationsService.markPennylaneSyncError(
-            payload.userId,
-            "circuit_open"
-          );
-
-          throw new Error("circuit_open");
-        }
-
-        if (!isSentStatus(invoice.status)) {
-          logger.info("⏭️ [WORKER-INTEGRATION] Skip invoice not sent", {
-            jobId: job.id,
-            invoiceId: invoice.id,
-            status: invoice.status,
-          });
-
-          return {
-            ok: true,
-            provider: "pennylane",
-            invoiceId: invoice.id,
-            skipped: true,
-            reason: "not_sent",
-          };
-        }
-
-        const lines = await loadInvoiceLines(invoice.id);
-
-        if (lines.length === 0) {
-          logger.info("⏭️ [WORKER-INTEGRATION] Skip invoice without lines", {
-            jobId: job.id,
-            invoiceId: invoice.id,
-          });
-
-          await logSyncEvent({
-            userId: payload.userId,
-            provider: "pennylane",
-            objectType: "invoice",
-            objectId: invoice.id,
-            status: "error",
-            message: "invoice_without_lines",
-          });
-
-          await IntegrationsService.markPennylaneSyncError(
-            payload.userId,
-            "invoice_without_lines"
-          );
-
-          throw new Error("invoice_without_lines");
-        }
-
-        const contact = await loadInvoiceContact({
-          userId: payload.userId,
-          contactId: invoice.contact_id,
-        });
-
-        const totalAmount =
-          typeof invoice.total_cents === "number" ? invoice.total_cents / 100 : 0;
-
-        const normalizedStatus = toPennylaneInvoiceStatus(invoice.status);
-
-        try {
-          const existingExternalId = await findExistingExternalId({
-            provider: "pennylane",
-            objectType: "invoice",
-            internalId: invoice.id,
-          });
-
-          if (existingExternalId) {
-            const updated = await PennylaneConnector.updateInvoice(
-              existingExternalId,
-              {
-                id: invoice.id,
-                client_name: contact.name,
-                client_email: contact.email,
-                total_amount: totalAmount,
-                due_date: invoice.due_date ?? "",
-                status: normalizedStatus,
-                lines,
-              }
-            );
-
-            recordSuccess("pennylane");
-            await IntegrationsService.markPennylaneSyncSuccess(payload.userId);
-
-            logger.info(
-              "🔄 [WORKER-INTEGRATION] Pennylane updateInvoice success",
-              {
-                jobId: job.id,
-                invoiceId: invoice.id,
-                externalId: updated.externalId,
-              }
-            );
-
-            if (!isStubExternalId(updated.externalId)) {
-              await upsertExternalIdMap({
-                provider: "pennylane",
-                objectType: "invoice",
-                externalId: updated.externalId,
-                internalId: invoice.id,
-              });
-            }
-
-            await logSyncEvent({
-              userId: payload.userId,
-              provider: "pennylane",
-              objectType: "invoice",
-              objectId: invoice.id,
-              status: "success",
-              message: "invoice updated",
-            });
-
-            return {
-              ok: true,
-              provider: "pennylane",
-              invoiceId: invoice.id,
-              externalId: updated.externalId,
-              updated: true,
-            };
-          }
-
-          const result = await PennylaneConnector.pushInvoice({
-            id: invoice.id,
-            client_name: contact.name,
-            client_email: contact.email,
-            total_amount: totalAmount,
-            due_date: invoice.due_date ?? "",
-            status: normalizedStatus,
-            lines,
-          });
-
-          recordSuccess("pennylane");
-          await IntegrationsService.markPennylaneSyncSuccess(payload.userId);
-
-          logger.info("✅ [WORKER-INTEGRATION] Pennylane pushInvoice success", {
-            jobId: job.id,
-            invoiceId: invoice.id,
-            externalId: result.externalId,
-          });
-
-          if (!isStubExternalId(result.externalId)) {
-            await upsertExternalIdMap({
-              provider: "pennylane",
-              objectType: "invoice",
-              externalId: result.externalId,
-              internalId: invoice.id,
-            });
-          } else {
-            logger.info(
-              "🧪 [WORKER-INTEGRATION] Skip external_id_map upsert (stub)",
-              {
-                jobId: job.id,
-                invoiceId: invoice.id,
-                externalId: result.externalId,
-              }
-            );
-          }
-
-          await logSyncEvent({
-            userId: payload.userId,
-            provider: "pennylane",
-            objectType: "invoice",
-            objectId: invoice.id,
-            status: "success",
-            message: "invoice pushed",
-          });
-
-          return {
-            ok: true,
-            provider: "pennylane",
-            invoiceId: invoice.id,
-            externalId: result.externalId,
-          };
-        } catch (err) {
-          recordFailure("pennylane");
-
-          const errorMessage =
-            err instanceof Error ? err.message : "unknown_error";
-
-          await IntegrationsService.markPennylaneSyncError(
-            payload.userId,
-            errorMessage
-          );
-
-          await logSyncEvent({
-            userId: payload.userId,
-            provider: "pennylane",
-            objectType: "invoice",
-            objectId: invoice.id,
-            status: "error",
-            message: errorMessage,
-          });
-
-          throw err;
-        }
-      }
-
-      logger.warn("⚠️ [WORKER-INTEGRATION] Unsupported provider", {
-        jobId: job.id,
-        provider: payload.provider,
-      });
-
-      return {
-        ok: false,
-        reason: "unsupported_provider",
-        provider: payload.provider,
-        invoiceId: invoice.id,
-      };
+      return await handlePushInvoiceJob(job, payload);
     }
 
     throw new Error("unknown_job_type");

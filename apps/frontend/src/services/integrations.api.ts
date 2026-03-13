@@ -1,6 +1,8 @@
 // apps/frontend/src/services/integrations.api.ts
 import { fetchWithAuth } from "../auth/fetchWithAuth";
 
+export type AccountingProvider = "pennylane" | "odoo";
+
 export type PennylaneConnection = {
   provider: "pennylane";
   connected: boolean;
@@ -18,6 +20,8 @@ export type OdooConnection = {
   hasCredential: boolean;
   usesWorkspaceKey: boolean;
 };
+
+export type AccountingConnection = PennylaneConnection | OdooConnection;
 
 export type PennylaneSyncEvent = {
   id: string;
@@ -37,6 +41,8 @@ export type OdooSyncEvent = {
   created_at: string;
 };
 
+export type AccountingSyncEvent = PennylaneSyncEvent | OdooSyncEvent;
+
 export type PennylaneInvoiceSyncEvent = {
   id: string;
   status: "success" | "error";
@@ -51,6 +57,10 @@ export type OdooInvoiceSyncEvent = {
   created_at: string;
 };
 
+export type AccountingInvoiceSyncEvent =
+  | PennylaneInvoiceSyncEvent
+  | OdooInvoiceSyncEvent;
+
 type GetPennylaneStatusResponse = {
   success: boolean;
   provider: "pennylane";
@@ -63,6 +73,13 @@ type GetOdooStatusResponse = {
   provider: "odoo";
   connection: OdooConnection;
   recentEvents: OdooSyncEvent[];
+};
+
+type GetAccountingProviderStatusResponse = {
+  success: boolean;
+  provider: AccountingProvider;
+  connection: AccountingConnection;
+  recentEvents: AccountingSyncEvent[];
 };
 
 type ConnectPennylaneResponse = {
@@ -87,6 +104,11 @@ type DisconnectOdooResponse = {
   provider: "odoo";
 };
 
+type DisconnectAccountingProviderResponse = {
+  success: boolean;
+  provider: AccountingProvider;
+};
+
 type SyncPennylaneResponse = {
   success: boolean;
   provider: "pennylane";
@@ -96,6 +118,12 @@ type SyncPennylaneResponse = {
 type SyncOdooResponse = {
   success: boolean;
   provider: "odoo";
+  message: string;
+};
+
+type SyncAccountingProviderResponse = {
+  success: boolean;
+  provider: AccountingProvider;
   message: string;
 };
 
@@ -123,6 +151,10 @@ type GetOdooInvoiceSyncEventsResponse = {
   events: OdooInvoiceSyncEvent[];
 };
 
+function providerPath(provider: AccountingProvider): string {
+  return `/integrations/${encodeURIComponent(provider)}`;
+}
+
 export async function getPennylaneStatus(limit = 10): Promise<{
   connection: PennylaneConnection;
   recentEvents: PennylaneSyncEvent[];
@@ -146,6 +178,26 @@ export async function getOdooStatus(limit = 10): Promise<{
 }> {
   const data = await fetchWithAuth<GetOdooStatusResponse>(
     `/integrations/odoo/status?limit=${encodeURIComponent(String(limit))}`,
+    {
+      method: "GET",
+    }
+  );
+
+  return {
+    connection: data.connection,
+    recentEvents: data.recentEvents ?? [],
+  };
+}
+
+export async function getAccountingProviderStatus(
+  provider: AccountingProvider,
+  limit = 10
+): Promise<{
+  connection: AccountingConnection;
+  recentEvents: AccountingSyncEvent[];
+}> {
+  const data = await fetchWithAuth<GetAccountingProviderStatusResponse>(
+    `${providerPath(provider)}/status?limit=${encodeURIComponent(String(limit))}`,
     {
       method: "GET",
     }
@@ -209,6 +261,17 @@ export async function disconnectOdoo(): Promise<void> {
   });
 }
 
+export async function disconnectAccountingProvider(
+  provider: AccountingProvider
+): Promise<void> {
+  await fetchWithAuth<DisconnectAccountingProviderResponse>(
+    `${providerPath(provider)}/connect`,
+    {
+      method: "DELETE",
+    }
+  );
+}
+
 export async function syncPennylane(): Promise<void> {
   await fetchWithAuth<SyncPennylaneResponse>("/integrations/pennylane/sync", {
     method: "POST",
@@ -219,6 +282,17 @@ export async function syncOdoo(): Promise<void> {
   await fetchWithAuth<SyncOdooResponse>("/integrations/odoo/sync", {
     method: "POST",
   });
+}
+
+export async function syncAccountingProvider(
+  provider: AccountingProvider
+): Promise<void> {
+  await fetchWithAuth<SyncAccountingProviderResponse>(
+    `${providerPath(provider)}/sync`,
+    {
+      method: "POST",
+    }
+  );
 }
 
 export async function resyncPennylaneInvoice(

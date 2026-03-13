@@ -1,12 +1,22 @@
 // apps/frontend/src/layout/Layout.tsx
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, Link, Outlet, useNavigate } from "react-router-dom";
-import { Home, X, Sparkles, Palette, UserRound } from "lucide-react";
+import {
+  Home,
+  X,
+  Sparkles,
+  Palette,
+  UserRound,
+  Receipt,
+  Wallet,
+  Building2,
+} from "lucide-react";
 
 import ExpertHubPanel, { type ExpertTab } from "../features/ai/ExpertHubPanel";
 import { useUser } from "../context/user.context";
 import { useAuth } from "../store/auth.store";
 import { useComptaReportStore } from "../store/comptaReport.store";
+import { ComptaReportSchema } from "../schemas/comptaReport.schema";
 import {
   useUIThemeStore,
   type UITheme,
@@ -90,7 +100,9 @@ export default function Layout() {
         if (!res.ok || !json?.success) return;
 
         const used = Number(json?.today?.tokens ?? 0) || 0;
-        const limit = quota ? Number((quota as any).limit ?? 0) || 0 : 0;
+        const limit = quota
+          ? Number((quota as { limit?: unknown }).limit ?? 0) || 0
+          : 0;
 
         if (limit > 0) setDailyUsage({ used, limit });
         else setDailyUsage(null);
@@ -121,7 +133,13 @@ export default function Layout() {
           return;
         }
 
-        setComptaReport(json.report as any);
+        const parsedReport = ComptaReportSchema.safeParse(json.report);
+
+        if (!parsedReport.success) {
+          return;
+        }
+
+        setComptaReport(parsedReport.data);
       } catch {
         // best effort
       }
@@ -129,9 +147,11 @@ export default function Layout() {
   }, [accessToken, setComptaReport]);
 
   const displayedUsed =
-    dailyUsage?.used ?? (quota ? Number((quota as any).used ?? 0) : 0);
+    dailyUsage?.used ??
+    (quota ? Number((quota as { used?: unknown }).used ?? 0) : 0);
   const displayedLimit =
-    dailyUsage?.limit ?? (quota ? Number((quota as any).limit ?? 0) : 0);
+    dailyUsage?.limit ??
+    (quota ? Number((quota as { limit?: unknown }).limit ?? 0) : 0);
 
   const percentage =
     displayedLimit > 0
@@ -145,11 +165,18 @@ export default function Layout() {
   };
 
   const getUpgradeCtaClass = () => {
+    const quotaLimit = quota
+      ? Number((quota as { limit?: unknown }).limit ?? 0)
+      : 0;
+    const quotaUsed = quota
+      ? Number((quota as { used?: unknown }).used ?? 0)
+      : 0;
+
     if (isPro) return "bg-indigo-600";
-    if (!quota || (quota as any).limit <= 0)
-      return "bg-indigo-600 hover:bg-indigo-700";
-    if ((quota as any).used >= (quota as any).limit)
+    if (!quota || quotaLimit <= 0) return "bg-indigo-600 hover:bg-indigo-700";
+    if (quotaUsed >= quotaLimit) {
       return "bg-red-600 hover:bg-red-700 animate-pulse";
+    }
     if (percentage >= 80) return "bg-amber-600 hover:bg-amber-700";
     return "bg-indigo-600 hover:bg-indigo-700";
   };
@@ -230,8 +257,7 @@ export default function Layout() {
       matches: (pathname: string) =>
         pathname === "/dashboard" ||
         pathname.startsWith("/dashboard") ||
-        pathname.startsWith("/projects") ||
-        pathname.startsWith("/compta"),
+        pathname.startsWith("/projects"),
     },
     {
       name: "ACTIONS",
@@ -240,13 +266,7 @@ export default function Layout() {
       matches: (pathname: string) =>
         pathname === "/assistant" ||
         pathname.startsWith("/devis") ||
-        pathname.startsWith("/vision") ||
-        pathname.startsWith("/sales-invoices") ||
-        pathname.startsWith("/purchase-bills") ||
-        pathname.startsWith("/payments") ||
-        pathname.startsWith("/invoices") ||
-        pathname.startsWith("/invoice") ||
-        pathname.startsWith("/facture"),
+        pathname.startsWith("/vision"),
     },
     {
       name: "COMPTE",
@@ -261,6 +281,31 @@ export default function Layout() {
         pathname.startsWith("/cancel") ||
         pathname.startsWith("/login") ||
         pathname.startsWith("/reset-password"),
+    },
+  ];
+
+  const comptaQuickLinks = [
+    {
+      label: "Factures clients",
+      to: "/sales-invoices",
+      icon: Receipt,
+      matches: (pathname: string) =>
+        pathname.startsWith("/sales-invoices") ||
+        pathname.startsWith("/invoices") ||
+        pathname.startsWith("/invoice") ||
+        pathname.startsWith("/facture"),
+    },
+    {
+      label: "Factures fournisseurs",
+      to: "/purchase-bills",
+      icon: Building2,
+      matches: (pathname: string) => pathname.startsWith("/purchase-bills"),
+    },
+    {
+      label: "Paiements",
+      to: "/payments",
+      icon: Wallet,
+      matches: (pathname: string) => pathname.startsWith("/payments"),
     },
   ];
 
@@ -280,6 +325,7 @@ export default function Layout() {
 
   const findSettingsSectionEl = (hash: string): HTMLElement | null => {
     if (!hash) return null;
+
     const byId = document.getElementById(hash);
     if (byId) return byId;
 
@@ -367,7 +413,6 @@ export default function Layout() {
       >
         Abonnement
       </button>
-
       <button
         type="button"
         onClick={() => goToSettingsSection("ai")}
@@ -375,13 +420,19 @@ export default function Layout() {
       >
         IA
       </button>
-
+      <button
+        type="button"
+        onClick={() => goToSettingsSection("integrations")}
+        className="w-full px-4 py-3 text-left text-sm font-bold text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
+      >
+        Intégrations
+      </button>
       <button
         type="button"
         onClick={() => goToSettingsSection("billing")}
         className="w-full px-4 py-3 text-left text-sm font-bold text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
       >
-        Facturation
+        Données & exports
       </button>
       <button
         type="button"
@@ -565,8 +616,32 @@ export default function Layout() {
         </div>
       </header>
 
-      <main className="relative flex-1 overflow-y-auto bg-[var(--theme-bg)] pb-32 text-[var(--theme-text)]">
-        <Outlet />
+      <main className="relative flex-1 overflow-y-auto bg-[var(--theme-bg)] pb-40 text-[var(--theme-text)]">
+        <div className="mx-auto w-full max-w-7xl px-4 py-4">
+          <div className="mb-4 flex flex-wrap gap-3">
+            {comptaQuickLinks.map((item) => {
+              const Icon = item.icon;
+              const isActive = item.matches(location.pathname);
+
+              return (
+                <Link
+                  key={item.label}
+                  to={item.to}
+                  className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-bold transition-colors ${
+                    isActive
+                      ? "border-[var(--theme-primary)] bg-[var(--theme-primary)] text-white"
+                      : "border-[var(--theme-border)] bg-[var(--theme-card)] text-[var(--theme-text)] hover:bg-[var(--theme-bg)]"
+                  }`}
+                >
+                  <Icon size={16} />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+
+          <Outlet />
+        </div>
       </main>
 
       <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-end gap-4">

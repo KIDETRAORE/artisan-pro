@@ -3,12 +3,9 @@ import { create } from "zustand";
 import {
   connectOdoo,
   connectPennylane,
-  disconnectOdoo,
-  disconnectPennylane,
-  getOdooStatus,
-  getPennylaneStatus,
-  syncOdoo,
-  syncPennylane,
+  disconnectAccountingProvider,
+  getAccountingProviderStatus,
+  syncAccountingProvider,
   type OdooConnection,
   type OdooSyncEvent,
   type PennylaneConnection,
@@ -68,25 +65,31 @@ function wait(ms: number): Promise<void> {
 }
 
 async function pollPennylaneStatus(attempts = 4, delayMs = 1000) {
-  let latest = await getPennylaneStatus();
+  let latest = await getAccountingProviderStatus("pennylane");
 
   for (let i = 1; i < attempts; i += 1) {
     await wait(delayMs);
-    latest = await getPennylaneStatus();
+    latest = await getAccountingProviderStatus("pennylane");
   }
 
-  return latest;
+  return {
+    connection: latest.connection as PennylaneConnection,
+    recentEvents: latest.recentEvents as PennylaneSyncEvent[],
+  };
 }
 
 async function pollOdooStatus(attempts = 4, delayMs = 1000) {
-  let latest = await getOdooStatus();
+  let latest = await getAccountingProviderStatus("odoo");
 
   for (let i = 1; i < attempts; i += 1) {
     await wait(delayMs);
-    latest = await getOdooStatus();
+    latest = await getAccountingProviderStatus("odoo");
   }
 
-  return latest;
+  return {
+    connection: latest.connection as OdooConnection,
+    recentEvents: latest.recentEvents as OdooSyncEvent[],
+  };
 }
 
 export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
@@ -119,13 +122,13 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
     }));
 
     try {
-      const data = await getPennylaneStatus();
+      const data = await getAccountingProviderStatus("pennylane");
 
       set((state) => ({
         pennylane: {
           ...state.pennylane,
-          connection: data.connection,
-          recentEvents: data.recentEvents,
+          connection: data.connection as PennylaneConnection,
+          recentEvents: data.recentEvents as PennylaneSyncEvent[],
           loading: false,
           error: null,
         },
@@ -152,13 +155,13 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
 
     try {
       const connection = await connectPennylane(apiKey);
-      const refreshed = await getPennylaneStatus();
+      const refreshed = await getAccountingProviderStatus("pennylane");
 
       set((state) => ({
         pennylane: {
           ...state.pennylane,
           connection,
-          recentEvents: refreshed.recentEvents,
+          recentEvents: refreshed.recentEvents as PennylaneSyncEvent[],
           connecting: false,
           error: null,
         },
@@ -185,7 +188,7 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
     }));
 
     try {
-      await disconnectPennylane();
+      await disconnectAccountingProvider("pennylane");
 
       set((state) => ({
         pennylane: {
@@ -225,7 +228,7 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
     }));
 
     try {
-      await syncPennylane();
+      await syncAccountingProvider("pennylane");
       const refreshed = await pollPennylaneStatus();
 
       set((state) => ({
@@ -259,13 +262,13 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
     }));
 
     try {
-      const data = await getOdooStatus();
+      const data = await getAccountingProviderStatus("odoo");
 
       set((state) => ({
         odoo: {
           ...state.odoo,
-          connection: data.connection,
-          recentEvents: data.recentEvents,
+          connection: data.connection as OdooConnection,
+          recentEvents: data.recentEvents as OdooSyncEvent[],
           loading: false,
           error: null,
         },
@@ -292,13 +295,13 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
 
     try {
       const connection = await connectOdoo(payload);
-      const refreshed = await getOdooStatus();
+      const refreshed = await getAccountingProviderStatus("odoo");
 
       set((state) => ({
         odoo: {
           ...state.odoo,
           connection,
-          recentEvents: refreshed.recentEvents,
+          recentEvents: refreshed.recentEvents as OdooSyncEvent[],
           connecting: false,
           error: null,
         },
@@ -325,7 +328,7 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
     }));
 
     try {
-      await disconnectOdoo();
+      await disconnectAccountingProvider("odoo");
 
       set((state) => ({
         odoo: {
@@ -365,7 +368,7 @@ export const useIntegrationsStore = create<IntegrationsStoreState>((set) => ({
     }));
 
     try {
-      await syncOdoo();
+      await syncAccountingProvider("odoo");
       const refreshed = await pollOdooStatus();
 
       set((state) => ({

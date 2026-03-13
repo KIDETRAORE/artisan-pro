@@ -37,6 +37,15 @@ type InvoicePreview = {
   daysLate: number;
 };
 
+type BillPreview = {
+  id: string;
+  supplier: string;
+  totalAmountCents: number;
+  dueDate: string;
+  status: string;
+  daysLate: number;
+};
+
 function daysBetween(fromIso: string, toIso: string): number {
   const a = new Date(fromIso).getTime();
   const b = new Date(toIso).getTime();
@@ -55,6 +64,26 @@ function toCentsFromUnknown(v: unknown): number {
   }
 
   return 0;
+}
+
+function normalizeDateToIso(value: string | null | undefined): string | null {
+  const raw = String(value ?? "").trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = new Date(raw);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString();
+}
+
+function buildPreviewDate(value: string | null | undefined): string {
+  return normalizeDateToIso(value) ?? new Date(0).toISOString();
 }
 
 export class DashboardController {
@@ -112,7 +141,7 @@ export class DashboardController {
     const { data: salesInvoicesRows, error: salesInvoicesErr } =
       await supabaseAdmin
         .from("sales_invoices")
-        .select("id, total_cents, due_date, status, contact_id")
+        .select("id, total_cents, issue_date, due_date, status, contact_id")
         .eq("user_id", user.id);
 
     if (salesInvoicesErr) {
@@ -123,9 +152,33 @@ export class DashboardController {
       throw new HttpError(500, "Erreur lors du chargement du dashboard");
     }
 
+    const { data: purchaseBillsRows, error: purchaseBillsErr } =
+      await supabaseAdmin
+        .from("purchase_bills")
+        .select("id, total_cents, issue_date, due_date, status, contact_id")
+        .eq("user_id", user.id);
+
+    if (purchaseBillsErr) {
+      logger.error("Dashboard: erreur récupération purchase_bills", {
+        userId: user.id,
+        message: purchaseBillsErr.message,
+      });
+      throw new HttpError(500, "Erreur lors du chargement du dashboard");
+    }
+
     const salesInvoices = (salesInvoicesRows ?? []) as Array<{
       id: string;
       total_cents: unknown;
+      issue_date: string | null;
+      due_date: string | null;
+      status: string | null;
+      contact_id: string | null;
+    }>;
+
+    const purchaseBills = (purchaseBillsRows ?? []) as Array<{
+      id: string;
+      total_cents: unknown;
+      issue_date: string | null;
       due_date: string | null;
       status: string | null;
       contact_id: string | null;
@@ -133,7 +186,7 @@ export class DashboardController {
 
     const contactIds = Array.from(
       new Set(
-        salesInvoices
+        [...salesInvoices, ...purchaseBills]
           .map((row) => row.contact_id)
           .filter(
             (value): value is string =>
@@ -160,33 +213,44 @@ export class DashboardController {
           id: string;
           name: string | null;
         }>) {
-          contactNameMap.set(row.id, row.name?.trim() || "Client");
+          contactNameMap.set(row.id, row.name?.trim() || "Contact");
         }
       }
     }
 
     const nowIso = new Date().toISOString();
+    const currentMonthPrefix = nowIso.slice(0, 7);
 
-    const paidStatuses = new Set(["paid"]);
-    const unpaidStatuses = new Set(["sent", "overdue"]);
+    const paidSalesStatuses = new Set(["paid"]);
+    const unpaidSalesStatuses = new Set(["sent", "overdue"]);
+
+    const paidBillStatuses = new Set(["paid"]);
+    const unpaidBillStatuses = new Set(["posted", "overdue"]);
 
     const paidInvoices = salesInvoices.filter((row) =>
-      paidStatuses.has(String(row.status ?? "").toLowerCase())
+      paidSalesStatuses.has(String(row.status ?? "").toLowerCase())
     );
 
     const unpaidInvoices = salesInvoices.filter((row) =>
-      unpaidStatuses.has(String(row.status ?? "").toLowerCase())
+      unpaidSalesStatuses.has(String(row.status ?? "").toLowerCase())
     );
 
     const overdueInvoices = unpaidInvoices.filter((row) => {
-      const dueDate =
-        typeof row.due_date === "string" ? row.due_date.trim() : "";
-      if (!dueDate) {
-        return false;
-      }
+      const dueIso = normalizeDateToIso(row.due_date);
+      return Boolean(dueIso && dueIso < nowIso);
+    });
 
-      const dueIso = new Date(dueDate).toISOString();
-      return dueIso < nowIso;
+    const paidBills = purchaseBills.filter((row) =>
+      paidBillStatuses.has(String(row.status ?? "").toLowerCase())
+    );
+
+    const unpaidBills = purchaseBills.filter((row) =>
+      unpaidBillStatuses.has(String(row.status ?? "").toLowerCase())
+    );
+
+    const overdueBills = unpaidBills.filter((row) => {
+      const dueIso = normalizeDateToIso(row.due_date);
+      return Boolean(dueIso && dueIso < nowIso);
     });
 
     const paidAllTimeCents = paidInvoices.reduce(
@@ -194,14 +258,17 @@ export class DashboardController {
       0
     );
 
-    const currentMonthPrefix = new Date().toISOString().slice(0, 7);
-
     const paidMonthCents = paidInvoices.reduce((acc, row) => {
-      const dueDate =
-        typeof row.due_date === "string" ? row.due_date.trim() : "";
-      if (dueDate.startsWith(currentMonthPrefix)) {
+      const issueDate = String(row.issue_date ?? "").trim();
+      const dueDate = String(row.due_date ?? "").trim();
+
+      if (
+        issueDate.startsWith(currentMonthPrefix) ||
+        dueDate.startsWith(currentMonthPrefix)
+      ) {
         return acc + toCentsFromUnknown(row.total_cents);
       }
+
       return acc;
     }, 0);
 
@@ -215,14 +282,40 @@ export class DashboardController {
       0
     );
 
+    const purchasePaidAllTimeCents = paidBills.reduce(
+      (acc, row) => acc + toCentsFromUnknown(row.total_cents),
+      0
+    );
+
+    const purchaseMonthCents = paidBills.reduce((acc, row) => {
+      const issueDate = String(row.issue_date ?? "").trim();
+      const dueDate = String(row.due_date ?? "").trim();
+
+      if (
+        issueDate.startsWith(currentMonthPrefix) ||
+        dueDate.startsWith(currentMonthPrefix)
+      ) {
+        return acc + toCentsFromUnknown(row.total_cents);
+      }
+
+      return acc;
+    }, 0);
+
+    const purchaseUnpaidTotalCents = unpaidBills.reduce(
+      (acc, row) => acc + toCentsFromUnknown(row.total_cents),
+      0
+    );
+
+    const purchaseOverdueTotalCents = overdueBills.reduce(
+      (acc, row) => acc + toCentsFromUnknown(row.total_cents),
+      0
+    );
+
     const preview: InvoicePreview[] = unpaidInvoices
       .map((row) => {
-        const dueIso = row.due_date
-          ? new Date(row.due_date).toISOString()
-          : new Date(0).toISOString();
-
-        const late =
-          row.due_date && dueIso < nowIso ? daysBetween(dueIso, nowIso) : 0;
+        const dueDate = buildPreviewDate(row.due_date);
+        const dueIso = normalizeDateToIso(row.due_date);
+        const late = dueIso && dueIso < nowIso ? daysBetween(dueIso, nowIso) : 0;
 
         return {
           id: row.id,
@@ -230,7 +323,33 @@ export class DashboardController {
             ? contactNameMap.get(row.contact_id) ?? "Client"
             : "Client",
           totalAmountCents: toCentsFromUnknown(row.total_cents),
-          dueDate: dueIso,
+          dueDate,
+          status: String(row.status ?? ""),
+          daysLate: late,
+        };
+      })
+      .sort((a, b) => {
+        if (b.daysLate !== a.daysLate) return b.daysLate - a.daysLate;
+        if (b.totalAmountCents !== a.totalAmountCents) {
+          return b.totalAmountCents - a.totalAmountCents;
+        }
+        return a.dueDate.localeCompare(b.dueDate);
+      })
+      .slice(0, 3);
+
+    const purchasePreview: BillPreview[] = unpaidBills
+      .map((row) => {
+        const dueDate = buildPreviewDate(row.due_date);
+        const dueIso = normalizeDateToIso(row.due_date);
+        const late = dueIso && dueIso < nowIso ? daysBetween(dueIso, nowIso) : 0;
+
+        return {
+          id: row.id,
+          supplier: row.contact_id
+            ? contactNameMap.get(row.contact_id) ?? "Fournisseur"
+            : "Fournisseur",
+          totalAmountCents: toCentsFromUnknown(row.total_cents),
+          dueDate,
           status: String(row.status ?? ""),
           daysLate: late,
         };
@@ -269,6 +388,15 @@ export class DashboardController {
         overdueCount: overdueInvoices.length,
         overdueTotalCents,
         preview,
+      },
+      purchaseBills: {
+        paidAllTimeCents: purchasePaidAllTimeCents,
+        paidMonthCents: purchaseMonthCents,
+        unpaidCount: unpaidBills.length,
+        unpaidTotalCents: purchaseUnpaidTotalCents,
+        overdueCount: overdueBills.length,
+        overdueTotalCents: purchaseOverdueTotalCents,
+        preview: purchasePreview,
       },
       quotes: {
         pendingCount: quotesPendingCount ?? 0,

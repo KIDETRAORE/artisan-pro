@@ -98,4 +98,26 @@ router.get(
   asyncHandler(IntegrationsController.getOdooInvoiceSyncEvents)
 );
 
+/* -------------------------------------------------------------------------- */
+/*                            ACCOUNTING HUB (GENERIC)                        */
+/* -------------------------------------------------------------------------- */
+
+router.post(
+  "/:provider/sync",
+  requirePermission(PERMISSIONS.INVOICES_WRITE),
+  asyncHandler(IntegrationsController.syncAccountingProvider)
+);
+
+router.get(
+  "/:provider/status",
+  requirePermission(PERMISSIONS.INVOICES_READ),
+  asyncHandler(IntegrationsController.getAccountingProviderStatus)
+);
+
+router.delete(
+  "/:provider/connect",
+  requirePermission(PERMISSIONS.INVOICES_WRITE),
+  asyncHandler(IntegrationsController.disconnectAccountingProvider)
+);
+
 export default router;

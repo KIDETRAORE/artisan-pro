@@ -1,5 +1,4 @@
 // apps/frontend/src/pages/Payments.tsx
-
 import React, { useEffect, useMemo, useState } from "react";
 import {
   createPayment,
@@ -37,14 +36,14 @@ const DEFAULT_FORM: FormState = {
   purchase_bill_id: "",
 };
 
-function formatAmount(amountCents: number | null): string {
+function formatAmount(amountCents: number | null, currency = "EUR"): string {
   if (typeof amountCents !== "number") {
     return "—";
   }
 
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",
-    currency: "EUR",
+    currency,
   }).format(amountCents / 100);
 }
 
@@ -66,15 +65,20 @@ function normalizeNullableString(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function buildCreatePayload(form: FormState): CreatePaymentInput {
-  const amount =
-    form.amount_cents.trim().length > 0 ? Number(form.amount_cents) : null;
+function toNullableCents(value: string): number | null {
+  const trimmed = value.trim();
 
+  if (!trimmed) {
+    return null;
+  }
+
+  const amount = Number(trimmed);
+  return Number.isFinite(amount) ? Math.round(amount) : null;
+}
+
+function buildCreatePayload(form: FormState): CreatePaymentInput {
   return {
-    amount_cents:
-      typeof amount === "number" && Number.isFinite(amount)
-        ? Math.round(amount)
-        : null,
+    amount_cents: toNullableCents(form.amount_cents),
     currency: normalizeNullableString(form.currency),
     payment_date: normalizeNullableString(form.payment_date),
     status: form.status,
@@ -85,6 +89,38 @@ function buildCreatePayload(form: FormState): CreatePaymentInput {
     sales_invoice_id: normalizeNullableString(form.sales_invoice_id),
     purchase_bill_id: normalizeNullableString(form.purchase_bill_id),
   };
+}
+
+function getDirectionLabel(
+  direction: PaymentDirection | null | undefined
+): string {
+  switch (direction) {
+    case "inbound":
+      return "Entrant";
+    case "outbound":
+      return "Sortant";
+    default:
+      return "Entrant";
+  }
+}
+
+function getStatusLabel(status: PaymentStatus | null | undefined): string {
+  switch (status) {
+    case "pending":
+      return "En attente";
+    case "processing":
+      return "En cours";
+    case "paid":
+      return "Payé";
+    case "failed":
+      return "Échoué";
+    case "cancelled":
+      return "Annulé";
+    case "refunded":
+      return "Remboursé";
+    default:
+      return "En attente";
+  }
 }
 
 export default function Payments(): React.ReactElement {
@@ -103,6 +139,36 @@ export default function Payments(): React.ReactElement {
     });
   }, [items]);
 
+  const totalsSummary = useMemo(() => {
+    return sortedItems.reduce(
+      (acc, item) => {
+        const amount = typeof item.amount_cents === "number" ? item.amount_cents : 0;
+
+        if (item.direction === "inbound") {
+          acc.inboundCents += amount;
+        } else if (item.direction === "outbound") {
+          acc.outboundCents += amount;
+        }
+
+        if (item.status === "paid") {
+          acc.paidCents += amount;
+        }
+
+        if (item.status === "pending" || item.status === "processing") {
+          acc.pendingCents += amount;
+        }
+
+        return acc;
+      },
+      {
+        inboundCents: 0,
+        outboundCents: 0,
+        paidCents: 0,
+        pendingCents: 0,
+      }
+    );
+  }, [sortedItems]);
+
   async function loadData() {
     setLoading(true);
     setError("");
@@ -112,7 +178,9 @@ export default function Payments(): React.ReactElement {
       setItems(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Impossible de charger les paiements."
+        err instanceof Error
+          ? err.message
+          : "Impossible de charger les paiements."
       );
     } finally {
       setLoading(false);
@@ -150,6 +218,8 @@ export default function Payments(): React.ReactElement {
   }
 
   async function handleStatusChange(paymentId: string, status: PaymentStatus) {
+    setError("");
+
     try {
       await updatePayment(paymentId, { status });
       setItems((prev) =>
@@ -168,6 +238,8 @@ export default function Payments(): React.ReactElement {
     paymentId: string,
     direction: PaymentDirection
   ) {
+    setError("");
+
     try {
       await updatePayment(paymentId, { direction });
       setItems((prev) =>
@@ -204,6 +276,36 @@ export default function Payments(): React.ReactElement {
           {error}
         </div>
       ) : null}
+
+      <section className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Entrants</div>
+          <div className="mt-2 text-2xl font-semibold text-[var(--theme-text)]">
+            {formatAmount(totalsSummary.inboundCents)}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Sortants</div>
+          <div className="mt-2 text-2xl font-semibold text-[var(--theme-text)]">
+            {formatAmount(totalsSummary.outboundCents)}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Payés</div>
+          <div className="mt-2 text-2xl font-semibold text-[var(--theme-text)]">
+            {formatAmount(totalsSummary.paidCents)}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">En attente</div>
+          <div className="mt-2 text-2xl font-semibold text-[var(--theme-text)]">
+            {formatAmount(totalsSummary.pendingCents)}
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
         <h2 className="text-lg font-medium text-[var(--theme-text)]">
@@ -402,18 +504,21 @@ export default function Payments(): React.ReactElement {
                     Source
                   </th>
                   <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
-                    Actions
+                    ID
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {sortedItems.map((item) => (
-                  <tr key={item.id} className="border-b border-[var(--theme-border)]">
+                  <tr
+                    key={item.id}
+                    className="border-b border-[var(--theme-border)]"
+                  >
                     <td className="px-3 py-2 text-[var(--theme-text)]">
                       {formatDate(item.payment_date)}
                     </td>
                     <td className="px-3 py-2 text-[var(--theme-text)]">
-                      {formatAmount(item.amount_cents)}
+                      {formatAmount(item.amount_cents, item.currency ?? "EUR")}
                     </td>
                     <td className="px-3 py-2">
                       <select
@@ -428,8 +533,12 @@ export default function Payments(): React.ReactElement {
                           )
                         }
                       >
-                        <option value="inbound">Entrant</option>
-                        <option value="outbound">Sortant</option>
+                        <option value="inbound">
+                          {getDirectionLabel("inbound")}
+                        </option>
+                        <option value="outbound">
+                          {getDirectionLabel("outbound")}
+                        </option>
                       </select>
                     </td>
                     <td className="px-3 py-2">
@@ -443,12 +552,18 @@ export default function Payments(): React.ReactElement {
                           )
                         }
                       >
-                        <option value="pending">En attente</option>
-                        <option value="processing">En cours</option>
-                        <option value="paid">Payé</option>
-                        <option value="failed">Échoué</option>
-                        <option value="cancelled">Annulé</option>
-                        <option value="refunded">Remboursé</option>
+                        <option value="pending">{getStatusLabel("pending")}</option>
+                        <option value="processing">
+                          {getStatusLabel("processing")}
+                        </option>
+                        <option value="paid">{getStatusLabel("paid")}</option>
+                        <option value="failed">{getStatusLabel("failed")}</option>
+                        <option value="cancelled">
+                          {getStatusLabel("cancelled")}
+                        </option>
+                        <option value="refunded">
+                          {getStatusLabel("refunded")}
+                        </option>
                       </select>
                     </td>
                     <td className="px-3 py-2 text-[var(--theme-text)]">

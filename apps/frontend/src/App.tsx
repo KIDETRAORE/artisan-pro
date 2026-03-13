@@ -52,7 +52,7 @@ type DashboardResponse = {
   subscription?: {
     plan?: string;
     status?: string;
-    currentPeriodEnd?: any;
+    currentPeriodEnd?: unknown;
   };
   quota?: {
     used: number;
@@ -163,6 +163,14 @@ export default function App() {
           <Route
             path="/actions"
             element={<Navigate to="/assistant" replace />}
+          />
+          <Route
+            path="/actions/accounting"
+            element={<Navigate to="/compta" replace />}
+          />
+          <Route
+            path="/actions/projects"
+            element={<Navigate to="/projects" replace />}
           />
 
           {/* ✅ MODIF: suppression des pages legacy /invoices au profit du canonique */}

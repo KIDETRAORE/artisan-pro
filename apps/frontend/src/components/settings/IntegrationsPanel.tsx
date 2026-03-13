@@ -357,7 +357,7 @@ export default function IntegrationsPanel() {
     <div className="space-y-6">
       <ProviderCard
         title="Pennylane"
-        subtitle="Connexion API Pennylane, synchronisation des factures et suivi des événements."
+        subtitle="Connecteur du hub comptable pour synchroniser contacts, factures clients, factures fournisseurs et événements."
         connected={pennylaneConnected}
         status={pennylane.connection?.status ?? "disconnected"}
         connectedAt={pennylane.connection?.connectedAt}
@@ -414,7 +414,7 @@ export default function IntegrationsPanel() {
 
       <ProviderCard
         title="Odoo"
-        subtitle="Connexion Odoo JSON-2 / API externe pour synchroniser les factures et les événements."
+        subtitle="Connecteur du hub comptable via Odoo JSON-2 pour synchroniser contacts, factures clients, factures fournisseurs et événements."
         connected={odooConnected}
         status={odoo.connection?.status ?? "disconnected"}
         connectedAt={odoo.connection?.connectedAt}

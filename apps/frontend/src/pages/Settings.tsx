@@ -42,7 +42,8 @@ export default function Settings() {
           Compte
         </h2>
         <p className="mt-1 text-[var(--theme-muted)]">
-          Gérez votre profil, vos intégrations et votre abonnement ArtisanPro.
+          Gérez votre profil, vos intégrations du hub comptable et votre
+          abonnement ArtisanPro.
         </p>
       </div>
 
@@ -86,9 +87,16 @@ export default function Settings() {
       <Section
         id="integrations"
         icon={<Link2 size={18} />}
-        title="Intégrations comptables"
+        title="Hub comptable & intégrations"
       >
-        <IntegrationsPanel />
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--theme-muted)]">
+            Connectez vos outils comptables pour synchroniser les contacts,
+            factures clients, factures fournisseurs et événements de sync dans
+            le modèle canonique ArtisanPro.
+          </p>
+          <IntegrationsPanel />
+        </div>
       </Section>
 
       <Section id="security" icon={<Shield size={18} />} title="Sécurité">
@@ -145,6 +153,7 @@ function Section({
   return (
     <section
       id={id}
+      data-section={id}
       className="scroll-mt-28 space-y-4 rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-6 shadow-sm"
     >
       <div className="flex items-center gap-3">

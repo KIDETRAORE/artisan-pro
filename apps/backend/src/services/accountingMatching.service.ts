@@ -5,12 +5,16 @@ export type AccountingSource =
   | "artisanpro"
   | "pennylane"
   | "odoo"
+  | "sage"
+  | "quickbooks"
   | "file_import"
   | "manual";
 
 export const SOURCE_PRIORITY: Record<AccountingSource, number> = {
   pennylane: 300,
   odoo: 300,
+  sage: 300,
+  quickbooks: 300,
   file_import: 200,
   artisanpro: 100,
   manual: 100,
@@ -119,6 +123,10 @@ function normalizeIsoDate(value: string | null | undefined): string | null {
   return parsed.toISOString().slice(0, 10);
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 function toPriority(sourceSystem: string | null | undefined): number {
   const key = String(sourceSystem ?? "").trim().toLowerCase() as AccountingSource;
   return SOURCE_PRIORITY[key] ?? 0;
@@ -159,7 +167,7 @@ function toNullableString(value: unknown): string | null {
 }
 
 function toNullableNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return isFiniteNumber(value) ? value : null;
 }
 
 function getRowAmountCents(row: CanonicalInvoiceDbRow): number | null {
@@ -222,7 +230,9 @@ async function listCanonicalInvoices(
   }));
 }
 
-async function getContactsNameMap(contactIds: string[]): Promise<Map<string, string>> {
+async function getContactsNameMap(
+  contactIds: string[]
+): Promise<Map<string, string>> {
   const uniqueIds = Array.from(new Set(contactIds.filter(Boolean)));
 
   if (uniqueIds.length === 0) {
@@ -369,7 +379,7 @@ async function findByClientDateAmount(
     normalizeIsoDate(candidate.issueDate) ?? normalizeIsoDate(candidate.dueDate);
   const amount = candidate.totalAmountCents;
 
-  if (!normalizedClient || !normalizedDate || !Number.isFinite(amount)) {
+  if (!normalizedClient || !normalizedDate || !isFiniteNumber(amount)) {
     return null;
   }
 

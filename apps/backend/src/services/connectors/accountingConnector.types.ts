@@ -2,13 +2,23 @@
 
 export type AccountingProvider =
   | "pennylane"
-  | "odoo";
+  | "odoo"
+  | "sage"
+  | "quickbooks";
 
-export type ExternalInvoiceType = "sale" | "purchase";
+export type ExternalContactType = "client" | "supplier" | "both";
+
+export type ExternalContact = {
+  externalId: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  type: ExternalContactType;
+  rawPayload?: unknown;
+};
 
 export type ExternalInvoice = {
   externalId: string;
-  type: ExternalInvoiceType;
   invoiceNumber: string | null;
   clientName: string | null;
   issueDate: string | null;
@@ -16,7 +26,19 @@ export type ExternalInvoice = {
   totalAmountCents: number | null;
   currency: string | null;
   status: string | null;
-  rawPayload: unknown;
+  rawPayload?: unknown;
+};
+
+export type ExternalBill = {
+  externalId: string;
+  billNumber: string | null;
+  supplierName: string | null;
+  issueDate: string | null;
+  dueDate: string | null;
+  totalAmountCents: number | null;
+  currency: string | null;
+  status: string | null;
+  rawPayload?: unknown;
 };
 
 export type ExternalPayment = {
@@ -25,7 +47,7 @@ export type ExternalPayment = {
   amountCents: number | null;
   currency: string | null;
   paymentDate: string | null;
-  rawPayload: unknown;
+  rawPayload?: unknown;
 };
 
 export type CanonicalInvoiceInput = {
@@ -38,8 +60,18 @@ export type CanonicalInvoiceInput = {
   status: string | null;
 };
 
+export type AccountingConnectorCapabilities = {
+  contacts: boolean;
+  salesInvoices: boolean;
+  purchaseBills: boolean;
+  payments: boolean;
+  attachments?: boolean;
+  analytic?: boolean;
+};
+
 export interface AccountingConnector {
   provider: AccountingProvider;
+  capabilities: AccountingConnectorCapabilities;
 
   /**
    * Vérifie la connexion API
@@ -47,32 +79,44 @@ export interface AccountingConnector {
   testConnection(): Promise<void>;
 
   /**
-   * Liste les factures externes
+   * Contacts
    */
-  listInvoices(since?: string): Promise<ExternalInvoice[]>;
+  listContacts?(since?: string): Promise<ExternalContact[]>;
+
+  /**
+   * Factures clients
+   */
+  listSalesInvoices?(since?: string): Promise<ExternalInvoice[]>;
+
+  /**
+   * Factures fournisseurs
+   */
+  listPurchaseBills?(since?: string): Promise<ExternalBill[]>;
+
+  /**
+   * Paiements
+   */
+  listPayments?(since?: string): Promise<ExternalPayment[]>;
 
   /**
    * Récupère une facture externe
    */
-  getInvoice(externalId: string): Promise<ExternalInvoice>;
+  getInvoice?(externalId: string): Promise<ExternalInvoice>;
 
   /**
-   * Crée une facture dans le logiciel comptable
+   * Création facture dans le logiciel comptable
    */
-  createInvoice(input: CanonicalInvoiceInput): Promise<{
+  createInvoice?(
+    input: CanonicalInvoiceInput
+  ): Promise<{
     externalId: string;
   }>;
 
   /**
-   * Met à jour une facture externe
+   * Mise à jour facture externe
    */
-  updateInvoice(
+  updateInvoice?(
     externalId: string,
     input: CanonicalInvoiceInput
   ): Promise<void>;
-
-  /**
-   * Liste les paiements
-   */
-  listPayments?(since?: string): Promise<ExternalPayment[]>;
 }

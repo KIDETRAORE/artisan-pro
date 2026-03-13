@@ -1,24 +1,34 @@
 // apps/backend/src/services/accountingConnector.factory.ts
 import { HttpError } from "../utils/httpError";
-import type {
-  AccountingConnector,
-  AccountingProvider,
-} from "./connectors/accountingConnector.types";
+import type { AccountingConnector } from "./connectors/accountingConnector.types";
 import {
   OdooConnector,
   type OdooConnectorConfig,
 } from "./connectors/odoo.connector";
+import {
+  PennylaneConnector,
+  type PennylaneConnectorConfig,
+} from "../integrations/providers/pennylane/pennylane.connector";
 
-type PennylaneConnectorConfig = unknown;
+export type SageConnectorConfig = Record<string, unknown>;
+export type QuickbooksConnectorConfig = Record<string, unknown>;
 
 export type AccountingConnectorFactoryInput =
   | {
-      provider: "pennylane";
-      config?: PennylaneConnectorConfig;
-    }
-  | {
       provider: "odoo";
       config: OdooConnectorConfig;
+    }
+  | {
+      provider: "pennylane";
+      config: PennylaneConnectorConfig;
+    }
+  | {
+      provider: "sage";
+      config: SageConnectorConfig;
+    }
+  | {
+      provider: "quickbooks";
+      config: QuickbooksConnectorConfig;
     };
 
 export class AccountingConnectorFactory {
@@ -26,22 +36,31 @@ export class AccountingConnectorFactory {
     input: AccountingConnectorFactoryInput
   ): AccountingConnector {
     switch (input.provider) {
-      case "pennylane":
-        throw new HttpError(
-          400,
-          "Pennylane accounting sync connector is not implemented yet"
-        );
-
       case "odoo":
         return new OdooConnector(input.config);
 
-      default: {
-        const provider = (input as { provider?: AccountingProvider }).provider;
+      case "pennylane":
+        return new PennylaneConnector(input.config);
+
+      case "sage":
         throw new HttpError(
           400,
-          `Unsupported accounting provider: ${String(provider ?? "unknown")}`
+          "Sage accounting connector is not implemented yet"
         );
-      }
+
+      case "quickbooks":
+        throw new HttpError(
+          400,
+          "QuickBooks accounting connector is not implemented yet"
+        );
+
+      default:
+        throw new HttpError(
+          400,
+          `Unsupported accounting provider: ${String(
+            (input as { provider?: unknown }).provider ?? "unknown"
+          )}`
+        );
     }
   }
 }

@@ -1,5 +1,4 @@
 // apps/frontend/src/pages/PurchaseBills.tsx
-
 import React, { useEffect, useMemo, useState } from "react";
 import {
   createPurchaseBill,
@@ -32,14 +31,14 @@ const DEFAULT_FORM: FormState = {
   project_id: "",
 };
 
-function formatAmount(amountCents: number | null): string {
+function formatAmount(amountCents: number | null, currency = "EUR"): string {
   if (typeof amountCents !== "number") {
     return "—";
   }
 
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",
-    currency: "EUR",
+    currency,
   }).format(amountCents / 100);
 }
 
@@ -61,25 +60,47 @@ function normalizeNullableString(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function buildCreatePayload(form: FormState): CreatePurchaseBillInput {
-  const amount =
-    form.total_amount_cents.trim().length > 0
-      ? Number(form.total_amount_cents)
-      : null;
+function toNullableCents(value: string): number | null {
+  const trimmed = value.trim();
 
+  if (!trimmed) {
+    return null;
+  }
+
+  const amount = Number(trimmed);
+  return Number.isFinite(amount) ? Math.round(amount) : null;
+}
+
+function buildCreatePayload(form: FormState): CreatePurchaseBillInput {
   return {
     bill_number: normalizeNullableString(form.bill_number),
     issue_date: normalizeNullableString(form.issue_date),
     due_date: normalizeNullableString(form.due_date),
-    total_amount_cents:
-      typeof amount === "number" && Number.isFinite(amount)
-        ? Math.round(amount)
-        : null,
+    total_amount_cents: toNullableCents(form.total_amount_cents),
     currency: normalizeNullableString(form.currency),
     status: form.status,
     contact_id: normalizeNullableString(form.contact_id),
     project_id: normalizeNullableString(form.project_id),
   };
+}
+
+function getStatusLabel(status: PurchaseBillStatus | null | undefined): string {
+  switch (status) {
+    case "draft":
+      return "Brouillon";
+    case "received":
+      return "Reçue";
+    case "partial":
+      return "Partielle";
+    case "paid":
+      return "Payée";
+    case "overdue":
+      return "En retard";
+    case "cancelled":
+      return "Annulée";
+    default:
+      return "Reçue";
+  }
 }
 
 export default function PurchaseBills(): React.ReactElement {
@@ -88,7 +109,6 @@ export default function PurchaseBills(): React.ReactElement {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
   const [refreshKey, setRefreshKey] = useState(0);
-
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
 
   const sortedItems = useMemo(() => {
@@ -98,6 +118,36 @@ export default function PurchaseBills(): React.ReactElement {
       return bDate - aDate;
     });
   }, [items]);
+
+  const totalsSummary = useMemo(() => {
+    return sortedItems.reduce(
+      (acc, item) => {
+        if (typeof item.total_amount_cents === "number") {
+          acc.totalCents += item.total_amount_cents;
+        }
+
+        if (item.status === "paid" && typeof item.total_amount_cents === "number") {
+          acc.paidCents += item.total_amount_cents;
+        }
+
+        if (
+          (item.status === "received" ||
+            item.status === "partial" ||
+            item.status === "overdue") &&
+          typeof item.total_amount_cents === "number"
+        ) {
+          acc.outstandingCents += item.total_amount_cents;
+        }
+
+        return acc;
+      },
+      {
+        totalCents: 0,
+        paidCents: 0,
+        outstandingCents: 0,
+      }
+    );
+  }, [sortedItems]);
 
   async function loadData() {
     setLoading(true);
@@ -153,6 +203,8 @@ export default function PurchaseBills(): React.ReactElement {
     purchaseBillId: string,
     status: PurchaseBillStatus
   ) {
+    setError("");
+
     try {
       await updatePurchaseBill(purchaseBillId, { status });
       setItems((prev) =>
@@ -176,7 +228,7 @@ export default function PurchaseBills(): React.ReactElement {
           Factures fournisseurs
         </h1>
         <p className="mt-1 text-sm text-[var(--theme-muted)]">
-          Gère les factures fournisseurs sur la nouvelle couche canonique
+          Gère les factures fournisseurs sur la couche canonique
           <code className="ml-1 rounded bg-[var(--theme-bg)] px-1 py-0.5 text-xs text-[var(--theme-text)]">
             purchase_bills
           </code>
@@ -189,6 +241,31 @@ export default function PurchaseBills(): React.ReactElement {
           {error}
         </div>
       ) : null}
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">
+            Total fournisseurs
+          </div>
+          <div className="mt-2 text-2xl font-semibold text-[var(--theme-text)]">
+            {formatAmount(totalsSummary.totalCents)}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Total payé</div>
+          <div className="mt-2 text-2xl font-semibold text-[var(--theme-text)]">
+            {formatAmount(totalsSummary.paidCents)}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
+          <div className="text-sm text-[var(--theme-muted)]">Reste à payer</div>
+          <div className="mt-2 text-2xl font-semibold text-[var(--theme-text)]">
+            {formatAmount(totalsSummary.outstandingCents)}
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-5 shadow-sm">
         <h2 className="text-lg font-medium text-[var(--theme-text)]">
@@ -252,9 +329,7 @@ export default function PurchaseBills(): React.ReactElement {
               type="number"
               className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2 text-[var(--theme-text)]"
               value={form.total_amount_cents}
-              onChange={(e) =>
-                updateForm("total_amount_cents", e.target.value)
-              }
+              onChange={(e) => updateForm("total_amount_cents", e.target.value)}
               placeholder="99000"
             />
           </label>
@@ -361,13 +436,16 @@ export default function PurchaseBills(): React.ReactElement {
                     Source
                   </th>
                   <th className="px-3 py-2 font-medium text-[var(--theme-text)]">
-                    Actions
+                    ID
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {sortedItems.map((item) => (
-                  <tr key={item.id} className="border-b border-[var(--theme-border)]">
+                  <tr
+                    key={item.id}
+                    className="border-b border-[var(--theme-border)]"
+                  >
                     <td className="px-3 py-2 text-[var(--theme-text)]">
                       {item.bill_number || "—"}
                     </td>
@@ -378,7 +456,10 @@ export default function PurchaseBills(): React.ReactElement {
                       {formatDate(item.due_date)}
                     </td>
                     <td className="px-3 py-2 text-[var(--theme-text)]">
-                      {formatAmount(item.total_amount_cents)}
+                      {formatAmount(
+                        item.total_amount_cents,
+                        item.currency ?? "EUR"
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <select
@@ -393,12 +474,20 @@ export default function PurchaseBills(): React.ReactElement {
                           )
                         }
                       >
-                        <option value="draft">Brouillon</option>
-                        <option value="received">Reçue</option>
-                        <option value="partial">Partielle</option>
-                        <option value="paid">Payée</option>
-                        <option value="overdue">En retard</option>
-                        <option value="cancelled">Annulée</option>
+                        <option value="draft">{getStatusLabel("draft")}</option>
+                        <option value="received">
+                          {getStatusLabel("received")}
+                        </option>
+                        <option value="partial">
+                          {getStatusLabel("partial")}
+                        </option>
+                        <option value="paid">{getStatusLabel("paid")}</option>
+                        <option value="overdue">
+                          {getStatusLabel("overdue")}
+                        </option>
+                        <option value="cancelled">
+                          {getStatusLabel("cancelled")}
+                        </option>
                       </select>
                     </td>
                     <td className="px-3 py-2 text-[var(--theme-text)]">

@@ -1,9 +1,11 @@
 // apps/backend/src/queues/accountingSync.queue.ts
-import { Queue } from "bullmq";
-import { redisOptions } from "../config/redis";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
 import type { AccountingSource } from "../services/accountingMatching.service";
+import {
+  integrationQueue,
+  enqueueSyncAccountingJob as enqueueIntegrationSyncAccountingJob,
+} from "./integration.queue";
 
 export type AccountingSyncQueueJobData = {
   userId: string;
@@ -16,21 +18,12 @@ function isSupportedProvider(
   return value === "pennylane" || value === "odoo";
 }
 
-export const accountingSyncQueue = new Queue<AccountingSyncQueueJobData>(
-  "accounting-sync",
-  {
-    connection: redisOptions,
-    defaultJobOptions: {
-      removeOnComplete: true,
-      removeOnFail: 50,
-      attempts: 3,
-      backoff: {
-        type: "exponential",
-        delay: 2000,
-      },
-    },
-  }
-);
+/**
+ * Compat layer:
+ * l’ancienne queue accounting-sync est remplacée par integrationQueue.
+ * On garde ce symbole exporté pour éviter de casser les imports résiduels.
+ */
+export const accountingSyncQueue = integrationQueue;
 
 export async function enqueueAccountingSyncJob(params: {
   userId: string;
@@ -50,18 +43,12 @@ export async function enqueueAccountingSyncJob(params: {
     );
   }
 
-  const job = await accountingSyncQueue.add(
-    "sync-accounting-provider",
-    {
-      userId,
-      provider,
-    },
-    {
-      jobId: `accounting-sync_${provider}_${userId}_${Date.now()}`,
-    }
-  );
+  const job = await enqueueIntegrationSyncAccountingJob({
+    userId,
+    provider,
+  });
 
-  logger.info("AccountingSyncQueue job enqueued", {
+  logger.info("AccountingSyncQueue job enqueued via integrationQueue", {
     jobId: job.id,
     jobName: job.name,
     userId,

@@ -1,232 +1,277 @@
-# ARCHITECTURE_CURRENT_STATE (ArtisanPro)
+Architecture Current State Updated
+ARCHITECTURE_CURRENT_STATE (ArtisanPro)
 
-This document is the single source of truth for the current scanned state of the project.  
-It is based on the uploaded ZIP content and the uploaded database schema.  
-No assumption is allowed beyond what is present in the scanned files.
+This document is the single source of truth for the current scanned state of the project. It reflects the repository state after the canonical accounting refactor has been stabilized. No assumption is allowed beyond what is present in the active code paths.
 
-## 1) Active repository structure
-
-### Active application paths
+1) Active repository structure
+Active application paths
 
 The active app paths used by CI, root guards, and the main repo structure are:
 
-- `apps/backend`
-- `apps/frontend`
+apps/backend
 
-### Duplicate mirrored tree present in the repository
+apps/frontend
 
-A second mirrored tree also exists:
+Duplicate mirrored tree present in the repository
 
-- `apps/apps/backend`
-- `apps/apps/frontend`
+A second mirrored tree may still exist:
 
-This mirrored tree is not the primary source of truth for the current repo orchestration, because:
+apps/apps/backend
 
-- root `package.json` guards target `apps/backend` and `apps/frontend`
-- GitHub CI workflows run in `apps/backend` and `apps/frontend`
-- the main active paths referenced by the repo are `apps/backend / apps/frontend`
+apps/apps/frontend
 
-### Architectural rule
+This mirrored tree is not the primary source of truth for current repo orchestration, because:
+
+root tooling targets apps/backend and apps/frontend
+
+GitHub CI targets apps/backend and apps/frontend
+
+the active runtime and build paths are apps/backend / apps/frontend
+
+Architectural rule
 
 Unless explicitly stated otherwise, all future work must treat these as the active source paths:
 
-- `apps/backend/**`
-- `apps/frontend/**`
+apps/backend/**
 
-The duplicated `apps/apps/**` tree must be treated as a parallel copy, not as the primary runtime source.
+apps/frontend/**
 
----
+The duplicated apps/apps/** tree must be treated as a parallel copy, not as the primary runtime source.
 
-## 2) Monorepo / tooling state
+2) Monorepo / tooling state
+Root-level tooling
 
-### Root-level tooling
+Root tooling currently contains:
 
-Root `package.json` currently contains:
+Husky
 
-- Husky
-- lint-staged
-- root guard scripts
-- no root workspace orchestration
-- no root TypeScript build pipeline for both apps together
+lint-staged
 
-### Root Git hooks
+root guard scripts
+
+no root workspace orchestration for both apps together
+
+no single root TypeScript build pipeline for backend + frontend together
+
+Root Git hooks
 
 Current hooks:
 
-- `.husky/pre-commit` → `npx lint-staged`
-- `.husky/pre-push` → `npm run guards:all`
+.husky/pre-commit → npx lint-staged
 
-### Root scripts
+.husky/pre-push → npm run guards:all
+
+Root scripts
 
 Current root script:
 
-- `npm run guards:all`
+npm run guards:all
 
-Current implementation runs backend guard scans and frontend no-console checks.
+This script is used for guard enforcement, not for full monorepo build orchestration.
 
----
+3) CI / deployment targeting
+GitHub CI
 
-## 3) CI / deployment targeting
+GitHub CI targets:
 
-### GitHub CI
+backend working directory: apps/backend
 
-`.github/workflows/ci.yml` targets:
-
-Backend working directory:
-
-- `apps/backend`
-
-Frontend working directory:
-
-- `apps/frontend`
+frontend working directory: apps/frontend
 
 This confirms the active build targets.
 
-### Docker / infra
+Docker / infra
 
-Current root `docker-compose.yml` provisions:
+Current root docker-compose.yml provisions:
 
-- Redis
+Redis
 
-No full local orchestration of backend + frontend currently exists in the scanned state.
+No full backend + frontend local orchestration is the primary source of truth in the scanned state.
 
----
-
-## 4) Backend runtime architecture
-
-### Backend stack
+4) Backend runtime architecture
+Backend stack
 
 The backend currently uses:
 
-- Node.js
-- Express
-- TypeScript
-- BullMQ
-- Redis
-- Supabase
-- Stripe
-- Zod
-- Multer
-- Google Gemini
+Node.js
 
-### Backend entrypoints
+Express
+
+TypeScript
+
+BullMQ
+
+Redis
+
+Supabase
+
+Stripe
+
+Zod
+
+Multer
+
+Google Gemini
+
+Backend entrypoints
 
 Primary runtime files:
 
-- `apps/backend/src/server.ts`
-- `apps/backend/src/app.ts`
+apps/backend/src/server.ts
 
-### Server boot
+apps/backend/src/app.ts
 
-`server.ts` currently:
+Server boot
 
-- creates the HTTP server
-- starts the main API
-- imports the AI worker
-- starts the automation scheduler
-- starts the invoice reminders scheduler
-- imports reminder workers
+server.ts currently:
 
-### App bootstrap
+creates the HTTP server
 
-`app.ts` currently mounts middleware in the following order:
+starts the main API
 
-- security middleware
-- observability middleware
-- Stripe webhook raw-body route
-- global rate limit
-- CORS
-- JSON/urlencoded parsers
-- cookie parser
-- dev logger
-- OpenAPI routes
-- direct `/ai/expert` route mount
-- main router `/`
-- 404 handler
-- global error handler
+imports background workers
 
-### Important behavior
+starts schedulers used by the backend runtime
 
-`startInvoiceRemindersScheduler()` is currently called in both:
+App bootstrap
 
-- `apps/backend/src/app.ts`
-- `apps/backend/src/server.ts`
+app.ts mounts middleware in this order:
 
-So the current scanned state includes duplicate scheduler startup.
+security middleware
 
----
+observability middleware
 
-## 5) Backend routing map
+Stripe webhook raw-body route
 
-### Central router
+global rate limit
+
+CORS
+
+JSON/urlencoded parsers
+
+cookie parser
+
+dev logger
+
+OpenAPI routes
+
+direct /ai/expert route mount
+
+main router /
+
+404 handler
+
+global error handler
+
+Important behavior
+
+Stripe webhook raw body remains mounted before JSON parsing. This ordering is architecturally critical and must not regress.
+
+5) Backend routing map
+Central router
 
 Main router file:
 
-- `apps/backend/src/routes/index.ts`
+apps/backend/src/routes/index.ts
 
-### Public route
+Public route
 
-- `/health`
+/health
 
-### Authenticated business routes
+Public webhook route
+
+/erp/webhooks
+
+Authenticated business routes
 
 Mounted route families include:
 
-- `/stripe`
-- `/dashboard`
-- `/devis`
-- `/quotes`
-- `/invoices`
-- `/clients`
-- `/projects`
-- `/usage`
-- `/integrations`
-- `/ai`
-- `/assistant`
-- `/compta`
-- `/vision`
-- `/vocal`
-- `/automation`
+/stripe
 
-### Root mounted routers
+/dashboard
 
-Some routers are mounted at `/` because the path is defined inside the router:
+/devis
 
-- invoice lines
-- project expenses
-- project accounting imports
+/quotes
 
-### Direct mount outside central router
+/sales-invoices
 
-Expert routes are mounted directly in `app.ts`:
+/purchase-bills
 
-- `/ai/expert/*`
+/payments
 
-This separation avoids double mounting.
+/clients
 
----
+/projects
 
-## 6) Backend middleware architecture
+/usage
+
+/integrations
+
+/ai
+
+/assistant
+
+/compta
+
+/vision
+
+/vocal
+
+/automation
+
+Root mounted routers
+
+Some routers are mounted at / because the path is defined inside the router:
+
+invoice lines
+
+project expenses
+
+project accounting imports
+
+Direct mount outside central router
+
+Expert routes are mounted directly in app.ts:
+
+/ai/expert/*
+
+Legacy routing status
+
+The legacy backend route family /invoices is no longer part of the active backend router. The canonical backend route family for customer invoices is now:
+
+/sales-invoices
+
+6) Backend middleware architecture
 
 Current middleware families include:
 
-- `auth.middleware.ts`
-- `can.middleware.ts`
-- `error.middleware.ts`
-- `httpLogger.middleware.ts`
-- `observability.middleware.ts`
-- `quota.middleware.ts`
-- `rateLimit.middleware.ts`
-- `requirePermission.middleware.ts`
-- `requireRole.middleware.ts`
-- `security.middleware.ts`
-- `validate.middleware.ts`
+auth.middleware.ts
 
-### Auth runtime shape
+can.middleware.ts
 
-`authMiddleware` injects:
+error.middleware.ts
 
-```ts
+httpLogger.middleware.ts
+
+observability.middleware.ts
+
+quota.middleware.ts
+
+rateLimit.middleware.ts
+
+requirePermission.middleware.ts
+
+requireRole.middleware.ts
+
+security.middleware.ts
+
+validate.middleware.ts
+
+Auth runtime shape
+
+authMiddleware injects:
+
 req.user = {
   id: string,
   email?: string,
@@ -237,13 +282,13 @@ Auth sources of truth
 
 Authentication flow:
 
-Token validation → Supabase Auth
+token validation → Supabase Auth
 
-Role lookup → public.profiles.role
+role lookup → public.profiles.role
 
-Permissions → user.app_metadata.permissions if present
+permissions → user.app_metadata.permissions if present
 
-Fallback permissions → derived from role
+fallback permissions → derived from role
 
 7) Error response architecture
 Current helper
@@ -265,7 +310,7 @@ Error response format
 }
 Error middleware
 
-error.middleware.ts additionally supports:
+error.middleware.ts supports:
 
 Zod validation errors
 
@@ -281,9 +326,7 @@ unknown exceptions
 
 Important note
 
-sendError() does not currently support a details parameter.
-
-However the error middleware can attach details.
+sendError() does not currently support a details parameter. The centralized error middleware can still attach structured details.
 
 8) Validation architecture
 
@@ -291,13 +334,17 @@ Validation system uses:
 
 Zod schemas
 
-validateStrip(schema, target)
+route-level schema parsing
+
+middleware validation helpers where applicable
 
 Validated inputs include:
 
 req.body
 
 req.params
+
+req.query
 
 Multipart rule
 
@@ -317,17 +364,29 @@ Primary provisioning source:
 
 apps/backend/supabase/migrations/*
 
-Legacy SQL also exists:
+Legacy SQL snapshots may still exist, but they are not the provisioning truth.
 
-apps/backend/database/schema.sql
+10) Canonical business tables
 
-apps/backend/database/migrations/*
+The application is now organized around the canonical accounting model. Key active tables include:
 
-These must be treated as legacy snapshots, not provisioning truth.
+contacts
 
-10) Core business tables
+projects
 
-The scanned schema confirms the presence of these tables:
+sales_invoices
+
+purchase_bills
+
+invoice_lines
+
+payments
+
+payment_allocations if present in schema rollout
+
+external_id_map
+
+sync_events
 
 subscriptions
 
@@ -339,47 +398,21 @@ ai_usage
 
 quotes
 
-invoices
-
-invoice_lines
-
-clients
-
-projects
-
-project_expenses
-
-dashboard_stats
-
 integrations
 
 integration_tokens
 
 integration_sync_state
 
-external_id_map
-
-accounting_events
-
-expert_conversations
-
-expert_messages
-
-vision_analyses
-
-user_usage
-
-user_usage_view
-
-ai_exports
-
-stripe_events
-
 profiles
+
+Legacy table status
+
+The legacy invoices table and legacy backend invoice service/routes are no longer the active source of truth for customer invoices. Customer invoice runtime flows must use sales_invoices.
 
 11) Profiles table rule
 
-profiles currently contains:
+profiles currently contains identity / account fields such as:
 
 id
 
@@ -428,7 +461,9 @@ apps/frontend/src/context/user.context.tsx
 
 Canonical frontend plan values
 
-free | pro
+free
+
+pro
 
 13) Quota architecture
 Source of truth
@@ -451,9 +486,7 @@ apps/backend/src/services/quota.service.ts
 
 Atomic consumption
 
-RPC → consume_ai_quota(uid, amt)
-
-Node code must never directly update ai_quota.used.
+Quota consumption must use the dedicated RPC / service flow. Node code must not directly mutate ai_quota.used outside the approved quota path.
 
 14) AI / BullMQ architecture
 Queue files
@@ -462,7 +495,11 @@ queues/ai.queue.ts
 
 workers/ai.worker.ts
 
+integration and reminder workers in dedicated worker files
+
 Async flow
+
+Typical AI flow:
 
 request validated
 
@@ -474,19 +511,21 @@ worker executes AI
 
 quota consumed
 
-status retrieved via /ai/status/:jobId
+status retrieved by polling endpoint
 
 Status normalization
 
-waiting / delayed / paused → pending
+Queue/job statuses normalize to:
 
-active → processing
+pending
 
-completed → completed
+processing
 
-failed → failed
+completed
 
-Ownership check ensures users can only read their own jobs.
+failed
+
+Ownership checks ensure users can only read their own jobs.
 
 15) Gemini AI service
 Core file
@@ -494,6 +533,8 @@ Core file
 services/ai/gemini.service.ts
 
 AI types
+
+Active feature families include:
 
 assistant
 
@@ -509,19 +550,9 @@ vocal
 
 expert
 
-Current model
+Current model family
 
-gemini-2.5-flash
-
-Retry logic handles
-
-429
-
-timeouts
-
-internal errors
-
-Compta outputs must be strict JSON.
+Gemini remains the active AI provider in the scanned architecture. Compta outputs must remain strict JSON when structured output is required.
 
 16) AI persistence
 Tables used
@@ -532,7 +563,7 @@ ai_usage
 
 ai_exports
 
-ai_logs contains:
+ai_logs stores
 
 feature
 
@@ -548,23 +579,11 @@ status
 
 created_at
 
-Endpoint
+Important endpoint
 
 GET /ai/compta/latest
 
-Returns:
-
-{
-  "report": {},
-  "createdAt": "string",
-  "id": "string"
-}
-
-If none exists:
-
-200
-
-report: null
+Backend persisted ai_logs.response_json remains the durable source of truth for compta report restoration.
 
 17) Expert chat persistence
 Tables
@@ -573,7 +592,7 @@ expert_conversations
 
 expert_messages
 
-Persistence handled by
+Persistence handler
 
 services/expertConversation.service.ts
 
@@ -586,7 +605,9 @@ stripe.routes.ts
 
 stripe.webhook.ts
 
-Webhook must remain mounted before JSON body parser.
+Critical rule
+
+Stripe webhook must remain mounted before JSON body parsing.
 
 Subscription source of truth
 
@@ -598,50 +619,63 @@ stripe_events
 
 Typing rule
 
-Runtime fields accessed via (obj as any).
+Runtime fields accessed through Stripe objects must use safe runtime access patterns compatible with the installed Stripe version. No @ts-ignore should be introduced for Stripe typing workarounds.
 
-No @ts-ignore.
+19) Canonical accounting architecture
+Customer invoices
 
-19) Quotes / invoices / projects
-Confirmed modules
+Customer invoices now use:
 
-quotes
+table: sales_invoices
 
-invoices
+route family: /sales-invoices
 
-invoice lines
+backend service: salesInvoices.service.ts
 
-clients
+frontend service: salesInvoices.api.ts
 
-projects
+Purchase bills
 
-project expenses
+Supplier bills use:
 
-integrations
+table: purchase_bills
 
-Dashboard KPIs are generated via:
+route family: /purchase-bills
 
-RPC get_dashboard_kpis
+backend service: purchaseBills.service.ts
 
-Quotes support:
+Payments
 
-quote → invoice conversion
+Payments use:
 
-Invoices support:
+table: payments
 
-reminders
+route family: /payments
 
-payment page
+Invoice lines
 
-invoice editor
+Invoice lines are shared canonical lines with explicit type separation:
 
-invoice lines editor
+table: invoice_lines
 
-dedicated creation route /invoices/new
+type = "sale" | "purchase"
 
-Invoice lifecycle rules
+Mapping / sync
 
-Current invoice lifecycle states used by backend/frontend rules:
+External system mapping uses:
+
+external_id_map
+
+sync_events
+
+Quotes conversion
+
+Quotes convert into canonical customer invoices. Quote → invoice conversion now targets sales_invoices, not legacy invoices.
+
+20) Sales invoice lifecycle rules
+Canonical statuses
+
+The canonical customer invoice lifecycle is:
 
 draft
 
@@ -653,9 +687,9 @@ overdue
 
 canceled
 
-Invoice editability rules
+Editability rules
 
-Current enforced business rules are:
+Current intended business rules are:
 
 draft
 
@@ -667,7 +701,7 @@ invoice deletable
 
 sent
 
-only client_email, due_date, project_id remain editable
+limited header editing only
 
 invoice lines locked
 
@@ -675,7 +709,7 @@ deletion forbidden
 
 overdue
 
-only client_email, due_date, project_id remain editable
+limited header editing only
 
 invoice lines locked
 
@@ -693,39 +727,48 @@ read-only
 
 deletion forbidden
 
-Invoice creation workflow
+Totals rule
 
-The current frontend/backend workflow is:
+Canonical totals use:
 
-click Nouvelle facture
+subtotal_cents
 
-navigate to /invoices/new
+tax_cents
 
-no invoice is created on button click
+total_cents
 
-invoice is created only when the header is first saved
+Legacy amount field names such as total_amount_cents are no longer canonical for customer invoices.
 
-creation uses draft mode
+21) Purchase bill lifecycle rules
+Canonical statuses
 
-then the UI redirects to /invoices/:id
+The canonical supplier bill lifecycle is:
 
-Invoice lines source-of-truth rule
+draft
 
-invoice_lines changes now trigger a backend recomputation of invoice totals via:
+posted
 
-RPC recompute_invoice_totals_cents
+paid
 
-This applies after:
+overdue
 
-line creation
+canceled
 
-line update
+Totals rule
 
-line deletion
+Canonical totals use:
 
-So invoice totals in DB remain the source of truth, not only the frontend display.
+subtotal_cents
 
-20) Dashboard architecture
+tax_cents
+
+total_cents
+
+Origin type rule
+
+Canonical origin_type for purchase bills is restricted to the purchase-bill model, not copied from legacy invoice enums.
+
+22) Dashboard architecture
 Backend endpoint
 
 GET /dashboard
@@ -746,6 +789,8 @@ optional copilot snapshot
 
 Frontend files
 
+Dashboard UI includes:
+
 Dashboard.tsx
 
 DashboardRevenue.tsx
@@ -754,11 +799,11 @@ DashboardUnpaid.tsx
 
 DashboardQuotes.tsx
 
-App.tsx hydrates global session state.
+Current state
 
-Feature pages may also call /dashboard.
+Dashboard revenue and unpaid views are now aligned with canonical sales invoice flows rather than the removed legacy invoices service.
 
-21) Frontend architecture
+23) Frontend architecture
 Stack
 
 React
@@ -789,35 +834,26 @@ auth.store.ts
 
 Protected routes render under Layout.tsx.
 
-Invoice frontend routing
+24) Frontend accounting routing
+Canonical routes
 
-Current invoice routing is explicitly split into:
+The active accounting routes are:
 
-/invoices
+/sales-invoices
 
-/invoices/new
+/purchase-bills
 
-/invoices/:id
+/payments
 
-This route split must be preserved so creation mode and detail mode are not conflated.
+Legacy route status
 
-Invoice detail UI behavior
+Legacy invoice pages have been neutralized or removed from active business flow. Any remaining legacy route references must be treated as compatibility / redirection only, not as active source paths.
 
-InvoiceDetail.tsx currently supports:
+Rule
 
-creation mode (/invoices/new)
+New accounting work must target canonical routes and canonical services only.
 
-existing invoice mode (/invoices/:id)
-
-header edit permissions derived from invoice status
-
-line edit permissions derived from invoice status
-
-delete button enabled only for draft invoices
-
-read-only messaging for locked statuses
-
-22) Frontend compta persistence
+25) Frontend compta persistence
 Store
 
 store/comptaReport.store.ts
@@ -826,11 +862,11 @@ Backend restore endpoint
 
 GET /ai/compta/latest
 
-Backend ai_logs.response_json is the persistent source.
+Source of truth rule
 
-Frontend store is a cache.
+Backend persisted compta analysis remains the durable source of truth. Frontend store is only a client-side cache / restore helper.
 
-23) Expert UI architecture
+26) Expert UI architecture
 Files
 
 ExpertHubPanel.tsx
@@ -841,17 +877,20 @@ AiModePanel.tsx
 
 AssistantPanel.tsx
 
-Layout.tsx manages expert UI state and open events.
+Layout.tsx
 
-Conversation persistence lives server-side.
+Layout.tsx manages expert UI state and open events. Conversation persistence remains server-side.
 
-24) Theme system
-
-Theme classes in:
+27) Theme system
+Theme files
 
 index.css
 
-Themes:
+uiTheme.store.ts
+
+uiExperience.store.ts
+
+Themes
 
 classic
 
@@ -859,120 +898,86 @@ midnight
 
 sunset
 
-Theme store:
-
-uiTheme.store.ts
-
-Experience modes:
+Experience modes
 
 embedded-lite
 
 embedded-panel
 
-Some legacy Tailwind slate utilities still exist in global CSS.
+Some legacy utility classes may still exist in CSS, but they are not part of the accounting refactor source of truth.
 
-25) Guard system
+28) Guard system
 
-Guard scripts include:
-
-guard-ai-queue-precheck
-
-guard-error-shape
-
-guard-no-console
-
-guard-no-hardcoded-ui-colors
-
-guard-no-pg
-
-guard-no-ts-ignore
-
-guard-profiles-misuse
-
-guard-quota-writes
-
-lint-staged currently enforces:
-
-Backend:
+Guard scripts include checks such as:
 
 error shape
 
-profiles misuse
+no console in frontend guarded files
 
-quota writes
+no ts-ignore
 
-Frontend:
+no direct quota writes
 
-no-console
+no profiles misuse
 
-The hardcoded color guard exists but is not fully wired.
+no hardcoded UI colors where applicable
 
-26) Immutable architecture rules
+The guard system remains an anti-regression layer, not a substitute for architecture review.
+
+29) Immutable architecture rules
 
 A change is considered a regression if it:
 
-breaks unified error shape
+reintroduces /invoices as the active customer-invoice backend route family
 
-stores plan/quota in profiles
+makes legacy invoices the source of truth again for customer invoices
 
-bypasses quota RPC
+stores plan or quota in profiles
 
-breaks Stripe webhook ordering
+bypasses the approved quota flow
 
-treats apps/apps/* as primary source
+breaks Stripe webhook raw-body ordering
+
+treats apps/apps/* as the primary source
 
 removes plan normalization
 
 breaks AI job ownership checks
 
-breaks compta persistence
+breaks compta persistence restore flow
 
-introduces uncontrolled polling
+reintroduces uncontrolled invoice creation from obsolete list flows
 
-recreates an invoice immediately on click from the invoice list instead of using /invoices/new
+allows sales invoice line mutation outside the allowed lifecycle states
 
-allows invoice line mutation outside draft
+mixes customer invoices and supplier bills back into one model
 
-allows deletion of non-draft invoices
+30) Current known residual debt
 
-27) Known inconsistencies
+The major structural refactor is complete for the customer-invoice migration. Remaining debt is primarily:
 
-The current codebase contains:
+documentation freshness
 
-duplicate apps/apps tree
+optional removal of stale comments / labels mentioning legacy invoice wording
 
-duplicate invoice reminder scheduler startup
+optional cleanup of compatibility redirects if still present in UI
 
-mixed uppercase/lowercase plan values
+There is no known remaining blocking build error in the stabilized canonical accounting path.
 
-sendError without details parameter
-
-UI color guard not wired into main pipeline
-
-legacy Tailwind slate utilities in index.css
-
-/ai/compta/latest returns 200 + null instead of 404
-
-redundant auth guards in dashboard routes
-
-These are part of the scanned architecture.
-
-28) Session workflow rule
+31) Session workflow rule
 
 At the beginning of any architecture session:
 
-upload latest project ZIP
-
-scan entire repository
+use the latest pushed repo state as the source of truth
 
 read this document first
 
-verify DB statements against migrations and schema
+verify runtime routes and services against active files
 
-avoid relying on past chat memory
+avoid relying on outdated chat memory if repo state changed
 
-29) Final stability rule
+32) Final stability rule
 
 Any modification that violates the rules defined in this document is considered a critical architectural regression.
 
-🔒 This rule is considered architecturally immutable.
+This rule is architecturally immutable.

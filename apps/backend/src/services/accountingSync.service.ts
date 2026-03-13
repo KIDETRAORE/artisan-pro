@@ -1,5 +1,4 @@
 // apps/backend/src/services/accountingSync.service.ts
-
 import { AccountingConnectorFactory } from "./accountingConnector.factory";
 import {
   AccountingMatchingService,
@@ -13,11 +12,17 @@ import { PurchaseBillsService } from "./purchaseBills.service";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { HttpError } from "../utils/httpError";
 import { logger } from "../utils/logger";
-import { type ExternalInvoice } from "./connectors/accountingConnector.types";
+import type {
+  AccountingConnector,
+  ExternalBill,
+  ExternalContact,
+  ExternalInvoice,
+  ExternalPayment,
+} from "./connectors/accountingConnector.types";
 
 type SupportedSyncProvider = Extract<AccountingSource, "pennylane" | "odoo">;
 
-type SyncResult = {
+export type SyncResult = {
   created: number;
   linked: number;
   upgraded: number;
@@ -25,19 +30,87 @@ type SyncResult = {
   conflicts: number;
 };
 
+type ExternalSyncCandidate = {
+  type: "sale" | "purchase";
+  externalId: string;
+  invoiceNumber: string | null;
+  clientName: string | null;
+  issueDate: string | null;
+  dueDate: string | null;
+  totalAmountCents: number | null;
+  currency: string | null;
+  status: string | null;
+  rawPayload?: unknown;
+};
+
+type SyncFamily = "sale" | "purchase";
+
 function isSupportedSyncProvider(
   provider: AccountingSource
 ): provider is SupportedSyncProvider {
   return provider === "pennylane" || provider === "odoo";
 }
 
+function emptySyncResult(): SyncResult {
+  return {
+    created: 0,
+    linked: 0,
+    upgraded: 0,
+    ignored: 0,
+    conflicts: 0,
+  };
+}
+
+function toSyncCandidate(
+  external: ExternalInvoice | ExternalBill,
+  type: SyncFamily
+): ExternalSyncCandidate {
+  if (type === "purchase") {
+    const bill = external as ExternalBill;
+
+    return {
+      type,
+      externalId: String(bill.externalId ?? "").trim(),
+      invoiceNumber: bill.billNumber ?? null,
+      clientName: bill.supplierName ?? null,
+      issueDate: bill.issueDate ?? null,
+      dueDate: bill.dueDate ?? null,
+      totalAmountCents: bill.totalAmountCents ?? null,
+      currency: bill.currency ?? null,
+      status: bill.status ?? null,
+      rawPayload: bill.rawPayload,
+    };
+  }
+
+  const invoice = external as ExternalInvoice;
+
+  return {
+    type,
+    externalId: String(invoice.externalId ?? "").trim(),
+    invoiceNumber: invoice.invoiceNumber ?? null,
+    clientName: invoice.clientName ?? null,
+    issueDate: invoice.issueDate ?? null,
+    dueDate: invoice.dueDate ?? null,
+    totalAmountCents: invoice.totalAmountCents ?? null,
+    currency: invoice.currency ?? null,
+    status: invoice.status ?? null,
+    rawPayload: invoice.rawPayload,
+  };
+}
+
+function normalizeExternalItems(
+  items: ExternalSyncCandidate[]
+): ExternalSyncCandidate[] {
+  return items.filter((item) => item.externalId.length > 0);
+}
+
 function getExternalContactType(
-  external: ExternalInvoice
+  external: ExternalSyncCandidate
 ): "client" | "supplier" {
   return external.type === "purchase" ? "supplier" : "client";
 }
 
-function getExternalDisplayName(external: ExternalInvoice): string {
+function getExternalDisplayName(external: ExternalSyncCandidate): string {
   if (
     typeof external.clientName === "string" &&
     external.clientName.trim().length > 0
@@ -48,7 +121,7 @@ function getExternalDisplayName(external: ExternalInvoice): string {
   return external.type === "purchase" ? "Supplier" : "Client";
 }
 
-function getExternalAmountCents(external: ExternalInvoice): number | null {
+function getExternalAmountCents(external: ExternalSyncCandidate): number | null {
   if (
     typeof external.totalAmountCents === "number" &&
     Number.isFinite(external.totalAmountCents)
@@ -59,21 +132,31 @@ function getExternalAmountCents(external: ExternalInvoice): number | null {
   return null;
 }
 
+function mergeSyncResults(a: SyncResult, b: SyncResult): SyncResult {
+  return {
+    created: a.created + b.created,
+    linked: a.linked + b.linked,
+    upgraded: a.upgraded + b.upgraded,
+    ignored: a.ignored + b.ignored,
+    conflicts: a.conflicts + b.conflicts,
+  };
+}
+
 async function buildConnector(
   userId: string,
   provider: SupportedSyncProvider
-) {
+): Promise<AccountingConnector> {
   if (provider === "pennylane") {
-    const apiToken = await IntegrationsService.getPennylaneApiKey(userId);
+    const apiKey = await IntegrationsService.getPennylaneApiKey(userId);
 
-    if (!apiToken) {
+    if (!apiKey) {
       throw new HttpError(400, "Pennylane is not configured");
     }
 
     return AccountingConnectorFactory.create({
       provider: "pennylane",
       config: {
-        apiToken,
+        apiKey,
       },
     });
   }
@@ -159,10 +242,70 @@ async function insertSyncEvent(params: {
   }
 }
 
+async function syncContacts(params: {
+  userId: string;
+  provider: SupportedSyncProvider;
+  contacts: ExternalContact[];
+}): Promise<void> {
+  for (const contact of params.contacts) {
+    try {
+      await ContactsService.findOrCreateContact({
+        userId: params.userId,
+        sourceSystem: params.provider,
+        input: {
+          name:
+            typeof contact.name === "string" && contact.name.trim().length > 0
+              ? contact.name.trim()
+              : "Contact",
+          contact_type:
+            contact.type === "supplier"
+              ? "supplier"
+              : contact.type === "both"
+                ? "both"
+                : "client",
+          email: contact.email ?? null,
+          phone: contact.phone ?? null,
+          source_system: params.provider,
+          source_external_id:
+            typeof contact.externalId === "string" &&
+            contact.externalId.trim().length > 0
+              ? contact.externalId.trim()
+              : null,
+        },
+      });
+    } catch (err) {
+      logger.error("AccountingSync contact sync error", {
+        userId: params.userId,
+        provider: params.provider,
+        externalId: contact.externalId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+async function syncPayments(params: {
+  userId: string;
+  provider: SupportedSyncProvider;
+  payments: ExternalPayment[];
+}): Promise<void> {
+  for (const payment of params.payments) {
+    logger.info("AccountingSync payment fetched", {
+      userId: params.userId,
+      provider: params.provider,
+      externalId: payment.externalId,
+      invoiceExternalId: payment.invoiceExternalId,
+      amountCents: payment.amountCents,
+      currency: payment.currency,
+      paymentDate: payment.paymentDate,
+    });
+  }
+}
+
 async function createCanonicalInvoice(params: {
   userId: string;
   provider: SupportedSyncProvider;
-  external: ExternalInvoice;
+  external: ExternalSyncCandidate;
   contactId: string;
 }): Promise<{ id: string }> {
   const { userId, provider, external, contactId } = params;
@@ -208,7 +351,7 @@ async function createCanonicalInvoice(params: {
 async function updateCanonicalInvoiceLink(params: {
   userId: string;
   provider: SupportedSyncProvider;
-  external: ExternalInvoice;
+  external: ExternalSyncCandidate;
   internalId: string;
   contactId: string;
 }): Promise<void> {
@@ -282,7 +425,7 @@ async function updateCanonicalInvoiceLink(params: {
 async function upgradeCanonicalInvoiceSource(params: {
   userId: string;
   provider: SupportedSyncProvider;
-  external: ExternalInvoice;
+  external: ExternalSyncCandidate;
   internalId: string;
 }): Promise<void> {
   const { userId, provider, external, internalId } = params;
@@ -304,8 +447,168 @@ async function upgradeCanonicalInvoiceSource(params: {
   });
 }
 
+async function syncInvoiceFamily(params: {
+  userId: string;
+  provider: SupportedSyncProvider;
+  family: SyncFamily;
+  externalItems: ExternalSyncCandidate[];
+}): Promise<SyncResult> {
+  const stats = emptySyncResult();
+
+  for (const external of params.externalItems) {
+    try {
+      const contactType = getExternalContactType(external);
+      const displayName = getExternalDisplayName(external);
+
+      logger.info("AccountingSync processing external document", {
+        userId: params.userId,
+        provider: params.provider,
+        family: params.family,
+        externalId: external.externalId,
+        invoiceNumber: external.invoiceNumber,
+        clientName: external.clientName,
+        issueDate: external.issueDate,
+        dueDate: external.dueDate,
+        totalAmountCents: external.totalAmountCents,
+        status: external.status ?? null,
+      });
+
+      const match = await AccountingMatchingService.matchInvoiceCandidate(
+        params.userId,
+        {
+          type: external.type,
+          sourceSystem: params.provider,
+          sourceExternalId: external.externalId,
+          invoiceNumber: external.invoiceNumber,
+          clientName: external.clientName,
+          issueDate: external.issueDate,
+          dueDate: external.dueDate,
+          totalAmountCents: external.totalAmountCents,
+        }
+      );
+
+      logger.info("AccountingSync document match result", {
+        userId: params.userId,
+        provider: params.provider,
+        family: params.family,
+        externalId: external.externalId,
+        decision: match.decision,
+        confidence: match.confidence,
+        matchedInvoiceId: match.matchedInvoiceId,
+        matchedBy: match.matchedBy,
+        reason: match.reason,
+      });
+
+      if (match.decision === "create_new") {
+        const contact = await ContactsService.findOrCreateContact({
+          userId: params.userId,
+          sourceSystem: params.provider,
+          input: {
+            name: displayName,
+            contact_type: contactType,
+            email: null,
+            source_system: params.provider,
+            source_external_id: external.externalId,
+          },
+        });
+
+        const createdInvoice = await createCanonicalInvoice({
+          userId: params.userId,
+          provider: params.provider,
+          external,
+          contactId: contact.id,
+        });
+
+        await ExternalIdMapService.upsertExternalMapping({
+          userId: params.userId,
+          sourceSystem: params.provider,
+          externalEntityType: "invoice",
+          externalId: external.externalId,
+          internalId: createdInvoice.id,
+        });
+
+        stats.created += 1;
+        continue;
+      }
+
+      if (match.decision === "link_existing" && match.matchedInvoiceId) {
+        const contact = await ContactsService.findOrCreateContact({
+          userId: params.userId,
+          sourceSystem: params.provider,
+          input: {
+            name: displayName,
+            contact_type: contactType,
+            email: null,
+            source_system: params.provider,
+            source_external_id: external.externalId,
+          },
+        });
+
+        await updateCanonicalInvoiceLink({
+          userId: params.userId,
+          provider: params.provider,
+          external,
+          internalId: match.matchedInvoiceId,
+          contactId: contact.id,
+        });
+
+        await ExternalIdMapService.upsertExternalMapping({
+          userId: params.userId,
+          sourceSystem: params.provider,
+          externalEntityType: "invoice",
+          externalId: external.externalId,
+          internalId: match.matchedInvoiceId,
+        });
+
+        stats.linked += 1;
+        continue;
+      }
+
+      if (match.decision === "upgrade_source" && match.matchedInvoiceId) {
+        await upgradeCanonicalInvoiceSource({
+          userId: params.userId,
+          provider: params.provider,
+          external,
+          internalId: match.matchedInvoiceId,
+        });
+
+        await ExternalIdMapService.upsertExternalMapping({
+          userId: params.userId,
+          sourceSystem: params.provider,
+          externalEntityType: "invoice",
+          externalId: external.externalId,
+          internalId: match.matchedInvoiceId,
+        });
+
+        stats.upgraded += 1;
+        continue;
+      }
+
+      if (match.decision === "ignore_lower_priority") {
+        stats.ignored += 1;
+        continue;
+      }
+
+      if (match.decision === "flag_conflict") {
+        stats.conflicts += 1;
+        continue;
+      }
+    } catch (err) {
+      logger.error("AccountingSync family sync error", {
+        userId: params.userId,
+        provider: params.provider,
+        family: params.family,
+        externalId: external.externalId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return stats;
+}
+
 export class AccountingSyncService {
-  static async syncInvoices(
+  static async syncAccounting(
     userId: string,
     provider: AccountingSource
   ): Promise<SyncResult> {
@@ -316,236 +619,76 @@ export class AccountingSyncService {
       );
     }
 
-    const stats: SyncResult = {
-      created: 0,
-      linked: 0,
-      upgraded: 0,
-      ignored: 0,
-      conflicts: 0,
-    };
-
     try {
       const connector = await buildConnector(userId, provider);
       const lastCursor = await getLastCursor(userId, provider);
       const syncStartedAt = new Date().toISOString();
 
-      const externalInvoices = await connector.listInvoices(
-        lastCursor ?? undefined
+      const contacts = connector.listContacts
+        ? await connector.listContacts(lastCursor ?? undefined)
+        : [];
+      const salesInvoicesRaw = connector.listSalesInvoices
+        ? await connector.listSalesInvoices(lastCursor ?? undefined)
+        : [];
+      const purchaseBillsRaw = connector.listPurchaseBills
+        ? await connector.listPurchaseBills(lastCursor ?? undefined)
+        : [];
+      const payments = connector.listPayments
+        ? await connector.listPayments(lastCursor ?? undefined)
+        : [];
+
+      const salesInvoices = normalizeExternalItems(
+        salesInvoicesRaw.map((item) => toSyncCandidate(item, "sale"))
+      );
+      const purchaseBills = normalizeExternalItems(
+        purchaseBillsRaw.map((item) => toSyncCandidate(item, "purchase"))
       );
 
-      logger.info("AccountingSync fetched external invoices", {
+      logger.info("AccountingSync fetched external documents", {
         userId,
         provider,
         lastCursor,
-        count: externalInvoices.length,
-        externalIds: externalInvoices.map((invoice) => invoice.externalId),
+        contactsCount: contacts.length,
+        salesInvoicesCount: salesInvoices.length,
+        purchaseBillsCount: purchaseBills.length,
+        paymentsCount: payments.length,
+        salesExternalIds: salesInvoices.map((item) => item.externalId),
+        purchaseExternalIds: purchaseBills.map((item) => item.externalId),
       });
 
-      for (const external of externalInvoices) {
-        try {
-          const contactType = getExternalContactType(external);
-          const displayName = getExternalDisplayName(external);
-
-          logger.info("AccountingSync processing external invoice", {
-            userId,
-            provider,
-            externalId: external.externalId,
-            invoiceType: external.type,
-            invoiceNumber: external.invoiceNumber,
-            clientName: external.clientName,
-            issueDate: external.issueDate,
-            dueDate: external.dueDate,
-            totalAmountCents: external.totalAmountCents,
-            status: external.status ?? null,
-          });
-
-          const match =
-            await AccountingMatchingService.matchInvoiceCandidate(userId, {
-              type: external.type,
-              sourceSystem: provider,
-              sourceExternalId: external.externalId,
-              invoiceNumber: external.invoiceNumber,
-              clientName: external.clientName,
-              issueDate: external.issueDate,
-              dueDate: external.dueDate,
-              totalAmountCents: external.totalAmountCents,
-            });
-
-          logger.info("AccountingSync invoice match result", {
-            userId,
-            provider,
-            externalId: external.externalId,
-            invoiceType: external.type,
-            decision: match.decision,
-            confidence: match.confidence,
-            matchedInvoiceId: match.matchedInvoiceId,
-            matchedBy: match.matchedBy,
-            reason: match.reason,
-          });
-
-          if (match.decision === "create_new") {
-            logger.info("AccountingSync creating invoice from external invoice", {
-              userId,
-              provider,
-              externalId: external.externalId,
-              invoiceType: external.type,
-              invoiceNumber: external.invoiceNumber,
-            });
-
-            const contact = await ContactsService.findOrCreateContact({
-              userId,
-              sourceSystem: provider,
-              input: {
-                name: displayName,
-                contact_type: contactType,
-                email: null,
-                source_system: provider,
-                source_external_id: null,
-              },
-            });
-
-            const createdInvoice = await createCanonicalInvoice({
-              userId,
-              provider,
-              external,
-              contactId: contact.id,
-            });
-
-            logger.info("AccountingSync created invoice from external invoice", {
-              userId,
-              provider,
-              externalId: external.externalId,
-              invoiceType: external.type,
-              invoiceId: createdInvoice.id,
-            });
-
-            await ExternalIdMapService.upsertExternalMapping({
-              userId,
-              sourceSystem: provider,
-              externalEntityType: "invoice",
-              externalId: external.externalId,
-              internalId: createdInvoice.id,
-            });
-
-            logger.info("AccountingSync external mapping upserted", {
-              userId,
-              provider,
-              externalId: external.externalId,
-              invoiceType: external.type,
-              internalId: createdInvoice.id,
-            });
-
-            stats.created++;
-            continue;
-          }
-
-          if (match.decision === "link_existing" && match.matchedInvoiceId) {
-            const contact = await ContactsService.findOrCreateContact({
-              userId,
-              sourceSystem: provider,
-              input: {
-                name: displayName,
-                contact_type: contactType,
-                email: null,
-                source_system: provider,
-                source_external_id: null,
-              },
-            });
-
-            await updateCanonicalInvoiceLink({
-              userId,
-              provider,
-              external,
-              internalId: match.matchedInvoiceId,
-              contactId: contact.id,
-            });
-
-            await ExternalIdMapService.upsertExternalMapping({
-              userId,
-              sourceSystem: provider,
-              externalEntityType: "invoice",
-              externalId: external.externalId,
-              internalId: match.matchedInvoiceId,
-            });
-
-            logger.info("AccountingSync linked existing invoice", {
-              userId,
-              provider,
-              externalId: external.externalId,
-              invoiceType: external.type,
-              matchedInvoiceId: match.matchedInvoiceId,
-            });
-
-            stats.linked++;
-            continue;
-          }
-
-          if (match.decision === "upgrade_source" && match.matchedInvoiceId) {
-            await upgradeCanonicalInvoiceSource({
-              userId,
-              provider,
-              external,
-              internalId: match.matchedInvoiceId,
-            });
-
-            await ExternalIdMapService.upsertExternalMapping({
-              userId,
-              sourceSystem: provider,
-              externalEntityType: "invoice",
-              externalId: external.externalId,
-              internalId: match.matchedInvoiceId,
-            });
-
-            logger.info("AccountingSync upgraded invoice source", {
-              userId,
-              provider,
-              externalId: external.externalId,
-              invoiceType: external.type,
-              matchedInvoiceId: match.matchedInvoiceId,
-            });
-
-            stats.upgraded++;
-            continue;
-          }
-
-          if (match.decision === "ignore_lower_priority") {
-            logger.info("AccountingSync ignored lower priority invoice", {
-              userId,
-              provider,
-              externalId: external.externalId,
-              invoiceType: external.type,
-              reason: match.reason,
-            });
-
-            stats.ignored++;
-            continue;
-          }
-
-          if (match.decision === "flag_conflict") {
-            stats.conflicts++;
-
-            logger.warn("AccountingSync conflict detected", {
-              userId,
-              provider,
-              externalId: external.externalId,
-              invoiceType: external.type,
-              reason: match.reason,
-            });
-
-            continue;
-          }
-        } catch (err) {
-          logger.error("AccountingSync invoice sync error", {
-            userId,
-            provider,
-            externalId: external.externalId,
-            invoiceType: external.type,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+      if (contacts.length > 0) {
+        await syncContacts({
+          userId,
+          provider,
+          contacts,
+        });
       }
 
-      logger.info("AccountingSync finished processing invoices", {
+      const salesStats = await syncInvoiceFamily({
+        userId,
+        provider,
+        family: "sale",
+        externalItems: salesInvoices,
+      });
+
+      const purchaseStats = await syncInvoiceFamily({
+        userId,
+        provider,
+        family: "purchase",
+        externalItems: purchaseBills,
+      });
+
+      if (payments.length > 0) {
+        await syncPayments({
+          userId,
+          provider,
+          payments,
+        });
+      }
+
+      const stats = mergeSyncResults(salesStats, purchaseStats);
+
+      logger.info("AccountingSync finished processing documents", {
         userId,
         provider,
         created: stats.created,
@@ -580,5 +723,12 @@ export class AccountingSyncService {
 
       throw error;
     }
+  }
+
+  static async syncInvoices(
+    userId: string,
+    provider: AccountingSource
+  ): Promise<SyncResult> {
+    return await this.syncAccounting(userId, provider);
   }
 }

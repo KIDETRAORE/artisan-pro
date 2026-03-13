@@ -96,7 +96,9 @@ function formatDateFr(iso: string): string {
 }
 
 function safeParseResult(value: unknown): unknown {
-  if (!value) return value;
+  if (!value) {
+    return value;
+  }
 
   if (typeof value === "string") {
     const cleaned = value.replace(/```json|```/gi, "").trim();
@@ -252,6 +254,13 @@ function getQuoteDisplayTitle(quote: Quote): string {
   return `Devis #${quote.id.slice(0, 8)}`;
 }
 
+function getQuoteClientName(quote: Quote): string {
+  if (typeof quote.client_name === "string" && quote.client_name.trim()) {
+    return quote.client_name.trim();
+  }
+  return "Client";
+}
+
 export default function Dashboard() {
   const report = useComptaReportStore((s) => s.report);
   const setReport = useComptaReportStore((s) => s.setReport);
@@ -295,7 +304,9 @@ export default function Dashboard() {
           setRecentQuotes([]);
         }
       } finally {
-        if (!cancelled) setKpisLoading(false);
+        if (!cancelled) {
+          setKpisLoading(false);
+        }
       }
 
       try {
@@ -309,7 +320,9 @@ export default function Dashboard() {
         const parsedRaw = safeParseResult(data?.report);
         const parsed = ComptaReportSchema.safeParse(parsedRaw);
 
-        if (!parsed.success) return;
+        if (!parsed.success) {
+          return;
+        }
 
         if (!cancelled) {
           setReport(parsed.data);
@@ -587,7 +600,7 @@ export default function Dashboard() {
                         {getQuoteDisplayTitle(quote)}
                       </p>
                       <p className="text-xs font-medium text-[var(--theme-muted)]">
-                        {quote.client_name}
+                        {getQuoteClientName(quote)}
                       </p>
                     </div>
                   </div>

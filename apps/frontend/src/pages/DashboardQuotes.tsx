@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Clock, FileText } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useComptaReportStore } from "../store/comptaReport.store";
 import {
   listPendingQuotes,
   updateQuoteStatus,
@@ -32,9 +31,11 @@ function formatQuoteAmount(quote: Quote): string {
   if (typeof quote.total_amount_cents === "number") {
     return formatEurFromCents(quote.total_amount_cents);
   }
+
   if (typeof quote.total_amount === "number") {
     return formatEur(quote.total_amount);
   }
+
   return "—";
 }
 
@@ -65,15 +66,19 @@ function getQuoteStatusClass(status: string): string {
   if (normalized === "pending") {
     return "bg-amber-100 text-amber-700";
   }
+
   if (normalized === "sent" || normalized === "open") {
     return "bg-blue-100 text-blue-700";
   }
+
   if (normalized === "accepted") {
     return "bg-emerald-100 text-emerald-700";
   }
+
   if (normalized === "rejected" || normalized === "refused") {
     return "bg-red-100 text-red-700";
   }
+
   return "bg-[var(--theme-bg)] text-[var(--theme-text)]";
 }
 
@@ -84,8 +89,6 @@ function canConvertQuote(quote: Quote): boolean {
 }
 
 export default function DashboardQuotes() {
-  useComptaReportStore((s) => s.report);
-
   const [loading, setLoading] = useState(false);
   const [pendingQuotes, setPendingQuotes] = useState<Quote[]>([]);
   const [updatingQuoteId, setUpdatingQuoteId] = useState<string | null>(null);
@@ -109,9 +112,13 @@ export default function DashboardQuotes() {
           setPendingQuotes(quotes);
         }
       } catch {
-        if (!cancelled) setPendingQuotes([]);
+        if (!cancelled) {
+          setPendingQuotes([]);
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     })();
 
@@ -213,18 +220,20 @@ export default function DashboardQuotes() {
               Ce que l’écran peut faire dès maintenant.
             </p>
           </div>
+
           <div className="space-y-4 p-6">
             <p className="text-sm font-medium text-[var(--theme-text)]">
               {analysis.summary}
             </p>
+
             <ul className="space-y-2">
-              {analysis.actions.map((a) => (
+              {analysis.actions.map((action) => (
                 <li
-                  key={a}
+                  key={action}
                   className="flex gap-3 text-sm text-[var(--theme-muted)]"
                 >
                   <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[var(--theme-bg)]" />
-                  <span>{a}</span>
+                  <span>{action}</span>
                 </li>
               ))}
             </ul>
@@ -294,6 +303,7 @@ export default function DashboardQuotes() {
                     >
                       Envoyer
                     </button>
+
                     <button
                       type="button"
                       onClick={() => handleStatusUpdate(quote.id, "accepted")}
@@ -305,6 +315,7 @@ export default function DashboardQuotes() {
                     >
                       Accepter
                     </button>
+
                     <button
                       type="button"
                       onClick={() => handleStatusUpdate(quote.id, "rejected")}
@@ -341,12 +352,14 @@ export default function DashboardQuotes() {
                 >
                   Ouvrir le module Devis
                 </Link>
+
                 <Link
                   to="/dashboard"
                   className="block rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-4 py-3 text-sm font-bold text-[var(--theme-text)] transition-colors hover:border-blue-200 hover:bg-blue-50/30"
                 >
                   Revenir au dashboard
                 </Link>
+
                 <p className="text-xs font-medium text-[var(--theme-muted)]">
                   Aucun devis en attente détecté pour le moment.
                 </p>

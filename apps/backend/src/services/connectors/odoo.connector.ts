@@ -4,6 +4,8 @@ import { logger } from "../../utils/logger";
 import {
   type AccountingConnector,
   type CanonicalInvoiceInput,
+  type ExternalBill,
+  type ExternalContact,
   type ExternalInvoice,
   type ExternalPayment,
 } from "./accountingConnector.types";
@@ -44,6 +46,15 @@ type OdooPaymentRecord = {
   payment_date?: string | null;
   move_id?: [number, string] | number | null;
   reconciled_invoice_ids?: number[] | null;
+};
+
+type OdooContactRecord = {
+  id?: number;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  customer_rank?: number | null;
+  supplier_rank?: number | null;
 };
 
 function normalizeBaseUrl(value: string): string {
@@ -94,12 +105,6 @@ function extractCurrencyCode(
   return null;
 }
 
-function mapOdooMoveTypeToExternalType(
-  moveType: string | null | undefined
-): "sale" | "purchase" {
-  return moveType === "in_invoice" ? "purchase" : "sale";
-}
-
 function mapOdooInvoice(record: OdooInvoiceRecord): ExternalInvoice {
   const status =
     String(record.payment_state ?? "").trim() ||
@@ -114,22 +119,49 @@ function mapOdooInvoice(record: OdooInvoiceRecord): ExternalInvoice {
         ? record.ref.trim()
         : `ODOO-${record.id}`;
 
-  const type = mapOdooMoveTypeToExternalType(record.move_type);
-
   logger.info("OdooConnector.mapOdooInvoice partner mapping", {
     externalId: String(record.id ?? "").trim(),
     invoiceNumber,
     partner_id: record.partner_id ?? null,
     extractedClientName: clientName,
     moveType: record.move_type ?? null,
-    type,
   });
 
   return {
     externalId: String(record.id ?? "").trim(),
-    type,
     invoiceNumber,
     clientName,
+    issueDate: toIsoDate(record.invoice_date ?? record.date),
+    dueDate: toIsoDate(record.invoice_date_due),
+    totalAmountCents:
+      typeof record.amount_total === "number" &&
+      Number.isFinite(record.amount_total)
+        ? Math.round(record.amount_total * 100)
+        : null,
+    currency: extractCurrencyCode(record.currency_id) ?? "EUR",
+    status,
+    rawPayload: record,
+  };
+}
+
+function mapOdooBill(record: OdooInvoiceRecord): ExternalBill {
+  const status =
+    String(record.payment_state ?? "").trim() ||
+    String(record.state ?? "").trim() ||
+    null;
+
+  const supplierName = extractDisplayName(record.partner_id);
+  const billNumber =
+    typeof record.name === "string" && record.name.trim().length > 0
+      ? record.name.trim()
+      : typeof record.ref === "string" && record.ref.trim().length > 0
+        ? record.ref.trim()
+        : `ODOO-${record.id}`;
+
+  return {
+    externalId: String(record.id ?? "").trim(),
+    billNumber,
+    supplierName,
     issueDate: toIsoDate(record.invoice_date ?? record.date),
     dueDate: toIsoDate(record.invoice_date_due),
     totalAmountCents:
@@ -163,8 +195,50 @@ function mapOdooPayment(record: OdooPaymentRecord): ExternalPayment {
   };
 }
 
+function mapOdooContact(record: OdooContactRecord): ExternalContact {
+  const customerRank =
+    typeof record.customer_rank === "number" && Number.isFinite(record.customer_rank)
+      ? record.customer_rank
+      : 0;
+  const supplierRank =
+    typeof record.supplier_rank === "number" && Number.isFinite(record.supplier_rank)
+      ? record.supplier_rank
+      : 0;
+
+  let type: "client" | "supplier" | "both" = "client";
+
+  if (customerRank > 0 && supplierRank > 0) {
+    type = "both";
+  } else if (supplierRank > 0) {
+    type = "supplier";
+  }
+
+  return {
+    externalId: String(record.id ?? "").trim(),
+    name: String(record.name ?? "").trim() || "Contact",
+    email:
+      typeof record.email === "string" && record.email.trim().length > 0
+        ? record.email.trim()
+        : null,
+    phone:
+      typeof record.phone === "string" && record.phone.trim().length > 0
+        ? record.phone.trim()
+        : null,
+    type,
+  };
+}
+
 export class OdooConnector implements AccountingConnector {
   readonly provider = "odoo" as const;
+
+  readonly capabilities = {
+    contacts: true,
+    salesInvoices: true,
+    purchaseBills: true,
+    payments: true,
+    attachments: false,
+    analytic: false,
+  } as const;
 
   private readonly baseUrl: string;
   private readonly database: string;
@@ -251,8 +325,27 @@ export class OdooConnector implements AccountingConnector {
     });
   }
 
-  async listInvoices(_since?: string): Promise<ExternalInvoice[]> {
-    const domain: unknown[] = [["move_type", "in", ["out_invoice", "in_invoice"]]];
+  async listContacts(): Promise<ExternalContact[]> {
+    const records = await this.request<OdooContactRecord[]>(
+      "/json/2/res.partner/search_read",
+      {
+        domain: [
+          "|",
+          ["customer_rank", ">", 0],
+          ["supplier_rank", ">", 0],
+        ],
+        fields: ["id", "name", "email", "phone", "customer_rank", "supplier_rank"],
+        order: "id desc",
+      }
+    );
+
+    return (Array.isArray(records) ? records : [])
+      .map(mapOdooContact)
+      .filter((contact) => contact.externalId.length > 0);
+  }
+
+  async listSalesInvoices(_since?: string): Promise<ExternalInvoice[]> {
+    const domain: unknown[] = [["move_type", "=", "out_invoice"]];
 
     const records = await this.request<OdooInvoiceRecord[]>(
       "/json/2/account.move/search_read",
@@ -279,6 +372,36 @@ export class OdooConnector implements AccountingConnector {
     return (Array.isArray(records) ? records : [])
       .map(mapOdooInvoice)
       .filter((invoice) => invoice.externalId.length > 0);
+  }
+
+  async listPurchaseBills(_since?: string): Promise<ExternalBill[]> {
+    const domain: unknown[] = [["move_type", "=", "in_invoice"]];
+
+    const records = await this.request<OdooInvoiceRecord[]>(
+      "/json/2/account.move/search_read",
+      {
+        domain,
+        fields: [
+          "id",
+          "name",
+          "ref",
+          "partner_id",
+          "invoice_date",
+          "date",
+          "invoice_date_due",
+          "amount_total",
+          "currency_id",
+          "state",
+          "payment_state",
+          "move_type",
+        ],
+        order: "id desc",
+      }
+    );
+
+    return (Array.isArray(records) ? records : [])
+      .map(mapOdooBill)
+      .filter((bill) => bill.externalId.length > 0);
   }
 
   async getInvoice(externalId: string): Promise<ExternalInvoice> {

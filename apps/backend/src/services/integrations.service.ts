@@ -47,7 +47,7 @@ export type OdooSyncEvent = {
 
 type SupportedProvider = typeof PENNYLANE_PROVIDER | typeof ODOO_PROVIDER;
 
-type OdooCredential = {
+export type OdooCredential = {
   baseUrl: string;
   database: string;
   login: string;
@@ -104,6 +104,57 @@ function getWorkspaceOdooConfig(): OdooCredential | null {
   };
 }
 
+function parseStoredOdooCredential(
+  raw: string | null | undefined
+): OdooCredential | null {
+  if (typeof raw !== "string") {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<OdooCredential>;
+    const baseUrl =
+      typeof parsed.baseUrl === "string" ? parsed.baseUrl.trim() : "";
+    const database =
+      typeof parsed.database === "string" ? parsed.database.trim() : "";
+    const login = typeof parsed.login === "string" ? parsed.login.trim() : "";
+    const apiKey =
+      typeof parsed.apiKey === "string" ? parsed.apiKey.trim() : "";
+
+    if (!baseUrl || !database || !login || !apiKey) {
+      return null;
+    }
+
+    return {
+      baseUrl,
+      database,
+      login,
+      apiKey,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function testPennylaneCredential(apiKey: string): Promise<boolean> {
+  try {
+    const connector = AccountingConnectorFactory.create({
+      provider: "pennylane",
+      config: {
+        apiKey,
+      },
+    });
+
+    await connector.testConnection();
+    return true;
+  } catch (error) {
+    logger.warn("IntegrationsService.testPennylaneCredential failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 async function testOdooCredential(
   credential: OdooCredential
 ): Promise<boolean> {
@@ -118,7 +169,7 @@ async function testOdooCredential(
       },
     });
 
-    await connector.listInvoices(undefined);
+    await connector.testConnection();
     return true;
   } catch (error) {
     logger.warn("IntegrationsService.testOdooCredential failed", {
@@ -295,8 +346,8 @@ async function getLastCursor(
   }
 
   const lastCursor =
-    typeof (syncState as any)?.cursor === "string"
-      ? (syncState as any).cursor.trim()
+    typeof (syncState as { cursor?: unknown } | null)?.cursor === "string"
+      ? String((syncState as { cursor?: string }).cursor).trim()
       : "";
 
   return lastCursor.length > 0 ? lastCursor : null;
@@ -391,7 +442,9 @@ async function markSyncErrorInternal(params: {
   }
 
   const previousErrorCount =
-    Number((currentState as any)?.error_count ?? 0) || 0;
+    Number(
+      (currentState as { error_count?: unknown } | null)?.error_count ?? 0
+    ) || 0;
   const now = new Date().toISOString();
 
   const { error: upsertError } = await supabaseAdmin
@@ -440,10 +493,19 @@ export class IntegrationsService {
     const usesWorkspaceKey = hasWorkspacePennylaneKey();
 
     if (!integration) {
+      const workspaceApiKey = getWorkspacePennylaneKey();
+      const workspaceConnected = workspaceApiKey
+        ? await testPennylaneCredential(workspaceApiKey)
+        : false;
+
       return {
         provider: PENNYLANE_PROVIDER,
-        connected: usesWorkspaceKey,
-        status: usesWorkspaceKey ? "workspace" : "disconnected",
+        connected: workspaceConnected,
+        status: usesWorkspaceKey
+          ? workspaceConnected
+            ? "workspace"
+            : "invalid_workspace"
+          : "disconnected",
         connectedAt: null,
         hasCredential: usesWorkspaceKey,
         usesWorkspaceKey,
@@ -466,16 +528,29 @@ export class IntegrationsService {
       throw new HttpError(500, "Failed to load Pennylane credential");
     }
 
-    const hasCredential =
-      typeof token?.access_token === "string" &&
-      token.access_token.trim().length > 0;
+    const storedApiKey =
+      typeof token?.access_token === "string" ? token.access_token.trim() : "";
+    const workspaceApiKey = getWorkspacePennylaneKey();
+    const effectiveApiKey =
+      storedApiKey.length > 0 ? storedApiKey : workspaceApiKey ?? "";
+    const hasCredential = effectiveApiKey.length > 0;
+    const connected = hasCredential
+      ? await testPennylaneCredential(effectiveApiKey)
+      : false;
 
     return {
       provider: PENNYLANE_PROVIDER,
-      connected: hasCredential || usesWorkspaceKey,
-      status: String(
-        integration.status ?? (hasCredential ? "connected" : "pending")
-      ),
+      connected,
+      status: connected
+        ? String(
+            integration.status ??
+              (storedApiKey.length > 0
+                ? "connected"
+                : usesWorkspaceKey
+                  ? "workspace"
+                  : "pending")
+          )
+        : "invalid_credentials",
       connectedAt: integration.created_at ?? null,
       hasCredential,
       usesWorkspaceKey,
@@ -511,6 +586,12 @@ export class IntegrationsService {
 
     if (!trimmedApiKey) {
       throw new HttpError(400, "Pennylane API key is required");
+    }
+
+    const isValid = await testPennylaneCredential(trimmedApiKey);
+
+    if (!isValid) {
+      throw new HttpError(400, "Invalid Pennylane credentials");
     }
 
     const { data: integration, error } = await upsertIntegration({
@@ -559,6 +640,15 @@ export class IntegrationsService {
           message: syncStateError.message,
         }
       );
+    }
+
+    try {
+      await AccountingSyncService.syncAccounting(userId, PENNYLANE_PROVIDER);
+    } catch (error) {
+      logger.error("IntegrationsService.connectPennylane initial sync failed", {
+        userId,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
 
     return await this.getPennylaneStatus(userId);
@@ -708,33 +798,7 @@ export class IntegrationsService {
       throw new HttpError(500, "Failed to load Odoo credential");
     }
 
-    let storedCredential: OdooCredential | null = null;
-
-    if (typeof token?.access_token === "string") {
-      try {
-        const parsed = JSON.parse(token.access_token) as Partial<OdooCredential>;
-        const baseUrl =
-          typeof parsed.baseUrl === "string" ? parsed.baseUrl.trim() : "";
-        const database =
-          typeof parsed.database === "string" ? parsed.database.trim() : "";
-        const login =
-          typeof parsed.login === "string" ? parsed.login.trim() : "";
-        const apiKey =
-          typeof parsed.apiKey === "string" ? parsed.apiKey.trim() : "";
-
-        if (baseUrl && database && login && apiKey) {
-          storedCredential = {
-            baseUrl,
-            database,
-            login,
-            apiKey,
-          };
-        }
-      } catch {
-        storedCredential = null;
-      }
-    }
-
+    const storedCredential = parseStoredOdooCredential(token?.access_token);
     const credentialToTest = storedCredential ?? getWorkspaceOdooConfig();
     const hasCredential = Boolean(storedCredential || usesWorkspaceKey);
     const connected = credentialToTest
@@ -848,7 +912,7 @@ export class IntegrationsService {
     }
 
     try {
-      await AccountingSyncService.syncInvoices(userId, ODOO_PROVIDER);
+      await AccountingSyncService.syncAccounting(userId, ODOO_PROVIDER);
     } catch (error) {
       logger.error("IntegrationsService.connectOdoo initial sync failed", {
         userId,
@@ -860,7 +924,10 @@ export class IntegrationsService {
   }
 
   static async disconnectOdoo(userId: string): Promise<void> {
-    const { integration, error } = await deleteIntegration(userId, ODOO_PROVIDER);
+    const { integration, error } = await deleteIntegration(
+      userId,
+      ODOO_PROVIDER
+    );
 
     if (error) {
       logger.error("IntegrationsService.disconnectOdoo delete failed", {
@@ -872,7 +939,9 @@ export class IntegrationsService {
     }
   }
 
-  static async getOdooCredential(userId: string): Promise<OdooCredential | null> {
+  static async getOdooCredential(
+    userId: string
+  ): Promise<OdooCredential | null> {
     const workspaceConfig = getWorkspaceOdooConfig();
 
     const { data: integration, error } = await supabaseAdmin
@@ -914,34 +983,8 @@ export class IntegrationsService {
       return workspaceConfig;
     }
 
-    if (typeof token?.access_token !== "string") {
-      return workspaceConfig;
-    }
-
-    try {
-      const parsed = JSON.parse(token.access_token) as Partial<OdooCredential>;
-
-      const baseUrl =
-        typeof parsed.baseUrl === "string" ? parsed.baseUrl.trim() : "";
-      const database =
-        typeof parsed.database === "string" ? parsed.database.trim() : "";
-      const login = typeof parsed.login === "string" ? parsed.login.trim() : "";
-      const apiKey =
-        typeof parsed.apiKey === "string" ? parsed.apiKey.trim() : "";
-
-      if (!baseUrl || !database || !login || !apiKey) {
-        return workspaceConfig;
-      }
-
-      return {
-        baseUrl,
-        database,
-        login,
-        apiKey,
-      };
-    } catch {
-      return workspaceConfig;
-    }
+    const parsedCredential = parseStoredOdooCredential(token?.access_token);
+    return parsedCredential ?? workspaceConfig;
   }
 
   static async getOdooLastCursor(userId: string): Promise<string | null> {

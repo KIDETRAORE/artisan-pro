@@ -124,7 +124,7 @@ router.use("/", authMiddleware, projectAccountingRoutes);
 router.use("/usage", authMiddleware, usageRouter);
 
 /**
- * INTEGRATIONS
+ * INTEGRATIONS / ACCOUNTING HUB
  */
 router.use("/integrations", authMiddleware, integrationsRoutes);
 
